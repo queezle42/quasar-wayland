@@ -83,19 +83,21 @@ common shared-executable-properties
 library
   import: shared-properties
   exposed-modules:
-    --Quasar.Template
+    Quasar.Wayland.Protocol
+    Quasar.Wayland.TH
   build-depends:
     base >=4.7 && <5,
     --binary,
-    --bytestring,
-    --exceptions,
+    bytestring,
+    exceptions,
     --mtl,
     --network,
-    --quasar,
-    --template-haskell,
+    quasar,
+    template-haskell,
     --unix,
     --unordered-containers,
     --stm,
+    xml,
     -- required for record-dot-preprocessor
     record-dot-preprocessor,
     record-hasfield,
