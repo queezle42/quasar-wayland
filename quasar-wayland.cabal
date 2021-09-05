@@ -98,7 +98,7 @@ library
     template-haskell,
     --unix,
     --unordered-containers,
-    --stm,
+    stm,
     xml,
     -- required for record-dot-preprocessor
     record-dot-preprocessor,

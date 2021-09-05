@@ -3,17 +3,21 @@ module Quasar.Wayland.Client (
   newWaylandClient,
 ) where
 
+import Control.Concurrent.STM
 import Control.Monad.Catch
-import Network.Socket qualified as Socket
 import Network.Socket (Socket)
+import Network.Socket qualified as Socket
+import Network.Socket.ByteString qualified as Socket
 import Quasar
 import Quasar.Prelude
+import Quasar.Wayland.Protocol
 import System.Environment (getEnv, lookupEnv)
 import System.FilePath ((</>), isRelative)
 import Text.Read (readEither)
 
 
 data WaylandClient = WaylandClient {
+  protocolStateVar :: TVar ProtocolState,
   socket :: Socket,
   resourceManager :: ResourceManager
 }
@@ -26,13 +30,42 @@ instance IsDisposable WaylandClient where
 
 newWaylandClient :: MonadResourceManager m => Socket -> m WaylandClient
 newWaylandClient socket = do
+  protocolStateVar <- liftIO $ newTVarIO initialProtocolState
   resourceManager <- newResourceManager
+
   onResourceManager resourceManager do
-    registerDisposeAction (pure () <$ Socket.close socket)
-    pure WaylandClient {
+    let client = WaylandClient {
+      protocolStateVar,
       socket,
       resourceManager
     }
+
+    registerDisposeAction $ closeWaylandClient client
+
+    runUnlimitedAsync do
+      async $ liftIO $ waylandClientSendThread client
+      async $ liftIO $ waylandClientReceiveThread client
+
+    pure client
+
+waylandClientSendThread :: WaylandClient -> IO ()
+waylandClientSendThread client = forever do
+  undefined
+
+waylandClientReceiveThread :: WaylandClient -> IO ()
+waylandClientReceiveThread client = forever do
+  bytes <- Socket.recv client.socket 4096
+  traceIO $ "Received data"
+  atomically $ modifyTVar client.protocolStateVar $ feedInput bytes
+
+  state <- atomically $ readTVar client.protocolStateVar
+  traceIO $ show state.bytesReceived
+
+closeWaylandClient :: WaylandClient -> IO (Awaitable ())
+closeWaylandClient client = isDisposed <$> forkTask do
+  -- gracefulClose may fail but guarantees that the socket is deallocated
+  Socket.gracefulClose client.socket 2000 `catch` \(_ :: SomeException) -> pure ()
+
 
 connectWaylandClient :: MonadResourceManager m => m WaylandClient
 connectWaylandClient = mask_ do
