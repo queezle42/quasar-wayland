@@ -1,0 +1,70 @@
+{
+  "nodes": {
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1630338749,
+        "narHash": "sha256-J1LsmwGtlYpqIMYEi/amMKkk0VfRrwHaEs/uylugGnE=",
+        "path": "/nix/store/y38w1iqhwlsa5aphd2kc1r1qii9al3aj-source",
+        "rev": "8a2ec31e224de9461390cdd03e5e0b0290cdad0b",
+        "type": "path"
+      },
+      "original": {
+        "id": "nixpkgs",
+        "type": "indirect"
+      }
+    },
+    "quasar": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "host": "git.c3pb.de",
+        "lastModified": 1630808878,
+        "narHash": "sha256-y9l8bgqc7/0SlRqn8D2TjsASMjg8wW9LLjtA1dH7Ke0=",
+        "owner": "jens",
+        "repo": "quasar",
+        "rev": "c7bcce3769c08bbf3275e8826da9071412cf937a",
+        "type": "gitlab"
+      },
+      "original": {
+        "host": "git.c3pb.de",
+        "owner": "jens",
+        "repo": "quasar",
+        "type": "gitlab"
+      }
+    },
+    "quasar-network": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "quasar": "quasar"
+      },
+      "locked": {
+        "host": "git.c3pb.de",
+        "lastModified": 1630863475,
+        "narHash": "sha256-UzQsfGN/sJyRDQk0Nxgi5tkNDQkOtgzTGem2N6AHKfE=",
+        "owner": "jens",
+        "repo": "quasar-network",
+        "rev": "754e86cc745045d02150f95052a9042e3c1fcae1",
+        "type": "gitlab"
+      },
+      "original": {
+        "host": "git.c3pb.de",
+        "owner": "jens",
+        "repo": "quasar-network",
+        "type": "gitlab"
+      }
+    },
+    "root": {
+      "inputs": {
+        "nixpkgs": "nixpkgs",
+        "quasar-network": "quasar-network"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
