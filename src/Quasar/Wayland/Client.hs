@@ -6,12 +6,12 @@ module Quasar.Wayland.Client (
 import Control.Monad.Catch
 import Network.Socket qualified as Socket
 import Network.Socket (Socket)
-import Quasar.Disposable
+import Quasar
 import Quasar.Prelude
-import Quasar.ResourceManager
 import System.Environment (getEnv, lookupEnv)
 import System.FilePath ((</>), isRelative)
 import Text.Read (readEither)
+
 
 data WaylandClient = WaylandClient {
   socket :: Socket,

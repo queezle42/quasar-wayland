@@ -1,7 +1,7 @@
 module Main (main) where
 
+import Quasar
 import Quasar.Prelude
-import Quasar.ResourceManager
 import Quasar.Wayland.Client
 
 main :: IO ()
