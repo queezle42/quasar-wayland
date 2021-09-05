@@ -106,6 +106,18 @@ library
   hs-source-dirs:
     src
 
+executable quasar-wayland-example
+  import: shared-executable-properties
+  build-depends:
+    quasar,
+    quasar-wayland,
+    -- required for record-dot-preprocessor
+    record-dot-preprocessor,
+    record-hasfield,
+  main-is: Main.hs
+  hs-source-dirs:
+    example
+
 test-suite quasar-wayland-test
   import: shared-executable-properties
   type: exitcode-stdio-1.0
