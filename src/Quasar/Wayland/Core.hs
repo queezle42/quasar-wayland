@@ -1,4 +1,6 @@
 module Quasar.Wayland.Core (
+  ObjectId,
+  Opcode,
   ProtocolState,
   ClientProtocolState,
   initialClientProtocolState,

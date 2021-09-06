@@ -9,7 +9,7 @@ import Data.ByteString qualified as BS
 import Language.Haskell.TH
 import Language.Haskell.TH.Lib
 import Language.Haskell.TH.Syntax (addDependentFile)
---import Quasar.Wayland.Core
+import Quasar.Wayland.Core
 
 
 
@@ -24,61 +24,59 @@ generateWaylandProcol protocolFile = do
   pure []
 
 
-type Opcode = Word16
-
-data Protocol = Protocol {interfaces :: [Interface]}
+data ProtocolSpec = ProtocolSpec {interfaces :: [InterfaceSpec]}
   deriving stock (Show)
 
-data Interface = Interface {
+data InterfaceSpec = InterfaceSpec {
   name :: String,
-  requests :: [Request],
-  events :: [Event]
+  requests :: [RequestSpec],
+  events :: [EventSpec]
 }
   deriving stock (Show)
 
-data Request = Request {
+data RequestSpec = RequestSpec {
   name :: String,
   opcode :: Opcode
 }
   deriving stock (Show)
 
-data Event = Event {
+data EventSpec = EventSpec {
   name :: String,
   opcode :: Opcode
 }
   deriving stock (Show)
 
-parseProtocol :: MonadFail m => BS.ByteString -> m Protocol
+parseProtocol :: MonadFail m => BS.ByteString -> m ProtocolSpec
 parseProtocol xml = do
   (Just element) <- pure $ parseXMLDoc xml
   interfaces <- mapM parseInterface $ findChildren (blank_name { qName = "interface" }) element
-  pure Protocol {
+  pure ProtocolSpec {
     interfaces
   }
 
-parseInterface :: MonadFail m => Element -> m Interface
+parseInterface :: MonadFail m => Element -> m InterfaceSpec
 parseInterface element = do
   name <- getAttr "name" element
   requests <- mapM parseRequest $ zip [0..] $ findChildren (qname "request") element
   events <- mapM parseEvent $ zip [0..] $ findChildren (qname "events") element
-  pure Interface {
+  pure InterfaceSpec {
     name,
     requests,
     events
   }
 
-parseRequest :: MonadFail m => (Opcode, Element) -> m Request
+parseRequest :: MonadFail m => (Opcode, Element) -> m RequestSpec
 parseRequest (opcode, element) = do
   name <- getAttr "name" element
-  pure Request {
+  pure RequestSpec {
     name,
     opcode
   }
 
-parseEvent :: MonadFail m => (Opcode, Element) -> m Event
+parseEvent :: MonadFail m => (Opcode, Element) -> m EventSpec
 parseEvent (opcode, element) = do
   name <- getAttr "name" element
-  pure Event {
+  pure EventSpec {
     name,
     opcode
   }
