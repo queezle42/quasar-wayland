@@ -84,6 +84,7 @@ library
   import: shared-properties
   exposed-modules:
     Quasar.Wayland.Client
+    Quasar.Wayland.Connection
     Quasar.Wayland.Core
     Quasar.Wayland.Protocol
     Quasar.Wayland.TH
