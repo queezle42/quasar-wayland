@@ -11,6 +11,7 @@ import Network.Socket.ByteString qualified as Socket
 import Network.Socket.ByteString.Lazy qualified as SocketL
 import Quasar
 import Quasar.Prelude
+import Quasar.Wayland.Core
 import Quasar.Wayland.Protocol
 import System.Environment (getEnv, lookupEnv)
 import System.FilePath ((</>), isRelative)
