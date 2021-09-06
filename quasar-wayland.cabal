@@ -88,16 +88,16 @@ library
     Quasar.Wayland.TH
   build-depends:
     base >=4.7 && <5,
-    --binary,
+    binary,
     bytestring,
     exceptions,
     filepath,
-    --mtl,
+    mtl,
     network,
     quasar,
     template-haskell,
     --unix,
-    --unordered-containers,
+    unordered-containers,
     stm,
     xml,
     -- required for record-dot-preprocessor

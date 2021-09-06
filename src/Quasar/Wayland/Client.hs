@@ -8,6 +8,7 @@ import Control.Monad.Catch
 import Network.Socket (Socket)
 import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as Socket
+import Network.Socket.ByteString.Lazy qualified as SocketL
 import Quasar
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
@@ -17,7 +18,7 @@ import Text.Read (readEither)
 
 
 data WaylandClient = WaylandClient {
-  protocolStateVar :: TVar ProtocolState,
+  protocolStateVar :: TVar ClientProtocolState,
   socket :: Socket,
   resourceManager :: ResourceManager
 }
@@ -30,7 +31,7 @@ instance IsDisposable WaylandClient where
 
 newWaylandClient :: MonadResourceManager m => Socket -> m WaylandClient
 newWaylandClient socket = do
-  protocolStateVar <- liftIO $ newTVarIO initialProtocolState
+  protocolStateVar <- liftIO $ newTVarIO initialClientProtocolState
   resourceManager <- newResourceManager
 
   onResourceManager resourceManager do
@@ -43,20 +44,31 @@ newWaylandClient socket = do
     registerDisposeAction $ closeWaylandClient client
 
     runUnlimitedAsync do
-      async $ liftIO $ waylandClientSendThread client
-      async $ liftIO $ waylandClientReceiveThread client
+      async $ liftIO $ waylandClientSendThread client `catchAll` \ex -> traceIO (displayException ex) >> void (dispose resourceManager)
+      async $ liftIO $ waylandClientReceiveThread client `catchAll` \ex -> traceIO (displayException ex) >> void (dispose resourceManager)
 
     pure client
 
 waylandClientSendThread :: WaylandClient -> IO ()
 waylandClientSendThread client = forever do
-  undefined
+  bytes <- atomically do
+    outbox <- stateTVar client.protocolStateVar takeOutbox
+    case outbox of
+      Just bytes -> pure bytes
+      Nothing -> retry
+
+  traceIO $ "Sending data"
+  SocketL.sendAll client.socket bytes
+
 
 waylandClientReceiveThread :: WaylandClient -> IO ()
 waylandClientReceiveThread client = forever do
   bytes <- Socket.recv client.socket 4096
   traceIO $ "Received data"
-  atomically $ modifyTVar client.protocolStateVar $ feedInput bytes
+  events <- atomically $ stateTVar client.protocolStateVar $ feedInput bytes
+
+  traceIO $ "Received " <> show (length events) <> " events"
+  mapM_ (traceIO . show) events
 
   state <- atomically $ readTVar client.protocolStateVar
   traceIO $ show state.bytesReceived

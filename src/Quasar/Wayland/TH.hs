@@ -11,35 +11,81 @@ import Language.Haskell.TH.Lib
 import Language.Haskell.TH.Syntax (addDependentFile)
 
 
+
 generateWaylandProcol :: FilePath -> Q [Dec]
 generateWaylandProcol protocolFile = do
   addDependentFile protocolFile
   xml <- liftIO (BS.readFile protocolFile)
-  protocol <- loadProtocol xml
+  protocol <- parseProtocol xml
 
-  traceIO $ show $ (.name) <$> (interfaces protocol)
+  traceIO $ show $ interfaces protocol
 
   pure []
 
 
+type Opcode = Word16
+
 data Protocol = Protocol {interfaces :: [Interface]}
-  deriving (Show)
-data Interface = Interface { name :: String }
-  deriving (Show)
+  deriving stock (Show)
 
-loadProtocol :: MonadFail m => BS.ByteString -> m Protocol
-loadProtocol xml = do
-  (Just protocolEl) <- pure $ parseXMLDoc xml
-  interfaces <- mapM loadInterface $ findChildren (blank_name { qName = "interface" }) protocolEl
-  pure $ Protocol interfaces
+data Interface = Interface {
+  name :: String,
+  requests :: [Request],
+  events :: [Event]
+}
+  deriving stock (Show)
 
-loadInterface :: MonadFail m => Element -> m Interface
-loadInterface interfaceEl = do
-  name <- interfaceName
-  pure $ Interface name
-  where
-    interfaceName :: MonadFail m => m String
-    interfaceName = do
-      (Just name) <- pure $ findAttr (blank_name { qName = "name" }) interfaceEl
-      pure name
+data Request = Request {
+  name :: String,
+  opcode :: Opcode
+}
+  deriving stock (Show)
 
+data Event = Event {
+  name :: String,
+  opcode :: Opcode
+}
+  deriving stock (Show)
+
+parseProtocol :: MonadFail m => BS.ByteString -> m Protocol
+parseProtocol xml = do
+  (Just element) <- pure $ parseXMLDoc xml
+  interfaces <- mapM parseInterface $ findChildren (blank_name { qName = "interface" }) element
+  pure Protocol {
+    interfaces
+  }
+
+parseInterface :: MonadFail m => Element -> m Interface
+parseInterface element = do
+  name <- getAttr "name" element
+  requests <- mapM parseRequest $ zip [0..] $ findChildren (qname "request") element
+  events <- mapM parseEvent $ zip [0..] $ findChildren (qname "events") element
+  pure Interface {
+    name,
+    requests,
+    events
+  }
+
+parseRequest :: MonadFail m => (Opcode, Element) -> m Request
+parseRequest (opcode, element) = do
+  name <- getAttr "name" element
+  pure Request {
+    name,
+    opcode
+  }
+
+parseEvent :: MonadFail m => (Opcode, Element) -> m Event
+parseEvent (opcode, element) = do
+  name <- getAttr "name" element
+  pure Event {
+    name,
+    opcode
+  }
+
+qname :: String -> QName
+qname name = blank_name { qName = name }
+
+getAttr :: MonadFail m => String -> Element -> m String
+getAttr name element = do
+  (Just value) <- pure $ findAttr (qname name) element
+  pure value
