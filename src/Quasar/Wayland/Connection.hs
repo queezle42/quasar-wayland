@@ -30,6 +30,10 @@ instance IsResourceManager (WaylandConnection s) where
 instance IsDisposable (WaylandConnection s) where
   toDisposable connection = toDisposable connection.resourceManager
 
+data SocketClosed = SocketClosed
+  deriving stock Show
+  deriving anyclass Exception
+
 newWaylandConnection :: forall s m. MonadResourceManager m => Callback s STM I_wl_display -> Socket -> m (WaylandConnection s)
 newWaylandConnection wlDisplayCallback socket = do
   protocolStateVar <- liftIO $ newTVarIO $ initialProtocolState wlDisplayCallback
@@ -48,8 +52,8 @@ newWaylandConnection wlDisplayCallback socket = do
     registerDisposeAction $ closeConnection connection
 
     runUnlimitedAsync do
-      async $ liftIO $ waylandConnectionSendThread connection `catchAll` \ex -> traceIO (displayException ex) >> void (dispose resourceManager)
-      async $ liftIO $ waylandConnectionReceiveThread connection `catchAll` \ex -> traceIO (displayException ex) >> void (dispose resourceManager)
+      connectionThread connection $ sendThread connection
+      connectionThread connection $ receiveThread connection
 
     -- HACK to send first message (queued internally)
     stepProtocol connection $ feedInput ""
@@ -68,21 +72,26 @@ stepProtocol connection step = liftIO do
     Left ex -> throwM (ex :: SomeException)
     Right result -> pure result
 
+connectionThread :: MonadAsync m => WaylandConnection s -> IO () -> m ()
+connectionThread connection work = async_ $ liftIO $ work `catches` [ignoreCancelTask, handleAll]
+  where
+    ignoreCancelTask = Handler (throwM :: CancelTask -> IO a)
+    handleAll = Handler (\(ex :: SomeException) -> traceIO (displayException ex) >> void (dispose connection))
 
-waylandConnectionSendThread :: WaylandConnection s -> IO ()
-waylandConnectionSendThread connection = forever do
+sendThread :: WaylandConnection s -> IO ()
+sendThread connection = forever do
   bytes <- atomically $ takeTMVar connection.outboxVar
 
-  traceIO $ "Sending data: " <> show (BSL.length bytes) <> " bytes"
+  traceIO $ "Sending " <> show (BSL.length bytes) <> " bytes"
   SocketL.sendAll connection.socket bytes
 
 
-waylandConnectionReceiveThread :: WaylandConnection s -> IO ()
-waylandConnectionReceiveThread connection = forever do
+receiveThread :: WaylandConnection s -> IO ()
+receiveThread connection = forever do
   bytes <- Socket.recv connection.socket 4096
 
   when (BS.length bytes == 0) do
-    fail "Socket is closed"
+    throwM SocketClosed
 
   traceIO $ "Received " <> show (BS.length bytes) <> " bytes"
 
