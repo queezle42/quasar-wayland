@@ -97,46 +97,46 @@ instance WireFormat "fd" where
 
 
 -- | A wayland interface
-class (Binary (TRequest a), Binary (TEvent a)) => IsInterface a where
-  type TRequest a
-  type TEvent a
+class (Binary (TRequest i), Binary (TEvent i)) => IsInterface i where
+  type TRequest i
+  type TEvent i
   interfaceName :: String
 
-class IsInterface a => IsObject (s :: Side) a where
-  type Up s a
-  type Down s a
+class IsInterface i => IsObject (s :: Side) i where
+  type Up s i
+  type Down s i
 
 data Side = Client | Server
 
-data Object s m a = IsInterface a => Object ObjectId (Callback s m a)
+data Object s m i = IsInterface i => Object ObjectId (Callback s m i)
 
-instance IsInterface a => IsObject 'Client a where
-  type Up 'Client a = TRequest a
-  type Down 'Client a = TEvent a
+instance IsInterface i => IsObject 'Client i where
+  type Up 'Client i = TRequest i
+  type Down 'Client i = TEvent i
 
-instance IsInterface a => IsObject 'Server a where
-  type Up 'Server a = TEvent a
-  type Down 'Server a = TRequest a
+instance IsInterface i => IsObject 'Server i where
+  type Up 'Server i = TEvent i
+  type Down 'Server i = TRequest i
 
-instance forall s m a. IsInterface a => IsSomeObject (Object s m a) where
+instance forall s m i. IsInterface i => IsSomeObject (Object s m i) where
   objectId (Object oId _) = oId
-  objectInterfaceName _ = interfaceName @a
+  objectInterfaceName _ = interfaceName @i
 
 
-class IsSomeObject a where
-  objectId :: a -> ObjectId
-  objectInterfaceName :: a -> String
+class IsSomeObject i where
+  objectId :: i -> ObjectId
+  objectInterfaceName :: i -> String
 
 -- | Wayland object quantification wrapper
-data SomeObject = forall a. IsSomeObject a => SomeObject a
+data SomeObject = forall i. IsSomeObject i => SomeObject i
 
 instance IsSomeObject SomeObject where
   objectId (SomeObject object) = objectId object
   objectInterfaceName (SomeObject object) = objectInterfaceName object
 
 
-class IsMessage a where
-  messageName :: a -> String
+class IsMessage i where
+  messageName :: i -> String
 
 instance IsMessage Void where
   messageName = absurd
@@ -187,11 +187,11 @@ data Event = Event ObjectId Opcode (Either BSL.ByteString (Word32, BSL.ByteStrin
   deriving stock Show
 
 
-type ClientCallback m a = Callback 'Client m a
-type ServerCallback m a = Callback 'Server m a
+type ClientCallback m i = Callback 'Client m i
+type ServerCallback m i = Callback 'Server m i
 
-data Callback s m a = Callback {
-  messageCallback :: Object s m a -> Down s a -> StateT (ProtocolState s m) m ()
+data Callback s m i = Callback {
+  messageCallback :: Object s m i -> Down s i -> StateT (ProtocolState s m) m ()
 }
 
 -- * Exceptions
@@ -258,7 +258,7 @@ feedInput bytes = protocolStep do
       inboxDecoder = pushChunk st.inboxDecoder bytes
     }
 
-sendMessage :: MonadCatch m => Object s m a -> Up s a -> ProtocolStep s m ()
+sendMessage :: MonadCatch m => Object s m i -> Up s i -> ProtocolStep s m ()
 sendMessage object message = protocolStep do
   undefined message
   runCallbacks
