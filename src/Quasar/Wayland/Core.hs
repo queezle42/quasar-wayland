@@ -21,8 +21,9 @@ module Quasar.Wayland.Core (
   setException,
 ) where
 
+import Control.Monad (replicateM_)
 import Control.Monad.Catch
-import Control.Monad.State (StateT, runStateT, state, modify)
+import Control.Monad.State (StateT, runStateT, lift)
 import Control.Monad.State qualified as State
 import Data.Binary
 import Data.Binary.Get
@@ -35,11 +36,64 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Maybe (isJust)
 import Data.Void (absurd)
+import GHC.TypeLits
 import Quasar.Prelude
 
 
 type ObjectId = Word32
 type Opcode = Word16
+
+-- | Signed 24.8 decimal numbers.
+newtype Fixed = Fixed Word32
+  deriving Eq
+
+class WireFormat a where
+  type Argument a
+  putArgument :: Argument a -> StateT (ProtocolState s m) PutM ()
+  getArgument :: StateT (ProtocolState s m) Get (Argument a)
+
+instance WireFormat "int" where
+  type Argument "int" = Int32
+  putArgument = lift . putInt32host
+  getArgument = lift getInt32host
+
+instance WireFormat "uint" where
+  type Argument "uint" = Word32
+  putArgument = lift . putWord32host
+  getArgument = lift getWord32host
+
+instance WireFormat "fixed" where
+  type Argument "fixed" = Fixed
+  putArgument (Fixed repr) = lift $ putWord32host repr
+  getArgument = lift $ Fixed <$> getWord32host
+
+instance WireFormat "string" where
+  type Argument "string" = BS.ByteString
+  putArgument = lift . putWaylandBlob
+  getArgument = lift getWaylandBlob
+
+data WireObject s m i
+
+instance forall (s :: Side) m i. MonadCatch m => WireFormat (WireObject s m i) where
+  type Argument (WireObject s m i) = Object s m i
+  putArgument = undefined
+  getArgument = undefined
+
+instance WireFormat "new_id" where
+  type Argument "new_id" = Void
+  putArgument = undefined
+  getArgument = undefined
+
+instance WireFormat "array" where
+  type Argument "array" = BS.ByteString
+  putArgument = lift . putWaylandBlob
+  getArgument = lift getWaylandBlob
+
+instance WireFormat "fd" where
+  type Argument "fd" = Void
+  putArgument = undefined
+  getArgument = undefined
+
 
 
 -- | A wayland interface
@@ -68,9 +122,6 @@ instance forall s m a. IsInterface a => IsSomeObject (Object s m a) where
   objectId (Object oId _) = oId
   objectInterfaceName _ = interfaceName @a
 
-mkObject :: forall s m a. IsInterface a => ObjectId -> Callback s m a -> Object s m a
-mkObject oId callback = Object @s @m @a oId callback
-
 
 class IsSomeObject a where
   objectId :: a -> ObjectId
@@ -91,7 +142,8 @@ instance IsMessage Void where
   messageName = absurd
 
 
-data Argument
+-- TODO remove
+data DynamicArgument
   = IntArgument Int32
   | UIntArgument Word32
   -- TODO
@@ -101,19 +153,20 @@ data Argument
   | NewIdArgument ObjectId
   | FdArgument ()
 
-argumentSize :: Argument -> Word16
+argumentSize :: DynamicArgument -> Word16
 argumentSize (IntArgument _) = 4
 argumentSize (UIntArgument _) = 4
 argumentSize (ObjectArgument _) = 4
 argumentSize (NewIdArgument _) = 4
 argumentSize _ = undefined
 
-putArgument :: Argument -> Put
-putArgument (IntArgument x) = putInt32host x
-putArgument (UIntArgument x) = putWord32host x
-putArgument (ObjectArgument x) = putWord32host x
-putArgument (NewIdArgument x) = putWord32host x
-putArgument _ = undefined
+putDynamicArgument :: DynamicArgument -> Put
+putDynamicArgument (IntArgument x) = putInt32host x
+putDynamicArgument (UIntArgument x) = putWord32host x
+putDynamicArgument (ObjectArgument x) = putWord32host x
+putDynamicArgument (NewIdArgument x) = putWord32host x
+putDynamicArgument _ = undefined
+
 
 
 type ClientProtocolState m = ProtocolState 'Client m
@@ -151,6 +204,10 @@ data ParserFailed = ParserFailed String
   deriving stock Show
   deriving anyclass Exception
 
+data ProtocolException = ProtocolException String
+  deriving stock Show
+  deriving anyclass Exception
+
 -- * Monad plumbing
 
 type ProtocolStep s m a = ProtocolState s m -> m (Either SomeException a, Maybe BSL.ByteString, ProtocolState s m)
@@ -179,7 +236,7 @@ initialProtocolState
 initialProtocolState wlDisplayCallback = sendInitialMessage initialState
   where
     wlDisplay :: Object s m wl_display
-    wlDisplay = mkObject 1 wlDisplayCallback
+    wlDisplay = Object 1 wlDisplayCallback
     initialState :: ProtocolState s m
     initialState = ProtocolState {
       protocolException = Nothing,
@@ -196,7 +253,7 @@ feedInput bytes = protocolStep do
   feed
   runCallbacks
   where
-    feed = modify \st -> st {
+    feed = State.modify \st -> st {
       bytesReceived = st.bytesReceived + fromIntegral (BS.length bytes),
       inboxDecoder = pushChunk st.inboxDecoder bytes
     }
@@ -208,13 +265,15 @@ sendMessage object message = protocolStep do
 
 setException :: (MonadCatch m, Exception e) => e -> ProtocolStep s m ()
 setException ex = protocolStep do
-  modify \st -> st{protocolException = Just (toException ex)}
+  State.modify \st -> st{protocolException = Just (toException ex)}
 
 -- * Internals
 
 -- | Take data that has to be sent (if available)
 takeOutbox :: MonadCatch m => ProtocolState s m ->  (Maybe BSL.ByteString, ProtocolState s m)
-takeOutbox st = (runPut <$> st.outbox, st{outbox = Nothing})
+takeOutbox st = (outboxBytes, st{outbox = Nothing})
+  where
+    outboxBytes = if isJust st.protocolException then Nothing else runPut <$> st.outbox
 
 
 sendInitialMessage :: ProtocolState s m -> ProtocolState s m
@@ -224,11 +283,30 @@ runCallbacks :: MonadCatch m => StateT (ProtocolState s m) m ()
 runCallbacks = receiveRawMessage >>= \case
   Nothing -> pure ()
   Just message -> do
-    traceM $ show message
+    handleMessage message
     runCallbacks
 
+handleMessage :: MonadCatch m => RawMessage -> StateT (ProtocolState s m) m ()
+handleMessage (oId, opcode, body) = do
+  st <- State.get
+  case HM.lookup oId st.objects of
+    Nothing -> throwM $ ProtocolException $ "Received message with invalid object id " <> show oId
+    Just object -> traceM (objectInterfaceName object)
 
 type RawMessage = (ObjectId, Opcode, BSL.ByteString)
+
+receiveRawMessage :: MonadCatch m => StateT (ProtocolState s m) m (Maybe RawMessage)
+receiveRawMessage = do
+  st <- State.get
+  (result, newDecoder) <- checkDecoder st.inboxDecoder
+  State.put st{inboxDecoder = newDecoder}
+
+  pure result
+  where
+    checkDecoder :: MonadCatch m => Decoder RawMessage -> StateT (ProtocolState s m) m (Maybe RawMessage, Decoder RawMessage)
+    checkDecoder (Fail _ _ message) = throwM (ParserFailed message)
+    checkDecoder x@(Partial _) = pure (Nothing, x)
+    checkDecoder (Done leftovers _ result) = pure (Just result, pushChunk (runGetIncremental getRawMessage) leftovers)
 
 getRawMessage :: Get RawMessage
 getRawMessage = do
@@ -240,41 +318,21 @@ getRawMessage = do
   body <- getLazyByteString size
   pure (oId, opcode, body)
 
-receiveRawMessage :: MonadCatch m => StateT (ProtocolState s m) m (Maybe RawMessage)
-receiveRawMessage = do
-  st <- State.get
-  (result, newDecoder) <- checkDecoder st.inboxDecoder
-  State.put st{inboxDecoder = newDecoder}
-
-  pure result
-  where
-    checkDecoder :: MonadCatch m => Decoder RawMessage -> StateT (ProtocolState s m) m (Maybe RawMessage, Decoder RawMessage)
-    checkDecoder d@(Fail _ _ message) = throwM (ParserFailed message)
-    checkDecoder x@(Partial _) = pure (Nothing, x)
-    checkDecoder (Done leftovers _ result) = pure (Just result, pushChunk (runGetIncremental getRawMessage) leftovers)
-
-
-decodeEvent :: Get Event
-decodeEvent = do
-  oId <- getWord32host
-  sizeAndOpcode <- getWord32host
-  let
-    size = fromIntegral (sizeAndOpcode `shiftR` 16) - 8
-    opcode = fromIntegral (sizeAndOpcode .&. 0xFFFF)
-  body <- if (oId == 2 && opcode == 0)
-             then Right <$> parseGlobal
-             else Left <$> getLazyByteString size <* skipPadding
-  pure $ Event oId opcode body
-  where
-    parseGlobal :: Get (Word32, BSL.ByteString, Word32)
-    parseGlobal = (,,) <$> getWord32host <*> getWaylandString <*> getWord32host
-
-getWaylandString :: Get BSL.ByteString
-getWaylandString = do
+getWaylandBlob :: Get BS.ByteString
+getWaylandBlob = do
   size <- getWord32host
-  Just (string, 0) <- BSL.unsnoc <$> getLazyByteString (fromIntegral size)
+  Just (string, 0) <- BS.unsnoc <$> getByteString (fromIntegral size)
   skipPadding
   pure string
+
+putWaylandBlob :: BS.ByteString -> Put
+putWaylandBlob blob = do
+  let size = BS.length blob
+  putWord32host (fromIntegral size)
+  putByteString blob
+  putWord8 0
+  replicateM_ ((4 - (size `mod` 4)) `mod` 4) (putWord8 0)
+
 
 skipPadding :: Get ()
 skipPadding = do
@@ -282,11 +340,11 @@ skipPadding = do
   skip $ fromIntegral ((4 - (bytes `mod` 4)) `mod` 4)
 
 
-sendMessageInternal :: ObjectId -> Opcode -> [Argument] -> ProtocolState s m -> ProtocolState s m
+sendMessageInternal :: ObjectId -> Opcode -> [DynamicArgument] -> ProtocolState s m -> ProtocolState s m
 sendMessageInternal oId opcode args = sendRaw do
   putWord32host oId
   putWord32host $ (fromIntegral msgSize `shiftL` 16) .|. fromIntegral opcode
-  mapM_ putArgument args
+  mapM_ putDynamicArgument args
   -- TODO padding
   where
     msgSize :: Word16
@@ -295,6 +353,6 @@ sendMessageInternal oId opcode args = sendRaw do
     msgSizeInteger = foldr ((+) . (fromIntegral . argumentSize)) 8 args :: Integer
 
 sendRaw :: Put -> ProtocolState s m -> ProtocolState s m
-sendRaw put oldState = oldState {
-  outbox = Just (maybe put (<> put) oldState.outbox)
+sendRaw x oldState = oldState {
+  outbox = Just (maybe x (<> x) oldState.outbox)
 }
