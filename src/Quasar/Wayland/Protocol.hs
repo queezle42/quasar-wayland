@@ -3,6 +3,8 @@
 
 module Quasar.Wayland.Protocol where
 
+import Data.Binary
+import Quasar.Wayland.Core
 import Quasar.Wayland.TH
 
 $(generateWaylandProcol "protocols/wayland.xml")

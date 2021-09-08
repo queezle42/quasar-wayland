@@ -14,26 +14,26 @@ import Text.XML.Light
 
 
 data ProtocolSpec = ProtocolSpec {interfaces :: [InterfaceSpec]}
-  deriving stock (Show)
+  deriving stock Show
 
 data InterfaceSpec = InterfaceSpec {
   name :: String,
   requests :: [RequestSpec],
   events :: [EventSpec]
 }
-  deriving stock (Show)
+  deriving stock Show
 
 newtype RequestSpec = RequestSpec MessageSpec
-  deriving stock (Show)
+  deriving stock Show
 
 newtype EventSpec = EventSpec MessageSpec
-  deriving stock (Show)
+  deriving stock Show
 
 data MessageSpec = MessageSpec {
   name :: String,
   opcode :: Opcode
 }
-  deriving stock (Show)
+  deriving stock Show
 
 
 generateWaylandProcol :: FilePath -> Q [Dec]
@@ -100,11 +100,13 @@ interfaceDec interface = execWriterT do
     messageInstanceD t messages = instanceD (pure []) [t|IsMessage $t|] [messageNameD, getMessageD, putMessageD]
       where
         messageNameD :: Q Dec
-        messageNameD = funD 'messageName (messageNameInstanceClauseD <$> messages)
-        messageNameInstanceClauseD :: (MessageSpec, Name) -> Q Clause
-        messageNameInstanceClauseD (msg, conName) = clause [conP conName []] (normalB (stringE msg.name)) []
+        messageNameD = funD 'messageName (messageNameClauseD <$> messages)
+        messageNameClauseD :: (MessageSpec, Name) -> Q Clause
+        messageNameClauseD (msg, conName) = clause [conP conName []] (normalB (stringE msg.name)) []
         getMessageD :: Q Dec
-        getMessageD = funD 'getMessage [clause [] (normalB [|undefined|]) []]
+        getMessageD = funD 'getMessage (getMessageClauseD <$> messages)
+        getMessageClauseD :: (MessageSpec, Name) -> Q Clause
+        getMessageClauseD (msg, conName) = clause [[p|_object|], litP (integerL (fromIntegral msg.opcode))] (normalB ([|$(conE conName) <$ dropRemaining|])) []
         putMessageD :: Q Dec
         putMessageD = funD 'putMessage [clause [] (normalB [|undefined|]) []]
     binaryInstanceD :: Q Type -> Q [Dec]

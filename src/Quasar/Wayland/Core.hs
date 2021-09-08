@@ -1,8 +1,10 @@
 module Quasar.Wayland.Core (
   ObjectId,
   Opcode,
+  Fixed,
   IsInterface(..),
   Side(..),
+  IsSide,
   Object,
   IsSomeObject(..),
   IsSomeObject,
@@ -18,13 +20,18 @@ module Quasar.Wayland.Core (
   sendMessage,
   feedInput,
   setException,
+
+  -- Message decoder operations
+  WireGet,
+  WireFormat(..),
+  dropRemaining,
 ) where
 
 import Control.Monad (replicateM_)
 import Control.Monad.Catch
 import Control.Monad.Catch.Pure
 import Control.Monad.Reader (ReaderT, runReaderT)
-import Control.Monad.Writer (WriterT, runWriterT)
+import Control.Monad.Writer (WriterT, runWriterT, execWriterT, tell)
 import Control.Monad.State (StateT, runStateT, lift)
 import Control.Monad.State qualified as State
 import Data.Binary
@@ -36,6 +43,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
+import Data.Kind
 import Data.Maybe (isJust)
 import Data.Void (absurd)
 import GHC.TypeLits
@@ -48,6 +56,39 @@ type Opcode = Word16
 -- | Signed 24.8 decimal numbers.
 newtype Fixed = Fixed Word32
   deriving Eq
+
+
+
+type WireGet s m a =
+  ReaderT (HashMap ObjectId (SomeObject s m))
+    (WriterT [ProtocolAction s m ()]
+      (CatchT
+        Get
+      )
+    )
+    a
+
+runWireGet
+  :: MonadCatch m
+  => HashMap ObjectId (SomeObject s m)
+  -> WireGet s m ()
+  -> Get (ProtocolAction s m ())
+runWireGet objects action = do
+  result <- runCatchT $ execWriterT $ runReaderT action objects
+  case result of
+    Left ex -> pure $ throwM ex
+    Right actions -> pure $ sequence_ actions
+
+wireQueueAction :: ProtocolAction s m () -> WireGet s m ()
+wireQueueAction action = tell [action]
+
+
+liftGet :: Get a -> WireGet s m a
+liftGet = lift . lift . lift
+
+dropRemaining :: WireGet s m ()
+dropRemaining = liftGet $ void getRemainingLazyByteString
+
 
 class WireFormat a where
   type Argument a
@@ -96,18 +137,40 @@ instance WireFormat "fd" where
 
 
 -- | A wayland interface
-class (IsMessage (Request i), Binary (Request i), IsMessage (Event i), Binary (Event i)) => IsInterface i where
+class
+  (
+    Binary (Request i),
+    Binary (Event i),
+    IsMessage (Request i),
+    IsMessage (Event i),
+    IsMessage (Up 'Client i),
+    IsMessage (Up 'Server i),
+    IsMessage (Down 'Client i),
+    IsMessage (Down 'Server i)
+  )
+  => IsInterface i where
   type Request i
   type Event i
   interfaceName :: String
 
-type family Up (s :: Side) i where
-  Up 'Client i = Request i
-  Up 'Server i = Event i
+class IsSide (s :: Side) where
+  type Up s i
+  type Down s i
+  getDown :: forall m i. IsInterface i => Object s m i -> Opcode -> WireGet s m (Down s i)
 
-type family Down (s :: Side) i where
-  Down 'Client i = Event i
-  Down 'Server i = Request i
+instance IsSide 'Client where
+  type Up 'Client i = Request i
+  type Down 'Client i = Event i
+  getDown :: forall m i. IsInterface i => Object 'Client m i -> Opcode -> WireGet 'Client m (Down 'Client i)
+  getDown = getMessage @(Down 'Client i)
+
+instance IsSide 'Server where
+  type Up 'Server i = Event i
+  type Down 'Server i = Request i
+  getDown :: forall m i. IsInterface i => Object 'Server m i -> Opcode -> WireGet 'Server m (Down 'Server i)
+  getDown = getMessage @(Down 'Server i)
+
+
 
 -- | Data kind
 data Side = Client | Server
@@ -241,10 +304,6 @@ protocolStep action inState = do
         then st
         else st{protocolException = Just (toException ex)}
 
-type WireGet s m a = ReaderT (HashMap ObjectId (SomeObject s m)) (WriterT [StateT (ProtocolState s m) m ()] (CatchT Get)) a
-
-liftGet :: Get a -> WireGet s m a
-liftGet = lift . lift . lift
 
 -- * Exported functions
 
@@ -270,7 +329,7 @@ initialProtocolState wlDisplayCallback wlRegistryCallback = sendInitialMessage i
     }
 
 -- | Feed the protocol newly received data
-feedInput :: MonadCatch m => ByteString -> ProtocolStep s m ()
+feedInput :: (IsSide s, MonadCatch m) => ByteString -> ProtocolStep s m ()
 feedInput bytes = protocolStep do
   feed
   runCallbacks
@@ -280,7 +339,7 @@ feedInput bytes = protocolStep do
       inboxDecoder = pushChunk st.inboxDecoder bytes
     }
 
-sendMessage :: MonadCatch m => Object s m i -> Up s i -> ProtocolStep s m ()
+sendMessage :: (IsSide s, MonadCatch m) => Object s m i -> Up s i -> ProtocolStep s m ()
 sendMessage object message = protocolStep do
   undefined message
   runCallbacks
@@ -301,14 +360,14 @@ takeOutbox st = (outboxBytes, st{outbox = Nothing})
 sendInitialMessage :: ProtocolState s m -> ProtocolState s m
 sendInitialMessage = sendMessageInternal 1 1 [NewIdArgument 2]
 
-runCallbacks :: MonadCatch m => StateT (ProtocolState s m) m ()
+runCallbacks :: (IsSide s, MonadCatch m) => StateT (ProtocolState s m) m ()
 runCallbacks = receiveRawMessage >>= \case
   Nothing -> pure ()
   Just rawMessage -> do
     handleMessage rawMessage
     runCallbacks
 
-handleMessage :: forall s m. MonadCatch m => RawMessage -> StateT (ProtocolState s m) m ()
+handleMessage :: forall s m. (IsSide s, MonadCatch m) => RawMessage -> StateT (ProtocolState s m) m ()
 handleMessage rawMessage@(oId, opcode, body) = do
   st <- State.get
   case HM.lookup oId st.objects of
@@ -323,14 +382,15 @@ handleMessage rawMessage@(oId, opcode, body) = do
           throwM $ ParserFailed (describeMessage object opcode body) (show (BSL.length leftovers) <> "B not parsed")
 
 getMessageAction
-  :: MonadCatch m
+  :: (IsSide s, IsInterface i, MonadCatch m)
   => HashMap ObjectId (SomeObject s m)
   -> Object s m i
   -> RawMessage
   -> Get (ProtocolAction s m ())
-getMessageAction objects object@(Object _ callback) (oId, opcode, body) = do
-  pure $ traceM $ "Received message " <> objectInterfaceName object <> "@" <> show oId <> ".msg#" <> show opcode <> " (" <> show (BSL.length body) <> "B)"
-
+getMessageAction objects object@(Object _ callback) (oId, opcode, body) =
+  runWireGet objects do
+    message <- getDown object opcode
+    wireQueueAction $ traceM $ "Received message " <> describeMessage object opcode body
 
 type ProtocolAction s m a = StateT (ProtocolState s m) m a
 

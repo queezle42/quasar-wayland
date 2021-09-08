@@ -98,7 +98,6 @@ library
     network,
     quasar,
     template-haskell,
-    --unix,
     unordered-containers,
     stm,
     xml,
@@ -126,13 +125,8 @@ test-suite quasar-wayland-test
   build-depends:
     base >=4.7 && <5,
     --QuickCheck,
-    --binary,
-    --bytestring,
     hspec,
-    --network,
-    --quasar,
-    quasar-wayland,
-    --stm,
+    --quasar-wayland,
     -- required for record-dot-preprocessor
     record-dot-preprocessor,
     record-hasfield,
