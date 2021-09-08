@@ -64,12 +64,12 @@ interfaceDec interface = execWriterT do
 
   when (length interface.requests > 0) do
     tellQ $ dataD (pure []) rTypeName [] Nothing (rCon <$> interface.requests) []
-    tellQ $ messageInstanceD ((\req@(RequestSpec msg) -> (msg, rConName req)) <$> interface.requests)
+    tellQ $ messageInstanceD rT ((\req@(RequestSpec msg) -> (msg, rConName req)) <$> interface.requests)
     tellQs $ binaryInstanceD rT
 
   when (length interface.events > 0) do
     tellQ $ dataD (pure []) eTypeName [] Nothing (eCon <$> interface.events) []
-    tellQ $ messageInstanceD ((\ev@(EventSpec msg) -> (msg, eConName ev)) <$> interface.events)
+    tellQ $ messageInstanceD eT ((\ev@(EventSpec msg) -> (msg, eConName ev)) <$> interface.events)
     tellQs $ binaryInstanceD eT
 
   where
@@ -77,8 +77,8 @@ interfaceDec interface = execWriterT do
     iT = interfaceT interface
     instanceDecs = [
       valD (varP 'interfaceName) (normalB (stringE interface.name)) [],
-      tySynInstD (tySynEqn Nothing (appT (conT ''TRequest) iT) rT),
-      tySynInstD (tySynEqn Nothing (appT (conT ''TEvent) iT) eT)
+      tySynInstD (tySynEqn Nothing (appT (conT ''Request) iT) rT),
+      tySynInstD (tySynEqn Nothing (appT (conT ''Event) iT) eT)
       ]
     rT :: Q Type
     rT = if length interface.requests > 0 then conT rTypeName else [t|Void|]
@@ -96,8 +96,8 @@ interfaceDec interface = execWriterT do
     eConName (EventSpec event) = mkName $ "E_" <> interface.name <> "_" <> event.name
     eCon :: EventSpec -> Q Con
     eCon event = normalC (eConName event) []
-    messageInstanceD :: [(MessageSpec, Name)] -> Q Dec
-    messageInstanceD messages = instanceD (pure []) [t|IsMessage $rT|] messageNameD
+    messageInstanceD :: Q Type -> [(MessageSpec, Name)] -> Q Dec
+    messageInstanceD t messages = instanceD (pure []) [t|IsMessage $t|] messageNameD
       where
         messageNameD :: [Q Dec]
         messageNameD =
@@ -135,7 +135,7 @@ parseInterface :: MonadFail m => Element -> m InterfaceSpec
 parseInterface element = do
   name <- getAttr "name" element
   requests <- mapM parseRequest $ zip [0..] $ findChildren (qname "request") element
-  events <- mapM parseEvent $ zip [0..] $ findChildren (qname "events") element
+  events <- mapM parseEvent $ zip [0..] $ findChildren (qname "event") element
   pure InterfaceSpec {
     name,
     requests,
