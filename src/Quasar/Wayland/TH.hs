@@ -97,15 +97,16 @@ interfaceDec interface = execWriterT do
     eCon :: EventSpec -> Q Con
     eCon event = normalC (eConName event) []
     messageInstanceD :: Q Type -> [(MessageSpec, Name)] -> Q Dec
-    messageInstanceD t messages = instanceD (pure []) [t|IsMessage $t|] messageNameD
+    messageInstanceD t messages = instanceD (pure []) [t|IsMessage $t|] [messageNameD, getMessageD, putMessageD]
       where
-        messageNameD :: [Q Dec]
-        messageNameD =
-          if length messages > 0
-            then [funD 'messageName (messageNameInstanceClauseD <$> messages)]
-            else []
+        messageNameD :: Q Dec
+        messageNameD = funD 'messageName (messageNameInstanceClauseD <$> messages)
         messageNameInstanceClauseD :: (MessageSpec, Name) -> Q Clause
         messageNameInstanceClauseD (msg, conName) = clause [conP conName []] (normalB (stringE msg.name)) []
+        getMessageD :: Q Dec
+        getMessageD = funD 'getMessage [clause [] (normalB [|undefined|]) []]
+        putMessageD :: Q Dec
+        putMessageD = funD 'putMessage [clause [] (normalB [|undefined|]) []]
     binaryInstanceD :: Q Type -> Q [Dec]
     binaryInstanceD mT = [d|instance Binary $mT where {get = undefined; put = undefined}|]
 
