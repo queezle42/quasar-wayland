@@ -34,9 +34,9 @@ data SocketClosed = SocketClosed
   deriving stock Show
   deriving anyclass Exception
 
-newWaylandConnection :: forall s m. MonadResourceManager m => Callback s STM I_wl_display -> Socket -> m (WaylandConnection s)
-newWaylandConnection wlDisplayCallback socket = do
-  protocolStateVar <- liftIO $ newTVarIO $ initialProtocolState wlDisplayCallback
+newWaylandConnection :: forall s m. MonadResourceManager m => Callback s STM I_wl_display -> Callback s STM I_wl_registry -> Socket -> m (WaylandConnection s)
+newWaylandConnection wlDisplayCallback wlRegistryCallback socket = do
+  protocolStateVar <- liftIO $ newTVarIO $ initialProtocolState wlDisplayCallback wlRegistryCallback
   outboxVar <- liftIO newEmptyTMVarIO
 
   resourceManager <- newResourceManager
