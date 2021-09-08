@@ -22,7 +22,6 @@ module Quasar.Wayland.Core (
   setException,
 
   -- Message decoder operations
-  WireGet,
   WireFormat(..),
   dropRemaining,
 ) where
@@ -31,6 +30,7 @@ import Control.Monad (replicateM_)
 import Control.Monad.Catch
 import Control.Monad.Catch.Pure
 import Control.Monad.Reader (ReaderT, runReaderT)
+import Control.Monad.Reader qualified as Reader
 import Control.Monad.Writer (WriterT, runWriterT, execWriterT, tell)
 import Control.Monad.State (StateT, runStateT, lift)
 import Control.Monad.State qualified as State
@@ -45,6 +45,7 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Kind
 import Data.Maybe (isJust)
+import Data.Typeable (Typeable, cast)
 import Data.Void (absurd)
 import GHC.TypeLits
 import Quasar.Prelude
@@ -57,78 +58,57 @@ type Opcode = Word16
 newtype Fixed = Fixed Word32
   deriving Eq
 
+newtype NewId = NewId ObjectId
 
 
-type WireGet s m a =
-  ReaderT (HashMap ObjectId (SomeObject s m))
-    (WriterT [ProtocolAction s m ()]
-      (CatchT
-        Get
-      )
-    )
-    a
-
-runWireGet
-  :: MonadCatch m
-  => HashMap ObjectId (SomeObject s m)
-  -> WireGet s m ()
-  -> Get (ProtocolAction s m ())
-runWireGet objects action = do
-  result <- runCatchT $ execWriterT $ runReaderT action objects
-  case result of
-    Left ex -> pure $ throwM ex
-    Right actions -> pure $ sequence_ actions
-
-wireQueueAction :: ProtocolAction s m () -> WireGet s m ()
-wireQueueAction action = tell [action]
-
-
-liftGet :: Get a -> WireGet s m a
-liftGet = lift . lift . lift
-
-dropRemaining :: WireGet s m ()
-dropRemaining = liftGet $ void getRemainingLazyByteString
+dropRemaining :: Get ()
+dropRemaining = void getRemainingLazyByteString
 
 
 class WireFormat a where
   type Argument a
-  putArgument :: Argument a -> StateT (ProtocolState s m) PutM ()
-  getArgument :: WireGet s m (Argument a)
+  putArgument :: Argument a -> PutM ()
+  getArgument :: Get (Argument a)
 
 instance WireFormat "int" where
   type Argument "int" = Int32
-  putArgument = lift . putInt32host
-  getArgument = liftGet getInt32host
+  putArgument = putInt32host
+  getArgument = getInt32host
 
 instance WireFormat "uint" where
   type Argument "uint" = Word32
-  putArgument = lift . putWord32host
-  getArgument = liftGet getWord32host
+  putArgument = putWord32host
+  getArgument = getWord32host
 
 instance WireFormat "fixed" where
   type Argument "fixed" = Fixed
-  putArgument (Fixed repr) = lift $ putWord32host repr
-  getArgument = liftGet $ Fixed <$> getWord32host
+  putArgument (Fixed repr) = putWord32host repr
+  getArgument = Fixed <$> getWord32host
 
 instance WireFormat "string" where
   type Argument "string" = BS.ByteString
-  putArgument = lift . putWaylandBlob
-  getArgument = liftGet getWaylandBlob
+  putArgument = putWaylandBlob
+  getArgument = getWaylandBlob
 
-instance forall (s :: Side) m i. MonadCatch m => WireFormat (Object s m i) where
-  type Argument (Object s m i) = Object s m i
-  putArgument = undefined
-  getArgument = undefined
+instance WireFormat "object" where
+  type Argument "object" = ObjectId
+  putArgument = putWord32host
+  getArgument = getWord32host
+    --oId <- liftGet getWord32host
+    --result <- Reader.asks (HM.lookup oId)
+    --case result of
+    --  Just (SomeObject object) -> maybe (throwM (ProtocolException "Invalid object type")) pure $ cast object
+    --  Nothing -> throwM (ProtocolException "Invalid object type")
 
-instance WireFormat (NewId s m i) where
-  type Argument (NewId s m i) = (NewId s m i)
-  putArgument = undefined
-  getArgument = undefined
+instance WireFormat "new_id" where
+  type Argument "new_id" = NewId
+  putArgument (NewId newId) = putWord32host newId
+  getArgument = NewId <$> getWord32host
 
 instance WireFormat "array" where
   type Argument "array" = BS.ByteString
-  putArgument = lift . putWaylandBlob
-  getArgument = liftGet getWaylandBlob
+  putArgument = putWaylandBlob
+  getArgument = getWaylandBlob
 
 instance WireFormat "fd" where
   type Argument "fd" = Void
@@ -142,11 +122,7 @@ class
     Binary (Request i),
     Binary (Event i),
     IsMessage (Request i),
-    IsMessage (Event i),
-    IsMessage (Up 'Client i),
-    IsMessage (Up 'Server i),
-    IsMessage (Down 'Client i),
-    IsMessage (Down 'Server i)
+    IsMessage (Event i)
   )
   => IsInterface i where
   type Request i
@@ -156,72 +132,119 @@ class
 class IsSide (s :: Side) where
   type Up s i
   type Down s i
-  getDown :: forall m i. IsInterface i => Object s m i -> Opcode -> WireGet s m (Down s i)
+  getDown :: forall m i. IsInterface i => Object s m i -> Opcode -> Get (Down s i)
 
 instance IsSide 'Client where
   type Up 'Client i = Request i
   type Down 'Client i = Event i
-  getDown :: forall m i. IsInterface i => Object 'Client m i -> Opcode -> WireGet 'Client m (Down 'Client i)
+  getDown :: forall m i. IsInterface i => Object 'Client m i -> Opcode -> Get (Down 'Client i)
   getDown = getMessage @(Down 'Client i)
 
 instance IsSide 'Server where
   type Up 'Server i = Event i
   type Down 'Server i = Request i
-  getDown :: forall m i. IsInterface i => Object 'Server m i -> Opcode -> WireGet 'Server m (Down 'Server i)
+  getDown :: forall m i. IsInterface i => Object 'Server m i -> Opcode -> Get (Down 'Server i)
   getDown = getMessage @(Down 'Server i)
 
+class
+  (
+    IsSide s,
+    IsInterface i,
+    IsMessage (Up s i),
+    IsMessage (Down s i)
+  )
+  => IsInterfaceSide (s :: Side) i where
+
+
+--describeUpMessage :: forall s m i. (IsInterfaceSide s i) => Object s m i -> Opcode -> BSL.ByteString -> String
+--describeUpMessage object opcode body =
+--  objectInterfaceName object <> "@" <> show (objectId object) <>
+--  "." <> fromMaybe "[invalidOpcode]" (opcodeName @(Up s i) opcode) <>
+--  " (" <> show (BSL.length body) <> "B)"
+--
+--describeDownMessage :: forall s m i. (IsInterfaceSide s i) => Object s m i -> Opcode -> BSL.ByteString -> String
+--describeDownMessage object opcode body =
+--  objectInterfaceName object <> "@" <> show (objectId object) <>
+--  ".msg#" <> show opcode <>
+--  " (" <> show (BSL.length body) <> "B)"
+
+--describeUnknownMessage
+--  :: forall s m i. IsInterface i
+--  => Object s m i
+--  -> Opcode
+--  -> BSL.ByteString
+--  -> String
+--describeUnknownMessage object opcode body =
+--  objectInterfaceName object <> "@" <> show (objectId object) <>
+--  ".msg#" <> show opcode <>
+--  " (" <> show (BSL.length body) <> "B)"
 
 
 -- | Data kind
 data Side = Client | Server
 
-data Object s m i = IsInterface i => Object ObjectId (Callback s m i)
-
-
-instance forall s m i. IsInterface i => IsSomeObject (Object s m i) where
-  objectId (Object oId _) = oId
-  objectInterfaceName _ = interfaceName @i
-
+data Object s m i = IsInterfaceSide s i => Object ObjectId (Callback s m i)
 
 class IsSomeObject a where
   objectId :: a -> ObjectId
   objectInterfaceName :: a -> String
 
+class IsObjectSide a where
+  describeUpMessage :: a -> Opcode -> BSL.ByteString -> String
+  describeDownMessage :: a -> Opcode -> BSL.ByteString -> String
+
+instance forall s m i. IsInterface i => IsSomeObject (Object s m i) where
+  objectId (Object oId _) = oId
+  objectInterfaceName _ = interfaceName @i
+
+instance forall s m i. IsInterfaceSide s i => IsObjectSide (Object s m i) where
+  describeUpMessage object opcode body =
+    objectInterfaceName object <> "@" <> show (objectId object) <>
+    "." <> fromMaybe "[invalidOpcode]" (opcodeName @(Up s i) opcode) <>
+    " (" <> show (BSL.length body) <> "B)"
+  describeDownMessage object opcode body =
+    objectInterfaceName object <> "@" <> show (objectId object) <>
+    "." <> fromMaybe "[invalidOpcode]" (opcodeName @(Down s i) opcode) <>
+    " (" <> show (BSL.length body) <> "B)"
+
 -- | Wayland object quantification wrapper
-data SomeObject s m = forall i. IsInterface i => SomeObject (Object s m i)
+data SomeObject s m
+  = forall i. IsInterfaceSide s i => SomeObject (Object s m i)
+  | UnknownObject String ObjectId
 
 instance IsSomeObject (SomeObject s m) where
   objectId (SomeObject object) = objectId object
+  objectId (UnknownObject _ oId) = oId
   objectInterfaceName (SomeObject object) = objectInterfaceName object
+  objectInterfaceName (UnknownObject interface _) = interface
 
-
-data NewId s m i = IsInterface i => NewId ObjectId
+instance IsObjectSide (SomeObject s m) where
+  describeUpMessage (SomeObject object) = describeUpMessage object
+  describeUpMessage (UnknownObject interface oId) =
+    \opcode body -> interface <> "@" <> show oId <> ".#" <> show opcode <>
+      " (" <> show (BSL.length body) <> "B, unknown)"
+  describeDownMessage (SomeObject object) = describeDownMessage object
+  describeDownMessage (UnknownObject interface oId) =
+    \opcode body -> interface <> "@" <> show oId <> ".#" <> show opcode <>
+      " (" <> show (BSL.length body) <> "B, unknown)"
 
 
 class IsMessage a where
-  messageName :: a -> String
-  getMessage :: IsInterface i => Object s m i -> Opcode -> WireGet s m a
-  putMessage :: a -> StateT (ProtocolState s m) PutM ()
+  opcodeName :: Opcode -> Maybe String
+  showMessage :: IsMessage a => a -> String
+  getMessage :: IsInterface i => Object s m i -> Opcode -> Get a
+  putMessage :: a -> PutM ()
 
 instance IsMessage Void where
-  messageName = absurd
+  opcodeName _ = Nothing
+  showMessage = absurd
   getMessage = invalidOpcode
   putMessage = absurd
 
-describeMessage
-  :: forall s m i. IsInterface i
-  => Object s m i
-  -> Opcode
-  -> BSL.ByteString
-  -> String
-describeMessage object opcode body =
-  objectInterfaceName object <> "@" <> show (objectId object) <>
-  ".msg#" <> show opcode <>
-  " (" <> show (BSL.length body) <> "B)"
-
-invalidOpcode :: IsInterface i => Object s m i -> Opcode -> WireGet s m a
+invalidOpcode :: IsInterface i => Object s m i -> Opcode -> Get a
 invalidOpcode object opcode =
-  throwM $ ProtocolException $ "Invalid opcode " <> show opcode <> " on " <> objectInterfaceName object <> "@" <> show (objectId object)
+  fail $ "Invalid opcode " <> show opcode <> " on " <> objectInterfaceName object <> "@" <> show (objectId object)
+
 
 
 -- TODO remove
@@ -308,7 +331,7 @@ protocolStep action inState = do
 -- * Exported functions
 
 initialProtocolState
-  :: forall wl_display wl_registry s m. (IsInterface wl_display, IsInterface wl_registry)
+  :: forall wl_display wl_registry s m. (IsInterfaceSide s wl_display, IsInterfaceSide s wl_registry)
   => Callback s m wl_display
   -> Callback s m wl_registry
   -> ProtocolState s m
@@ -372,14 +395,18 @@ handleMessage rawMessage@(oId, opcode, body) = do
   st <- State.get
   case HM.lookup oId st.objects of
     Nothing -> throwM $ ProtocolException $ "Received message with invalid object id " <> show oId
+
     Just (SomeObject object) -> do
       case runGetOrFail (getMessageAction st.objects object rawMessage) body of
         Left (_, _, message) ->
-          throwM $ ParserFailed (describeMessage object opcode body) message
+          throwM $ ParserFailed (describeDownMessage object opcode body) message
         Right ("", _, result) ->
-          traceM $ "Received message " <> (describeMessage object opcode body)
+          traceM $ "Received message " <> (describeDownMessage object opcode body)
         Right (leftovers, _, _) ->
-          throwM $ ParserFailed (describeMessage object opcode body) (show (BSL.length leftovers) <> "B not parsed")
+          throwM $ ParserFailed (describeDownMessage object opcode body) (show (BSL.length leftovers) <> "B not parsed")
+
+    Just (UnknownObject interface oId) -> do
+      throwM $ ProtocolException $ "Received message for unknown object " <> interface <> "@" <> show oId
 
 getMessageAction
   :: (IsSide s, IsInterface i, MonadCatch m)
@@ -387,10 +414,9 @@ getMessageAction
   -> Object s m i
   -> RawMessage
   -> Get (ProtocolAction s m ())
-getMessageAction objects object@(Object _ callback) (oId, opcode, body) =
-  runWireGet objects do
-    message <- getDown object opcode
-    wireQueueAction $ traceM $ "Received message " <> describeMessage object opcode body
+getMessageAction objects object@(Object _ callback) (oId, opcode, body) = do
+  message <- getDown object opcode
+  pure $ traceM $ "Received message " <> describeDownMessage object opcode body
 
 type ProtocolAction s m a = StateT (ProtocolState s m) m a
 

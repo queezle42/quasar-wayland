@@ -35,7 +35,8 @@ newWaylandClient socket = WaylandClient <$> newWaylandConnection clientCallback 
 
 clientCallback :: IsInterface i => ClientCallback STM i
 clientCallback = Callback {
-  messageCallback = \x y -> lift $ traceM $ objectInterfaceName x <> "#" <> show (objectId x) <> "." <> messageName y
+  messageCallback = \object message ->
+    lift $ traceM $ objectInterfaceName object <> "@" <> show (objectId object) <> "." <> showMessage message
 }
 
 connectWaylandClient :: MonadResourceManager m => m WaylandClient

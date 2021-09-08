@@ -97,12 +97,16 @@ interfaceDec interface = execWriterT do
     eCon :: EventSpec -> Q Con
     eCon event = normalC (eConName event) []
     messageInstanceD :: Q Type -> [(MessageSpec, Name)] -> Q Dec
-    messageInstanceD t messages = instanceD (pure []) [t|IsMessage $t|] [messageNameD, getMessageD, putMessageD]
+    messageInstanceD t messages = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, showMessageD, getMessageD, putMessageD]
       where
-        messageNameD :: Q Dec
-        messageNameD = funD 'messageName (messageNameClauseD <$> messages)
-        messageNameClauseD :: (MessageSpec, Name) -> Q Clause
-        messageNameClauseD (msg, conName) = clause [conP conName []] (normalB (stringE msg.name)) []
+        opcodeNameD :: Q Dec
+        opcodeNameD = funD 'opcodeName (opcodeNameClauseD <$> messages)
+        opcodeNameClauseD :: (MessageSpec, Name) -> Q Clause
+        opcodeNameClauseD (msg, conName) = clause [litP (integerL (fromIntegral msg.opcode))] (normalB ([|Just $(stringE msg.name)|])) []
+        showMessageD :: Q Dec
+        showMessageD = funD 'showMessage (showMessageClauseD <$> messages)
+        showMessageClauseD :: (MessageSpec, Name) -> Q Clause
+        showMessageClauseD (msg, conName) = clause [conP conName []] (normalB (stringE msg.name)) []
         getMessageD :: Q Dec
         getMessageD = funD 'getMessage (getMessageClauseD <$> messages)
         getMessageClauseD :: (MessageSpec, Name) -> Q Clause
