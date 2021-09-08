@@ -12,8 +12,6 @@ module Quasar.Wayland.Core (
   ClientCallback,
   ServerCallback,
   Callback(..),
-  Request,
-  Event,
   ProtocolStep,
   initialProtocolState,
   sendMessage,
@@ -180,11 +178,6 @@ data ProtocolState (s :: Side) m = ProtocolState {
   outbox :: Maybe Put,
   objects :: HashMap ObjectId SomeObject
 }
-
-data Request = Request ObjectId Opcode BSL.ByteString
-  deriving stock Show
-data Event = Event ObjectId Opcode (Either BSL.ByteString (Word32, BSL.ByteString, Word32))
-  deriving stock Show
 
 
 type ClientCallback m i = Callback 'Client m i
