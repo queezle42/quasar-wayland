@@ -25,7 +25,9 @@ module Quasar.Wayland.Protocol.Core (
   feedInput,
   setException,
 
-  -- Message decoder operations
+  showObjectMessage,
+
+  -- * Message decoder operations
   WireFormat(..),
   dropRemaining,
 ) where
@@ -239,19 +241,21 @@ instance IsObjectSide (SomeObject s m) where
 
 class (Eq a, Show a) => IsMessage a where
   opcodeName :: Opcode -> Maybe String
-  showMessage :: IsMessage a => a -> String
   getMessage :: IsInterface i => Object s m i -> Opcode -> Get a
   putMessage :: a -> PutM ()
 
 instance IsMessage Void where
   opcodeName _ = Nothing
-  showMessage = absurd
   getMessage = invalidOpcode
   putMessage = absurd
 
 invalidOpcode :: IsInterface i => Object s m i -> Opcode -> Get a
 invalidOpcode object opcode =
   fail $ "Invalid opcode " <> show opcode <> " on " <> objectInterfaceName object <> "@" <> show (objectId object)
+
+showObjectMessage :: (IsObject a, IsMessage b) => a -> b -> String
+showObjectMessage object message =
+  objectInterfaceName object <> "@" <> show (objectId object) <> "." <> show message
 
 
 -- TODO remove
@@ -402,9 +406,7 @@ handleMessage rawMessage@(oId, opcode, body) = do
   case HM.lookup oId st.objects of
     Nothing -> throwM $ ProtocolException $ "Received message with invalid object id " <> show oId
 
-    Just (SomeObject object) -> do
-      traceM $ "Received message (raw) " <> describeDownMessage object opcode body
-
+    Just (SomeObject object) ->
       case runGetOrFail (getMessageAction st.objects object rawMessage) body of
         Left (_, _, message) ->
           throwM $ ParserFailed (describeDownMessage object opcode body) message
@@ -413,7 +415,7 @@ handleMessage rawMessage@(oId, opcode, body) = do
           throwM $ ParserFailed (describeDownMessage object opcode body) (show (BSL.length leftovers) <> "B not parsed")
 
     Just (UnknownObject interface oId) -> do
-      throwM $ ProtocolException $ "Received message for unknown object " <> interface <> "@" <> show oId
+      throwM $ ProtocolException $ "Received message for object without handler: " <> interface <> "@" <> show oId
 
 getMessageAction
   :: (IsSide s, IsInterface i, MonadCatch m)
@@ -423,7 +425,7 @@ getMessageAction
   -> Get (ProtocolAction s m ())
 getMessageAction objects object@(Object _ callback) (oId, opcode, body) = do
   message <- getDown object opcode
-  pure $ traceM $ "Received message " <> show message
+  pure $ traceM $ "<- " <> showObjectMessage object message
 
 type ProtocolAction s m a = StateT (ProtocolState s m) m a
 

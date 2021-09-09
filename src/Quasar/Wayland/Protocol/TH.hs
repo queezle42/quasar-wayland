@@ -9,6 +9,7 @@ import Language.Haskell.TH
 import Language.Haskell.TH.Lib
 import Language.Haskell.TH.Syntax (BangType, VarBangType, addDependentFile)
 import Language.Haskell.TH.Syntax qualified as TH
+import Data.List (intersperse)
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
 import Text.XML.Light
@@ -129,32 +130,50 @@ data MessageContext = MessageContext {
   msgArgFieldName :: ArgumentSpec -> Name
 }
 
+-- | Pattern to match a message. Arguments can then be accessed by using 'msgArgE'.
+msgConP :: MessageContext -> Q Pat
+msgConP msg = conP msg.msgConName (varP . (msg.msgArgFieldName) <$> msg.msgSpec.arguments)
+
+-- | Expression for accessing a message argument which has been matched from a request/event using 'msgArgConP'.
+msgArgE :: MessageContext -> ArgumentSpec -> Q Exp
+msgArgE msg arg = varE (msg.msgArgFieldName arg)
+
 messageTypeDecs :: Name -> [MessageContext] -> Q [Dec]
 messageTypeDecs name msgs = execWriterT do
   tellQ $ messageTypeD
   tellQ $ isMessageInstanceD t msgs
+  tellQ $ showInstanceD
   where
     t :: Q Type
     t = conT name
     messageTypeD :: Q Dec
-    messageTypeD = dataD (pure []) name [] Nothing (con <$> msgs) [derivingEq, derivingShow]
+    messageTypeD = dataD (pure []) name [] Nothing (con <$> msgs) [derivingEq]
     con :: MessageContext -> Q Con
     con msg = recC (msg.msgConName) (conField <$> msg.msgSpec.arguments)
       where
         conField :: ArgumentSpec -> Q VarBangType
         conField arg = defaultVarBangType (msg.msgArgFieldName arg) (argumentType arg)
+    showInstanceD :: Q Dec
+    showInstanceD = instanceD (pure []) [t|Show $t|] [showD]
+    showD :: Q Dec
+    showD = funD 'show (showClause <$> msgs)
+    showClause :: MessageContext -> Q Clause
+    showClause msg =
+      clause
+        [msgConP msg]
+        (normalB [|mconcat $(listE ([stringE (msg.msgSpec.name ++ "(")] <> mconcat (intersperse [stringE ", "] (showArgE <$> msg.msgSpec.arguments) <> [[stringE ")"]])))|])
+        []
+      where
+        showArgE :: ArgumentSpec -> [Q Exp]
+        showArgE arg = [stringE (arg.name ++ "="), [|showArgument @($(argumentSpecType arg)) $(msgArgE msg arg)|]]
 
 isMessageInstanceD :: Q Type -> [MessageContext] -> Q Dec
-isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, showMessageD, getMessageD, putMessageD]
+isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, getMessageD, putMessageD]
   where
     opcodeNameD :: Q Dec
     opcodeNameD = funD 'opcodeName (opcodeNameClauseD <$> msgs)
     opcodeNameClauseD :: MessageContext -> Q Clause
     opcodeNameClauseD msg = clause [litP (integerL (fromIntegral msg.msgSpec.opcode))] (normalB ([|Just $(stringE msg.msgSpec.name)|])) []
-    showMessageD :: Q Dec
-    showMessageD = funD 'showMessage (showMessageClauseD <$> msgs)
-    showMessageClauseD :: MessageContext -> Q Clause
-    showMessageClauseD msg = clause [conP msg.msgConName (replicate (length msg.msgSpec.arguments) wildP)] (normalB (stringE msg.msgSpec.name)) []
     getMessageD :: Q Dec
     getMessageD = funD 'getMessage (getMessageClauseD <$> msgs)
     getMessageClauseD :: MessageContext -> Q Clause
