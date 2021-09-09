@@ -34,7 +34,12 @@ data SocketClosed = SocketClosed
   deriving stock Show
   deriving anyclass Exception
 
-newWaylandConnection :: forall s m. (IsSide s, MonadResourceManager m) => Callback s STM I_wl_display -> Callback s STM I_wl_registry -> Socket -> m (WaylandConnection s)
+newWaylandConnection
+  :: forall wl_display wl_registry s m. (IsInterfaceSide s wl_display, IsInterfaceSide s wl_registry, MonadResourceManager m)
+  => Callback s STM wl_display
+  -> Callback s STM wl_registry
+  -> Socket
+  -> m (WaylandConnection s)
 newWaylandConnection wlDisplayCallback wlRegistryCallback socket = do
   protocolStateVar <- liftIO $ newTVarIO $ initialProtocolState wlDisplayCallback wlRegistryCallback
   outboxVar <- liftIO newEmptyTMVarIO

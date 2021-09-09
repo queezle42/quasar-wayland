@@ -59,7 +59,7 @@ tellQs = tell <=< lift
 
 interfaceDec :: InterfaceSpec -> Q [Dec]
 interfaceDec interface = execWriterT do
-  tellQ $ dataD (pure []) iName [] Nothing [normalC iName []] []
+  tellQ $ dataD (pure []) iName [] Nothing [normalC iName []] [derivingInterfaceClient, derivingInterfaceServer]
   tellQ $ instanceD (pure []) [t|IsInterface $iT|] instanceDecs
 
   when (length interface.requests > 0) do
@@ -125,6 +125,11 @@ interfaceT interface = conT (interfaceN interface)
 derivingShow :: Q DerivClause
 derivingShow = derivClause (Just StockStrategy) [[t|Show|]]
 
+derivingInterfaceClient :: Q DerivClause
+derivingInterfaceClient = derivClause (Just AnyclassStrategy) [[t|IsInterfaceSide 'Client|]]
+
+derivingInterfaceServer :: Q DerivClause
+derivingInterfaceServer = derivClause (Just AnyclassStrategy) [[t|IsInterfaceSide 'Server|]]
 
 
 
