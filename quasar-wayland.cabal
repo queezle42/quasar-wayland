@@ -85,9 +85,9 @@ library
   exposed-modules:
     Quasar.Wayland.Client
     Quasar.Wayland.Connection
-    Quasar.Wayland.Core
-    Quasar.Wayland.Protocol
-    Quasar.Wayland.TH
+    Quasar.Wayland.Protocol.Core
+    Quasar.Wayland.Protocol.Generated
+    Quasar.Wayland.Protocol.TH
   build-depends:
     base >=4.7 && <5,
     binary,

@@ -1,4 +1,4 @@
-module Quasar.Wayland.Core (
+module Quasar.Wayland.Protocol.Core (
   ObjectId,
   Opcode,
   Fixed,

@@ -1,4 +1,4 @@
-module Quasar.Wayland.TH (
+module Quasar.Wayland.Protocol.TH (
   generateWaylandProcol
 ) where
 
@@ -9,7 +9,7 @@ import Language.Haskell.TH
 import Language.Haskell.TH.Lib
 import Language.Haskell.TH.Syntax (addDependentFile)
 import Quasar.Prelude
-import Quasar.Wayland.Core
+import Quasar.Wayland.Protocol.Core
 import Text.XML.Light
 
 
