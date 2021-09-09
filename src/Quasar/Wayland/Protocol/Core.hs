@@ -92,56 +92,67 @@ class (Eq (Argument a), Show (Argument a)) => WireFormat a where
   type Argument a
   putArgument :: Argument a -> PutM ()
   getArgument :: Get (Argument a)
+  showArgument :: Argument a -> String
 
 instance WireFormat 'IntArgument where
   type Argument 'IntArgument = Int32
   putArgument = putInt32host
   getArgument = getInt32host
+  showArgument = show
 
 instance WireFormat 'UIntArgument where
   type Argument 'UIntArgument = Word32
   putArgument = putWord32host
   getArgument = getWord32host
+  showArgument = show
 
 instance WireFormat 'FixedArgument where
   type Argument 'FixedArgument = Fixed
   putArgument (Fixed repr) = putWord32host repr
   getArgument = Fixed <$> getWord32host
+  showArgument = show
 
 instance WireFormat 'StringArgument where
   type Argument 'StringArgument = BS.ByteString
   putArgument = putWaylandBlob
   getArgument = getWaylandBlob
+  showArgument = show
 
 instance WireFormat 'ArrayArgument where
   type Argument 'ArrayArgument = BS.ByteString
   putArgument = putWaylandBlob
   getArgument = getWaylandBlob
+  showArgument array = "[array " <> show (BS.length array) <> "B]"
 
 instance WireFormat 'ObjectArgument where
   type Argument 'ObjectArgument = ObjectId
   putArgument = putWord32host
   getArgument = getWord32host
+  showArgument oId = "@" <> show oId
 
 instance WireFormat 'UnknownObjectArgument where
   type Argument 'UnknownObjectArgument = ObjectId
   putArgument = putWord32host
   getArgument = getWord32host
+  showArgument oId = "@" <> show oId
 
 instance WireFormat 'NewIdArgument where
   type Argument 'NewIdArgument = NewId
   putArgument (NewId newId) = putWord32host newId
   getArgument = NewId <$> getWord32host
+  showArgument newId = "new @" <> show newId
 
 instance WireFormat 'UnknownNewIdArgument where
   type Argument 'UnknownNewIdArgument = NewId
   putArgument (NewId newId) = putWord32host newId
   getArgument = NewId <$> getWord32host
+  showArgument newId = "new @" <> show newId
 
 instance WireFormat 'FdArgument where
   type Argument 'FdArgument = Void
   putArgument = undefined
   getArgument = undefined
+  showArgument = undefined
 
 
 -- | A wayland interface
@@ -267,7 +278,6 @@ putDynamicArgument (DynamicUIntArgument x) = putWord32host x
 putDynamicArgument (DynamicObjectArgument x) = putWord32host x
 putDynamicArgument (DynamicNewIdArgument x) = putWord32host x
 putDynamicArgument _ = undefined
-
 
 
 type ClientProtocolState m = ProtocolState 'Client m
