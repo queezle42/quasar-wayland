@@ -289,8 +289,8 @@ type ServerProtocolState m = ProtocolState 'Server m
 
 data ProtocolState (s :: Side) m = ProtocolState {
   protocolException :: Maybe SomeException,
-  bytesReceived :: Word64,
-  bytesSent :: Word64,
+  bytesReceived :: !Word64,
+  bytesSent :: !Word64,
   inboxDecoder :: Decoder RawMessage,
   outbox :: Maybe Put,
   objects :: HashMap ObjectId (SomeObject s m)
@@ -385,9 +385,10 @@ setException ex = protocolStep do
 
 -- | Take data that has to be sent (if available)
 takeOutbox :: MonadCatch m => ProtocolState s m ->  (Maybe BSL.ByteString, ProtocolState s m)
-takeOutbox st = (outboxBytes, st{outbox = Nothing})
+takeOutbox st = (maybeOutboxBytes, st{outbox = Nothing})
   where
-    outboxBytes = if isJust st.protocolException then Nothing else runPut <$> st.outbox
+    maybeOutboxBytes = if isJust st.protocolException then Nothing else outboxBytes
+    outboxBytes = runPut <$> st.outbox
 
 
 sendInitialMessage :: ProtocolState s m -> ProtocolState s m
