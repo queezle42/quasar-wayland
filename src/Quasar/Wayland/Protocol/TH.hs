@@ -20,6 +20,7 @@ data ProtocolSpec = ProtocolSpec {interfaces :: [InterfaceSpec]}
 
 data InterfaceSpec = InterfaceSpec {
   name :: String,
+  version :: Integer,
   requests :: [RequestSpec],
   events :: [EventSpec]
 }
@@ -33,6 +34,7 @@ newtype EventSpec = EventSpec {messageSpec :: MessageSpec}
 
 data MessageSpec = MessageSpec {
   name :: String,
+  since :: Maybe Integer,
   opcode :: Opcode,
   arguments :: [ArgumentSpec]
 }
@@ -40,6 +42,7 @@ data MessageSpec = MessageSpec {
 
 data ArgumentSpec = ArgumentSpec {
   name :: String,
+  index :: Integer,
   argType :: ArgumentType
 }
   deriving stock Show
@@ -256,10 +259,12 @@ parseProtocol xml = do
 parseInterface :: MonadFail m => Element -> m InterfaceSpec
 parseInterface element = do
   name <- getAttr "name" element
+  version <- read <$> getAttr "version" element
   requests <- mapM parseRequest $ zip [0..] $ findChildren (qname "request") element
   events <- mapM parseEvent $ zip [0..] $ findChildren (qname "event") element
   pure InterfaceSpec {
     name,
+    version,
     requests,
     events
   }
@@ -273,22 +278,25 @@ parseEvent x = EventSpec <$> parseMessage x
 parseMessage :: MonadFail m => (Opcode, Element) -> m MessageSpec
 parseMessage (opcode, element) = do
   name <- getAttr "name" element
-  arguments <- mapM parseArgument $ findChildren (qname "arg") element
+  since <- read <<$>> peekAttr "since" element
+  arguments <- mapM parseArgument $ zip [0..] $ findChildren (qname "arg") element
   pure MessageSpec  {
     name,
+    since,
     opcode,
     arguments
   }
 
 
-parseArgument :: forall m. MonadFail m => Element -> m ArgumentSpec
-parseArgument element = do
+parseArgument :: forall m. MonadFail m => (Integer, Element) -> m ArgumentSpec
+parseArgument (index, element) = do
   name <- getAttr "name" element
   argTypeStr <- getAttr "type" element
   interface <- peekAttr "interface" element
   argType <- parseArgumentType argTypeStr interface
   pure ArgumentSpec {
     name,
+    index,
     argType
   }
   where
