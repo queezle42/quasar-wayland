@@ -6,8 +6,8 @@ module Quasar.Wayland.Core (
   Side(..),
   IsSide,
   Object,
-  IsSomeObject(..),
-  IsSomeObject,
+  IsObject(..),
+  IsObject,
   IsMessage(..),
   ProtocolState,
   ClientProtocolState,
@@ -164,7 +164,7 @@ class IsObjectSide a where
   describeUpMessage :: a -> Opcode -> BSL.ByteString -> String
   describeDownMessage :: a -> Opcode -> BSL.ByteString -> String
 
-instance forall s m i. IsInterface i => IsSomeObject (Object s m i) where
+instance forall s m i. IsInterface i => IsObject (Object s m i) where
   objectId (Object oId _) = oId
   objectInterfaceName _ = interfaceName @i
 
@@ -183,7 +183,7 @@ data SomeObject s m
   = forall i. IsInterfaceSide s i => SomeObject (Object s m i)
   | UnknownObject String ObjectId
 
-instance IsSomeObject (SomeObject s m) where
+instance IsObject (SomeObject s m) where
   objectId (SomeObject object) = objectId object
   objectId (UnknownObject _ oId) = oId
   objectInterfaceName (SomeObject object) = objectInterfaceName object
