@@ -94,11 +94,6 @@ instance WireFormat "object" where
   type Argument "object" = ObjectId
   putArgument = putWord32host
   getArgument = getWord32host
-    --oId <- liftGet getWord32host
-    --result <- Reader.asks (HM.lookup oId)
-    --case result of
-    --  Just (SomeObject object) -> maybe (throwM (ProtocolException "Invalid object type")) pure $ cast object
-    --  Nothing -> throwM (ProtocolException "Invalid object type")
 
 instance WireFormat "new_id" where
   type Argument "new_id" = NewId
@@ -156,36 +151,12 @@ class
   => IsInterfaceSide (s :: Side) i where
 
 
---describeUpMessage :: forall s m i. (IsInterfaceSide s i) => Object s m i -> Opcode -> BSL.ByteString -> String
---describeUpMessage object opcode body =
---  objectInterfaceName object <> "@" <> show (objectId object) <>
---  "." <> fromMaybe "[invalidOpcode]" (opcodeName @(Up s i) opcode) <>
---  " (" <> show (BSL.length body) <> "B)"
---
---describeDownMessage :: forall s m i. (IsInterfaceSide s i) => Object s m i -> Opcode -> BSL.ByteString -> String
---describeDownMessage object opcode body =
---  objectInterfaceName object <> "@" <> show (objectId object) <>
---  ".msg#" <> show opcode <>
---  " (" <> show (BSL.length body) <> "B)"
-
---describeUnknownMessage
---  :: forall s m i. IsInterface i
---  => Object s m i
---  -> Opcode
---  -> BSL.ByteString
---  -> String
---describeUnknownMessage object opcode body =
---  objectInterfaceName object <> "@" <> show (objectId object) <>
---  ".msg#" <> show opcode <>
---  " (" <> show (BSL.length body) <> "B)"
-
-
 -- | Data kind
 data Side = Client | Server
 
 data Object s m i = IsInterfaceSide s i => Object ObjectId (Callback s m i)
 
-class IsSomeObject a where
+class IsObject a where
   objectId :: a -> ObjectId
   objectInterfaceName :: a -> String
 
