@@ -31,7 +31,28 @@ newtype EventSpec = EventSpec MessageSpec
 
 data MessageSpec = MessageSpec {
   name :: String,
-  opcode :: Opcode
+  opcode :: Opcode,
+  arguments :: [ArgumentSpec]
+}
+  deriving stock Show
+
+
+data ArgumentType
+  = IntArgument
+  | UIntArgument
+  | FixedArgument
+  | StringArgument
+  | ArrayArgument
+  | ObjectArgument String
+  | UnknownObjectArgument
+  | NewIdArgument String
+  | UnknownNewIdArgument
+  | FdArgument
+  deriving stock Show
+
+data ArgumentSpec = ArgumentSpec {
+  name :: String,
+  argType :: ArgumentType
 }
   deriving stock Show
 
@@ -155,20 +176,47 @@ parseInterface element = do
   }
 
 parseRequest :: MonadFail m => (Opcode, Element) -> m RequestSpec
-parseRequest (opcode, element) = do
-  name <- getAttr "name" element
-  pure $ RequestSpec MessageSpec {
-    name,
-    opcode
-  }
+parseRequest x = RequestSpec <$> parseMessage x
 
 parseEvent :: MonadFail m => (Opcode, Element) -> m EventSpec
-parseEvent (opcode, element) = do
+parseEvent x = EventSpec <$> parseMessage x
+
+parseMessage :: MonadFail m => (Opcode, Element) -> m MessageSpec
+parseMessage (opcode, element) = do
   name <- getAttr "name" element
-  pure $ EventSpec MessageSpec  {
+  arguments <- mapM parseArgument $ findChildren (qname "arg") element
+  pure MessageSpec  {
     name,
-    opcode
+    opcode,
+    arguments
   }
+
+
+parseArgument :: forall m. MonadFail m => Element -> m ArgumentSpec
+parseArgument element = do
+  name <- getAttr "name" element
+  argTypeStr <- getAttr "type" element
+  interface <- peekAttr "interface" element
+  argType <- parseArgumentType argTypeStr interface
+  pure ArgumentSpec {
+    name,
+    argType
+  }
+  where
+    parseArgumentType :: String -> Maybe String -> m ArgumentType
+    parseArgumentType "int" Nothing = pure IntArgument
+    parseArgumentType "uint" Nothing = pure UIntArgument
+    parseArgumentType "fixed" Nothing = pure FixedArgument
+    parseArgumentType "string" Nothing = pure StringArgument
+    parseArgumentType "array" Nothing = pure ArrayArgument
+    parseArgumentType "object" (Just interface) = pure (ObjectArgument interface)
+    parseArgumentType "object" Nothing = pure UnknownObjectArgument
+    parseArgumentType "new_id" (Just interface) = pure (NewIdArgument interface)
+    parseArgumentType "new_id" Nothing = pure UnknownNewIdArgument
+    parseArgumentType "fd" Nothing = pure FdArgument
+    parseArgumentType x Nothing = fail $ "Unknown argument type \"" <> x <> "\" encountered"
+    parseArgumentType x _ = fail $ "Argument type \"" <> x <> "\" should not have \"interface\" attribute"
+
 
 qname :: String -> QName
 qname name = blank_name { qName = name }
@@ -177,3 +225,6 @@ getAttr :: MonadFail m => String -> Element -> m String
 getAttr name element = do
   (Just value) <- pure $ findAttr (qname name) element
   pure value
+
+peekAttr :: Applicative m => String -> Element -> m (Maybe String)
+peekAttr name element = pure $ findAttr (qname name) element

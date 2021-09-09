@@ -213,7 +213,6 @@ invalidOpcode object opcode =
   fail $ "Invalid opcode " <> show opcode <> " on " <> objectInterfaceName object <> "@" <> show (objectId object)
 
 
-
 -- TODO remove
 data DynamicArgument
   = DynamicIntArgument Int32
