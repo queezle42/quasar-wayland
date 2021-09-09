@@ -7,7 +7,7 @@ import Data.Binary
 import Data.ByteString qualified as BS
 import Language.Haskell.TH
 import Language.Haskell.TH.Lib
-import Language.Haskell.TH.Syntax (addDependentFile)
+import Language.Haskell.TH.Syntax (BangType, addDependentFile)
 import Language.Haskell.TH.Syntax qualified as TH
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
@@ -24,10 +24,10 @@ data InterfaceSpec = InterfaceSpec {
 }
   deriving stock Show
 
-newtype RequestSpec = RequestSpec MessageSpec
+newtype RequestSpec = RequestSpec {messageSpec :: MessageSpec}
   deriving stock Show
 
-newtype EventSpec = EventSpec MessageSpec
+newtype EventSpec = EventSpec {messageSpec :: MessageSpec}
   deriving stock Show
 
 data MessageSpec = MessageSpec {
@@ -71,11 +71,11 @@ interfaceDec interface = execWriterT do
   tellQ $ instanceD (pure []) [t|IsInterface $iT|] instanceDecs
 
   when (length interface.requests > 0) do
-    tellQ $ dataD (pure []) rTypeName [] Nothing (rCon <$> interface.requests) []
+    tellQ $ messageTypeD rTypeName rConName (.messageSpec) interface.requests
     tellQ $ messageInstanceD rT ((\req@(RequestSpec msg) -> (msg, rConName req)) <$> interface.requests)
 
   when (length interface.events > 0) do
-    tellQ $ dataD (pure []) eTypeName [] Nothing (eCon <$> interface.events) []
+    tellQ $ messageTypeD eTypeName eConName (.messageSpec) interface.events
     tellQ $ messageInstanceD eT ((\ev@(EventSpec msg) -> (msg, eConName ev)) <$> interface.events)
 
   where
@@ -92,16 +92,18 @@ interfaceDec interface = execWriterT do
     rTypeName = mkName $ "R_" <> interface.name
     rConName :: RequestSpec -> Name
     rConName (RequestSpec request) = mkName $ "R_" <> interface.name <> "_" <> request.name
-    rCon :: RequestSpec -> Q Con
-    rCon request = normalC (rConName request) []
     eT :: Q Type
     eT = if length interface.events > 0 then conT eTypeName else [t|Void|]
     eTypeName :: Name
     eTypeName = mkName $ "E_" <> interface.name
     eConName :: EventSpec -> Name
     eConName (EventSpec event) = mkName $ "E_" <> interface.name <> "_" <> event.name
-    eCon :: EventSpec -> Q Con
-    eCon event = normalC (eConName event) []
+
+messageTypeD :: forall a. Name -> (a -> Name) -> (a -> MessageSpec) -> [a] -> Q Dec
+messageTypeD name conName msgSpec msgs = dataD (pure []) name [] Nothing (con <$> msgs) [derivingEq, derivingShow]
+  where
+    con :: a -> Q Con
+    con msg = normalC (conName msg) (defaultBangType <$> messageArgTs (msgSpec msg))
 
 messageInstanceD :: Q Type -> [(MessageSpec, Name)] -> Q Dec
 messageInstanceD t messages = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, showMessageD, getMessageD, putMessageD]
@@ -113,19 +115,31 @@ messageInstanceD t messages = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD
     showMessageD :: Q Dec
     showMessageD = funD 'showMessage (showMessageClauseD <$> messages)
     showMessageClauseD :: (MessageSpec, Name) -> Q Clause
-    showMessageClauseD (msg, conName) = clause [conP conName []] (normalB (stringE msg.name)) []
+    showMessageClauseD (msg, conName) = clause [conP conName (replicate (length msg.arguments) wildP)] (normalB (stringE msg.name)) []
     getMessageD :: Q Dec
     getMessageD = funD 'getMessage (getMessageClauseD <$> messages)
     getMessageClauseD :: (MessageSpec, Name) -> Q Clause
-    getMessageClauseD (msg, conName) = clause [[p|_object|], litP (integerL (fromIntegral msg.opcode))] (normalB ([|$(conE conName) <$ dropRemaining|])) []
+    getMessageClauseD (msg, conName) = clause [wildP, litP (integerL (fromIntegral msg.opcode))] (normalB getMessageE) []
+      where
+        getMessageE :: Q Exp
+        getMessageE = applyA (conE conName) ((\argT -> [|getArgument @($argT)|]) <$> messageArgSpecTs msg)
     putMessageD :: Q Dec
     putMessageD = funD 'putMessage [clause [] (normalB [|undefined|]) []]
+
+messageArgTs :: MessageSpec -> [Q Type]
+messageArgTs msg = argumentType <$> msg.arguments
+
+messageArgSpecTs :: MessageSpec -> [Q Type]
+messageArgSpecTs msg = argumentSpecType <$> msg.arguments
 
 interfaceN :: InterfaceSpec -> Name
 interfaceN interface = mkName $ "I_" <> interface.name
 
 interfaceT :: InterfaceSpec -> Q Type
 interfaceT interface = conT (interfaceN interface)
+
+derivingEq :: Q DerivClause
+derivingEq = derivClause (Just StockStrategy) [[t|Eq|]]
 
 derivingShow :: Q DerivClause
 derivingShow = derivClause (Just StockStrategy) [[t|Show|]]
@@ -136,14 +150,35 @@ derivingInterfaceClient = derivClause (Just AnyclassStrategy) [[t|IsInterfaceSid
 derivingInterfaceServer :: Q DerivClause
 derivingInterfaceServer = derivClause (Just AnyclassStrategy) [[t|IsInterfaceSide 'Server|]]
 
-promoteArgumentType :: ArgumentType -> Q Type
-promoteArgumentType arg = do
+argumentType :: ArgumentSpec -> Q Type
+argumentType argSpec = [t|Argument $(promoteArgumentSpecType argSpec.argType)|]
+
+argumentSpecType :: ArgumentSpec -> Q Type
+argumentSpecType argSpec = promoteArgumentSpecType argSpec.argType
+
+promoteArgumentSpecType :: ArgumentType -> Q Type
+promoteArgumentSpecType arg = do
   argExp <- (TH.lift arg)
   ConT <$> matchCon argExp
   where
     matchCon :: Exp -> Q Name
     matchCon (ConE name) = pure name
+    matchCon (AppE x _) = matchCon x
     matchCon _ = fail "Can only promote ConE expression"
+
+defaultBangType :: Q Type -> Q BangType
+defaultBangType = bangType (bang noSourceUnpackedness noSourceStrictness)
+
+
+-- | (a -> b -> c -> d) -> [m a, m b, m c] -> m d
+applyA :: Q Exp -> [Q Exp] -> Q Exp
+applyA con [] = [|pure $con|]
+applyA con (monadicE:monadicEs) = foldl (\x y -> [|$x <*> $y|]) [|$con <$> $monadicE|] monadicEs
+
+-- | (a -> b -> c -> m d) -> [m a, m b, m c] -> m d
+applyM :: Q Exp -> [Q Exp] -> Q Exp
+applyM con [] = con
+applyM con args = [|join $(applyA con args)|]
 
 
 -- * XML parser

@@ -61,9 +61,13 @@ type Opcode = Word16
 
 -- | Signed 24.8 decimal numbers.
 newtype Fixed = Fixed Word32
-  deriving Eq
+  deriving newtype Eq
+
+instance Show Fixed where
+  show x = "[fixed " <> show x <> "]"
 
 newtype NewId = NewId ObjectId
+  deriving newtype (Eq, Show)
 
 
 dropRemaining :: Get ()
@@ -82,9 +86,9 @@ data ArgumentType
   | NewIdArgument String
   | UnknownNewIdArgument
   | FdArgument
-  deriving stock (Show, Lift)
+  deriving stock (Eq, Show, Lift)
 
-class WireFormat a where
+class (Eq (Argument a), Show (Argument a)) => WireFormat a where
   type Argument a
   putArgument :: Argument a -> PutM ()
   getArgument :: Get (Argument a)
@@ -222,7 +226,7 @@ instance IsObjectSide (SomeObject s m) where
       " (" <> show (BSL.length body) <> "B, unknown)"
 
 
-class IsMessage a where
+class (Eq a, Show a) => IsMessage a where
   opcodeName :: Opcode -> Maybe String
   showMessage :: IsMessage a => a -> String
   getMessage :: IsInterface i => Object s m i -> Opcode -> Get a
@@ -389,11 +393,12 @@ handleMessage rawMessage@(oId, opcode, body) = do
     Nothing -> throwM $ ProtocolException $ "Received message with invalid object id " <> show oId
 
     Just (SomeObject object) -> do
+      traceM $ "Received message (raw) " <> describeDownMessage object opcode body
+
       case runGetOrFail (getMessageAction st.objects object rawMessage) body of
         Left (_, _, message) ->
           throwM $ ParserFailed (describeDownMessage object opcode body) message
-        Right ("", _, result) ->
-          traceM $ "Received message " <> (describeDownMessage object opcode body)
+        Right ("", _, result) -> result
         Right (leftovers, _, _) ->
           throwM $ ParserFailed (describeDownMessage object opcode body) (show (BSL.length leftovers) <> "B not parsed")
 
@@ -408,7 +413,7 @@ getMessageAction
   -> Get (ProtocolAction s m ())
 getMessageAction objects object@(Object _ callback) (oId, opcode, body) = do
   message <- getDown object opcode
-  pure $ traceM $ "Received message " <> describeDownMessage object opcode body
+  pure $ traceM $ "Received message " <> show message
 
 type ProtocolAction s m a = StateT (ProtocolState s m) m a
 
