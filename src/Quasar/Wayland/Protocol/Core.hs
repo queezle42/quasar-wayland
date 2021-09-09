@@ -115,8 +115,6 @@ instance WireFormat "fd" where
 -- | A wayland interface
 class
   (
-    Binary (Request i),
-    Binary (Event i),
     IsMessage (Request i),
     IsMessage (Event i)
   )

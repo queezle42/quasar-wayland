@@ -86,12 +86,10 @@ interfaceDec interface = execWriterT do
   when (length interface.requests > 0) do
     tellQ $ dataD (pure []) rTypeName [] Nothing (rCon <$> interface.requests) []
     tellQ $ messageInstanceD rT ((\req@(RequestSpec msg) -> (msg, rConName req)) <$> interface.requests)
-    tellQs $ binaryInstanceD rT
 
   when (length interface.events > 0) do
     tellQ $ dataD (pure []) eTypeName [] Nothing (eCon <$> interface.events) []
     tellQ $ messageInstanceD eT ((\ev@(EventSpec msg) -> (msg, eConName ev)) <$> interface.events)
-    tellQs $ binaryInstanceD eT
 
   where
     iName = interfaceN interface
@@ -134,8 +132,6 @@ interfaceDec interface = execWriterT do
         getMessageClauseD (msg, conName) = clause [[p|_object|], litP (integerL (fromIntegral msg.opcode))] (normalB ([|$(conE conName) <$ dropRemaining|])) []
         putMessageD :: Q Dec
         putMessageD = funD 'putMessage [clause [] (normalB [|undefined|]) []]
-    binaryInstanceD :: Q Type -> Q [Dec]
-    binaryInstanceD mT = [d|instance Binary $mT where {get = undefined; put = undefined}|]
 
 interfaceN :: InterfaceSpec -> Name
 interfaceN interface = mkName $ "I_" <> interface.name
