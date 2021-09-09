@@ -71,12 +71,10 @@ interfaceDec interface = execWriterT do
   tellQ $ instanceD (pure []) [t|IsInterface $iT|] instanceDecs
 
   when (length interface.requests > 0) do
-    tellQ $ messageTypeD rTypeName rConName (.messageSpec) interface.requests
-    tellQ $ messageInstanceD rT ((\req@(RequestSpec msg) -> (msg, rConName req)) <$> interface.requests)
+    tellQs $ messageTypeDecs rTypeName rConName (.messageSpec) interface.requests
 
   when (length interface.events > 0) do
-    tellQ $ messageTypeD eTypeName eConName (.messageSpec) interface.events
-    tellQ $ messageInstanceD eT ((\ev@(EventSpec msg) -> (msg, eConName ev)) <$> interface.events)
+    tellQs $ messageTypeDecs eTypeName eConName (.messageSpec) interface.events
 
   where
     iName = interfaceN interface
@@ -99,14 +97,20 @@ interfaceDec interface = execWriterT do
     eConName :: EventSpec -> Name
     eConName (EventSpec event) = mkName $ "E_" <> interface.name <> "_" <> event.name
 
-messageTypeD :: forall a. Name -> (a -> Name) -> (a -> MessageSpec) -> [a] -> Q Dec
-messageTypeD name conName msgSpec msgs = dataD (pure []) name [] Nothing (con <$> msgs) [derivingEq, derivingShow]
+messageTypeDecs :: forall a. Name -> (a -> Name) -> (a -> MessageSpec) -> [a] -> Q [Dec]
+messageTypeDecs name conName msgSpec msgs = execWriterT do
+  tellQ $ messageTypeD
+  tellQ $ isMessageInstanceD t ((\msg -> (msgSpec msg, conName msg)) <$> msgs)
   where
+    t :: Q Type
+    t = conT name
+    messageTypeD :: Q Dec
+    messageTypeD = dataD (pure []) name [] Nothing (con <$> msgs) [derivingEq, derivingShow]
     con :: a -> Q Con
     con msg = normalC (conName msg) (defaultBangType <$> messageArgTs (msgSpec msg))
 
-messageInstanceD :: Q Type -> [(MessageSpec, Name)] -> Q Dec
-messageInstanceD t messages = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, showMessageD, getMessageD, putMessageD]
+isMessageInstanceD :: Q Type -> [(MessageSpec, Name)] -> Q Dec
+isMessageInstanceD t messages = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, showMessageD, getMessageD, putMessageD]
   where
     opcodeNameD :: Q Dec
     opcodeNameD = funD 'opcodeName (opcodeNameClauseD <$> messages)
