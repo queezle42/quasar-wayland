@@ -102,23 +102,24 @@ interfaceDec interface = execWriterT do
     eConName (EventSpec event) = mkName $ "E_" <> interface.name <> "_" <> event.name
     eCon :: EventSpec -> Q Con
     eCon event = normalC (eConName event) []
-    messageInstanceD :: Q Type -> [(MessageSpec, Name)] -> Q Dec
-    messageInstanceD t messages = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, showMessageD, getMessageD, putMessageD]
-      where
-        opcodeNameD :: Q Dec
-        opcodeNameD = funD 'opcodeName (opcodeNameClauseD <$> messages)
-        opcodeNameClauseD :: (MessageSpec, Name) -> Q Clause
-        opcodeNameClauseD (msg, conName) = clause [litP (integerL (fromIntegral msg.opcode))] (normalB ([|Just $(stringE msg.name)|])) []
-        showMessageD :: Q Dec
-        showMessageD = funD 'showMessage (showMessageClauseD <$> messages)
-        showMessageClauseD :: (MessageSpec, Name) -> Q Clause
-        showMessageClauseD (msg, conName) = clause [conP conName []] (normalB (stringE msg.name)) []
-        getMessageD :: Q Dec
-        getMessageD = funD 'getMessage (getMessageClauseD <$> messages)
-        getMessageClauseD :: (MessageSpec, Name) -> Q Clause
-        getMessageClauseD (msg, conName) = clause [[p|_object|], litP (integerL (fromIntegral msg.opcode))] (normalB ([|$(conE conName) <$ dropRemaining|])) []
-        putMessageD :: Q Dec
-        putMessageD = funD 'putMessage [clause [] (normalB [|undefined|]) []]
+
+messageInstanceD :: Q Type -> [(MessageSpec, Name)] -> Q Dec
+messageInstanceD t messages = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, showMessageD, getMessageD, putMessageD]
+  where
+    opcodeNameD :: Q Dec
+    opcodeNameD = funD 'opcodeName (opcodeNameClauseD <$> messages)
+    opcodeNameClauseD :: (MessageSpec, Name) -> Q Clause
+    opcodeNameClauseD (msg, conName) = clause [litP (integerL (fromIntegral msg.opcode))] (normalB ([|Just $(stringE msg.name)|])) []
+    showMessageD :: Q Dec
+    showMessageD = funD 'showMessage (showMessageClauseD <$> messages)
+    showMessageClauseD :: (MessageSpec, Name) -> Q Clause
+    showMessageClauseD (msg, conName) = clause [conP conName []] (normalB (stringE msg.name)) []
+    getMessageD :: Q Dec
+    getMessageD = funD 'getMessage (getMessageClauseD <$> messages)
+    getMessageClauseD :: (MessageSpec, Name) -> Q Clause
+    getMessageClauseD (msg, conName) = clause [[p|_object|], litP (integerL (fromIntegral msg.opcode))] (normalB ([|$(conE conName) <$ dropRemaining|])) []
+    putMessageD :: Q Dec
+    putMessageD = funD 'putMessage [clause [] (normalB [|undefined|]) []]
 
 interfaceN :: InterfaceSpec -> Name
 interfaceN interface = mkName $ "I_" <> interface.name
