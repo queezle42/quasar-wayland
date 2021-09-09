@@ -216,27 +216,27 @@ invalidOpcode object opcode =
 
 -- TODO remove
 data DynamicArgument
-  = IntArgument Int32
-  | UIntArgument Word32
+  = DynamicIntArgument Int32
+  | DynamicUIntArgument Word32
   -- TODO
-  | FixedArgument Void
-  | StringArgument String
-  | ObjectArgument ObjectId
-  | NewIdArgument ObjectId
-  | FdArgument ()
+  | DynamicFixedArgument Void
+  | DynamicStringArgument String
+  | DynamicObjectArgument ObjectId
+  | DynamicNewIdArgument ObjectId
+  | DynamicFdArgument ()
 
-argumentSize :: DynamicArgument -> Word16
-argumentSize (IntArgument _) = 4
-argumentSize (UIntArgument _) = 4
-argumentSize (ObjectArgument _) = 4
-argumentSize (NewIdArgument _) = 4
-argumentSize _ = undefined
+dynamicArgumentSize :: DynamicArgument -> Word16
+dynamicArgumentSize (DynamicIntArgument _) = 4
+dynamicArgumentSize (DynamicUIntArgument _) = 4
+dynamicArgumentSize (DynamicObjectArgument _) = 4
+dynamicArgumentSize (DynamicNewIdArgument _) = 4
+dynamicArgumentSize _ = undefined
 
 putDynamicArgument :: DynamicArgument -> Put
-putDynamicArgument (IntArgument x) = putInt32host x
-putDynamicArgument (UIntArgument x) = putWord32host x
-putDynamicArgument (ObjectArgument x) = putWord32host x
-putDynamicArgument (NewIdArgument x) = putWord32host x
+putDynamicArgument (DynamicIntArgument x) = putInt32host x
+putDynamicArgument (DynamicUIntArgument x) = putWord32host x
+putDynamicArgument (DynamicObjectArgument x) = putWord32host x
+putDynamicArgument (DynamicNewIdArgument x) = putWord32host x
 putDynamicArgument _ = undefined
 
 
@@ -348,7 +348,7 @@ takeOutbox st = (outboxBytes, st{outbox = Nothing})
 
 
 sendInitialMessage :: ProtocolState s m -> ProtocolState s m
-sendInitialMessage = sendMessageInternal 1 1 [NewIdArgument 2]
+sendInitialMessage = sendMessageInternal 1 1 [DynamicNewIdArgument 2]
 
 runCallbacks :: (IsSide s, MonadCatch m) => StateT (ProtocolState s m) m ()
 runCallbacks = receiveRawMessage >>= \case
@@ -447,7 +447,7 @@ sendMessageInternal oId opcode args = sendRaw do
     msgSize :: Word16
     msgSize = if msgSizeInteger <= fromIntegral (maxBound :: Word16) then fromIntegral msgSizeInteger else undefined
     msgSizeInteger :: Integer
-    msgSizeInteger = foldr ((+) . (fromIntegral . argumentSize)) 8 args :: Integer
+    msgSizeInteger = foldr ((+) . (fromIntegral . dynamicArgumentSize)) 8 args :: Integer
 
 sendRaw :: Put -> ProtocolState s m -> ProtocolState s m
 sendRaw x oldState = oldState {
