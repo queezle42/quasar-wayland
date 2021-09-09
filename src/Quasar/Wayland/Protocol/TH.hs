@@ -7,7 +7,7 @@ import Data.Binary
 import Data.ByteString qualified as BS
 import Language.Haskell.TH
 import Language.Haskell.TH.Lib
-import Language.Haskell.TH.Syntax (BangType, addDependentFile)
+import Language.Haskell.TH.Syntax (BangType, VarBangType, addDependentFile)
 import Language.Haskell.TH.Syntax qualified as TH
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
@@ -71,10 +71,10 @@ interfaceDec interface = execWriterT do
   tellQ $ instanceD (pure []) [t|IsInterface $iT|] instanceDecs
 
   when (length interface.requests > 0) do
-    tellQs $ messageTypeDecs rTypeName rConName (.messageSpec) interface.requests
+    tellQs $ messageTypeDecs rTypeName (requestContext <$> interface.requests)
 
   when (length interface.events > 0) do
-    tellQs $ messageTypeDecs eTypeName eConName (.messageSpec) interface.events
+    tellQs $ messageTypeDecs eTypeName (eventContext <$> interface.events)
 
   where
     iName = interfaceN interface
@@ -90,51 +90,81 @@ interfaceDec interface = execWriterT do
     rTypeName = mkName $ "R_" <> interface.name
     rConName :: RequestSpec -> Name
     rConName (RequestSpec request) = mkName $ "R_" <> interface.name <> "_" <> request.name
+    rArgName :: RequestSpec -> ArgumentSpec -> Name
+    rArgName (RequestSpec msg) arg = mkName $ interface.name <> "_" <> msg.name <> "_" <> arg.name
     eT :: Q Type
     eT = if length interface.events > 0 then conT eTypeName else [t|Void|]
     eTypeName :: Name
     eTypeName = mkName $ "E_" <> interface.name
     eConName :: EventSpec -> Name
     eConName (EventSpec event) = mkName $ "E_" <> interface.name <> "_" <> event.name
+    eArgName :: EventSpec -> ArgumentSpec -> Name
+    eArgName (EventSpec msg) arg = mkName $ interface.name <> "_" <> msg.name <> "_" <> arg.name
+    requestContext :: RequestSpec -> MessageContext
+    requestContext req@(RequestSpec msgSpec) = MessageContext {
+      msgInterfaceT = iT,
+      msgT = rT,
+      msgConName = rConName req,
+      msgInterfaceSpec = interface,
+      msgSpec = msgSpec,
+      msgArgFieldName = rArgName req
+    }
+    eventContext :: EventSpec -> MessageContext
+    eventContext ev@(EventSpec msgSpec) = MessageContext {
+      msgInterfaceT = iT,
+      msgT = eT,
+      msgConName = eConName ev,
+      msgInterfaceSpec = interface,
+      msgSpec = msgSpec,
+      msgArgFieldName = eArgName ev
+    }
 
-messageTypeDecs :: forall a. Name -> (a -> Name) -> (a -> MessageSpec) -> [a] -> Q [Dec]
-messageTypeDecs name conName msgSpec msgs = execWriterT do
+
+data MessageContext = MessageContext {
+  msgInterfaceT :: Q Type,
+  msgT :: Q Type,
+  msgConName :: Name,
+  msgInterfaceSpec :: InterfaceSpec,
+  msgSpec :: MessageSpec,
+  msgArgFieldName :: ArgumentSpec -> Name
+}
+
+messageTypeDecs :: Name -> [MessageContext] -> Q [Dec]
+messageTypeDecs name msgs = execWriterT do
   tellQ $ messageTypeD
-  tellQ $ isMessageInstanceD t ((\msg -> (msgSpec msg, conName msg)) <$> msgs)
+  tellQ $ isMessageInstanceD t msgs
   where
     t :: Q Type
     t = conT name
     messageTypeD :: Q Dec
     messageTypeD = dataD (pure []) name [] Nothing (con <$> msgs) [derivingEq, derivingShow]
-    con :: a -> Q Con
-    con msg = normalC (conName msg) (defaultBangType <$> messageArgTs (msgSpec msg))
+    con :: MessageContext -> Q Con
+    con msg = recC (msg.msgConName) (conField <$> msg.msgSpec.arguments)
+      where
+        conField :: ArgumentSpec -> Q VarBangType
+        conField arg = defaultVarBangType (msg.msgArgFieldName arg) (argumentType arg)
 
-isMessageInstanceD :: Q Type -> [(MessageSpec, Name)] -> Q Dec
-isMessageInstanceD t messages = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, showMessageD, getMessageD, putMessageD]
+isMessageInstanceD :: Q Type -> [MessageContext] -> Q Dec
+isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, showMessageD, getMessageD, putMessageD]
   where
     opcodeNameD :: Q Dec
-    opcodeNameD = funD 'opcodeName (opcodeNameClauseD <$> messages)
-    opcodeNameClauseD :: (MessageSpec, Name) -> Q Clause
-    opcodeNameClauseD (msg, conName) = clause [litP (integerL (fromIntegral msg.opcode))] (normalB ([|Just $(stringE msg.name)|])) []
+    opcodeNameD = funD 'opcodeName (opcodeNameClauseD <$> msgs)
+    opcodeNameClauseD :: MessageContext -> Q Clause
+    opcodeNameClauseD msg = clause [litP (integerL (fromIntegral msg.msgSpec.opcode))] (normalB ([|Just $(stringE msg.msgSpec.name)|])) []
     showMessageD :: Q Dec
-    showMessageD = funD 'showMessage (showMessageClauseD <$> messages)
-    showMessageClauseD :: (MessageSpec, Name) -> Q Clause
-    showMessageClauseD (msg, conName) = clause [conP conName (replicate (length msg.arguments) wildP)] (normalB (stringE msg.name)) []
+    showMessageD = funD 'showMessage (showMessageClauseD <$> msgs)
+    showMessageClauseD :: MessageContext -> Q Clause
+    showMessageClauseD msg = clause [conP msg.msgConName (replicate (length msg.msgSpec.arguments) wildP)] (normalB (stringE msg.msgSpec.name)) []
     getMessageD :: Q Dec
-    getMessageD = funD 'getMessage (getMessageClauseD <$> messages)
-    getMessageClauseD :: (MessageSpec, Name) -> Q Clause
-    getMessageClauseD (msg, conName) = clause [wildP, litP (integerL (fromIntegral msg.opcode))] (normalB getMessageE) []
+    getMessageD = funD 'getMessage (getMessageClauseD <$> msgs)
+    getMessageClauseD :: MessageContext -> Q Clause
+    getMessageClauseD msg = clause [wildP, litP (integerL (fromIntegral msg.msgSpec.opcode))] (normalB getMessageE) []
       where
         getMessageE :: Q Exp
-        getMessageE = applyA (conE conName) ((\argT -> [|getArgument @($argT)|]) <$> messageArgSpecTs msg)
+        getMessageE = applyA (conE (msg.msgConName)) ((\argT -> [|getArgument @($argT)|]) . argumentSpecType <$> msg.msgSpec.arguments)
     putMessageD :: Q Dec
     putMessageD = funD 'putMessage [clause [] (normalB [|undefined|]) []]
 
-messageArgTs :: MessageSpec -> [Q Type]
-messageArgTs msg = argumentType <$> msg.arguments
-
-messageArgSpecTs :: MessageSpec -> [Q Type]
-messageArgSpecTs msg = argumentSpecType <$> msg.arguments
 
 interfaceN :: InterfaceSpec -> Name
 interfaceN interface = mkName $ "I_" <> interface.name
@@ -172,6 +202,9 @@ promoteArgumentSpecType arg = do
 
 defaultBangType :: Q Type -> Q BangType
 defaultBangType = bangType (bang noSourceUnpackedness noSourceStrictness)
+
+defaultVarBangType  :: Name -> Q Type -> Q VarBangType
+defaultVarBangType name qType = varBangType name $ bangType (bang noSourceUnpackedness noSourceStrictness) qType
 
 
 -- | (a -> b -> c -> d) -> [m a, m b, m c] -> m d
