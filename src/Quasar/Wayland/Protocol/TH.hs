@@ -88,27 +88,22 @@ interfaceDec interface = execWriterT do
     rT :: Q Type
     rT = if length interface.requests > 0 then conT rTypeName else [t|Void|]
     rTypeName :: Name
-    rTypeName = mkName $ "R_" <> interface.name
+    rTypeName = mkName $ "Request_" <> interface.name
     rConName :: RequestSpec -> Name
-    rConName (RequestSpec request) = mkName $ "R_" <> interface.name <> "_" <> request.name
-    rArgName :: RequestSpec -> ArgumentSpec -> Name
-    rArgName (RequestSpec msg) arg = mkName $ interface.name <> "_" <> msg.name <> "_" <> arg.name
+    rConName (RequestSpec request) = mkName $ "Request_" <> interface.name <> "_" <> request.name
     eT :: Q Type
     eT = if length interface.events > 0 then conT eTypeName else [t|Void|]
     eTypeName :: Name
-    eTypeName = mkName $ "E_" <> interface.name
+    eTypeName = mkName $ "Event_" <> interface.name
     eConName :: EventSpec -> Name
-    eConName (EventSpec event) = mkName $ "E_" <> interface.name <> "_" <> event.name
-    eArgName :: EventSpec -> ArgumentSpec -> Name
-    eArgName (EventSpec msg) arg = mkName $ interface.name <> "_" <> msg.name <> "_" <> arg.name
+    eConName (EventSpec event) = mkName $ "Event_" <> interface.name <> "_" <> event.name
     requestContext :: RequestSpec -> MessageContext
     requestContext req@(RequestSpec msgSpec) = MessageContext {
       msgInterfaceT = iT,
       msgT = rT,
       msgConName = rConName req,
       msgInterfaceSpec = interface,
-      msgSpec = msgSpec,
-      msgArgFieldName = rArgName req
+      msgSpec = msgSpec
     }
     eventContext :: EventSpec -> MessageContext
     eventContext ev@(EventSpec msgSpec) = MessageContext {
@@ -116,8 +111,7 @@ interfaceDec interface = execWriterT do
       msgT = eT,
       msgConName = eConName ev,
       msgInterfaceSpec = interface,
-      msgSpec = msgSpec,
-      msgArgFieldName = eArgName ev
+      msgSpec = msgSpec
     }
 
 
@@ -126,17 +120,20 @@ data MessageContext = MessageContext {
   msgT :: Q Type,
   msgConName :: Name,
   msgInterfaceSpec :: InterfaceSpec,
-  msgSpec :: MessageSpec,
-  msgArgFieldName :: ArgumentSpec -> Name
+  msgSpec :: MessageSpec
 }
 
 -- | Pattern to match a message. Arguments can then be accessed by using 'msgArgE'.
 msgConP :: MessageContext -> Q Pat
-msgConP msg = conP msg.msgConName (varP . (msg.msgArgFieldName) <$> msg.msgSpec.arguments)
+msgConP msg = conP msg.msgConName (varP . msgArgTempName <$> msg.msgSpec.arguments)
 
 -- | Expression for accessing a message argument which has been matched from a request/event using 'msgArgConP'.
 msgArgE :: MessageContext -> ArgumentSpec -> Q Exp
-msgArgE msg arg = varE (msg.msgArgFieldName arg)
+msgArgE _msg arg = varE (msgArgTempName arg)
+
+-- | Helper for 'msgConP' and 'msgArgE'.
+msgArgTempName :: ArgumentSpec -> Name
+msgArgTempName = mkName . ("x" <>) . show . (.index)
 
 messageTypeDecs :: Name -> [MessageContext] -> Q [Dec]
 messageTypeDecs name msgs = execWriterT do
@@ -149,10 +146,10 @@ messageTypeDecs name msgs = execWriterT do
     messageTypeD :: Q Dec
     messageTypeD = dataD (pure []) name [] Nothing (con <$> msgs) [derivingEq]
     con :: MessageContext -> Q Con
-    con msg = recC (msg.msgConName) (conField <$> msg.msgSpec.arguments)
+    con msg = normalC (msg.msgConName) (conField <$> msg.msgSpec.arguments)
       where
-        conField :: ArgumentSpec -> Q VarBangType
-        conField arg = defaultVarBangType (msg.msgArgFieldName arg) (argumentType arg)
+        conField :: ArgumentSpec -> Q BangType
+        conField arg = defaultBangType (argumentType arg)
     showInstanceD :: Q Dec
     showInstanceD = instanceD (pure []) [t|Show $t|] [showD]
     showD :: Q Dec
@@ -227,9 +224,6 @@ promoteArgumentSpecType arg = do
 
 defaultBangType :: Q Type -> Q BangType
 defaultBangType = bangType (bang noSourceUnpackedness noSourceStrictness)
-
-defaultVarBangType  :: Name -> Q Type -> Q VarBangType
-defaultVarBangType name qType = varBangType name $ bangType (bang noSourceUnpackedness noSourceStrictness) qType
 
 
 -- | (a -> b -> c -> d) -> [m a, m b, m c] -> m d
