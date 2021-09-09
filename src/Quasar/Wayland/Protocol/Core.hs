@@ -1,6 +1,9 @@
+{-# LANGUAGE DeriveLift #-}
+
 module Quasar.Wayland.Protocol.Core (
   ObjectId,
   Opcode,
+  ArgumentType(..),
   Fixed,
   IsSide,
   Side(..),
@@ -49,6 +52,7 @@ import Data.Maybe (isJust)
 import Data.Typeable (Typeable, cast)
 import Data.Void (absurd)
 import GHC.TypeLits
+import Language.Haskell.TH.Syntax (Lift)
 import Quasar.Prelude
 
 
@@ -66,48 +70,72 @@ dropRemaining :: Get ()
 dropRemaining = void getRemainingLazyByteString
 
 
+
+data ArgumentType
+  = IntArgument
+  | UIntArgument
+  | FixedArgument
+  | StringArgument
+  | ArrayArgument
+  | ObjectArgument String
+  | UnknownObjectArgument
+  | NewIdArgument String
+  | UnknownNewIdArgument
+  | FdArgument
+  deriving stock (Show, Lift)
+
 class WireFormat a where
   type Argument a
   putArgument :: Argument a -> PutM ()
   getArgument :: Get (Argument a)
 
-instance WireFormat "int" where
-  type Argument "int" = Int32
+instance WireFormat 'IntArgument where
+  type Argument 'IntArgument = Int32
   putArgument = putInt32host
   getArgument = getInt32host
 
-instance WireFormat "uint" where
-  type Argument "uint" = Word32
+instance WireFormat 'UIntArgument where
+  type Argument 'UIntArgument = Word32
   putArgument = putWord32host
   getArgument = getWord32host
 
-instance WireFormat "fixed" where
-  type Argument "fixed" = Fixed
+instance WireFormat 'FixedArgument where
+  type Argument 'FixedArgument = Fixed
   putArgument (Fixed repr) = putWord32host repr
   getArgument = Fixed <$> getWord32host
 
-instance WireFormat "string" where
-  type Argument "string" = BS.ByteString
+instance WireFormat 'StringArgument where
+  type Argument 'StringArgument = BS.ByteString
   putArgument = putWaylandBlob
   getArgument = getWaylandBlob
 
-instance WireFormat "object" where
-  type Argument "object" = ObjectId
+instance WireFormat 'ArrayArgument where
+  type Argument 'ArrayArgument = BS.ByteString
+  putArgument = putWaylandBlob
+  getArgument = getWaylandBlob
+
+instance WireFormat 'ObjectArgument where
+  type Argument 'ObjectArgument = ObjectId
   putArgument = putWord32host
   getArgument = getWord32host
 
-instance WireFormat "new_id" where
-  type Argument "new_id" = NewId
+instance WireFormat 'UnknownObjectArgument where
+  type Argument 'UnknownObjectArgument = ObjectId
+  putArgument = putWord32host
+  getArgument = getWord32host
+
+instance WireFormat 'NewIdArgument where
+  type Argument 'NewIdArgument = NewId
   putArgument (NewId newId) = putWord32host newId
   getArgument = NewId <$> getWord32host
 
-instance WireFormat "array" where
-  type Argument "array" = BS.ByteString
-  putArgument = putWaylandBlob
-  getArgument = getWaylandBlob
+instance WireFormat 'UnknownNewIdArgument where
+  type Argument 'UnknownNewIdArgument = NewId
+  putArgument (NewId newId) = putWord32host newId
+  getArgument = NewId <$> getWord32host
 
-instance WireFormat "fd" where
-  type Argument "fd" = Void
+instance WireFormat 'FdArgument where
+  type Argument 'FdArgument = Void
   putArgument = undefined
   getArgument = undefined
 

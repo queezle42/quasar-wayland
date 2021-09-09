@@ -8,6 +8,7 @@ import Data.ByteString qualified as BS
 import Language.Haskell.TH
 import Language.Haskell.TH.Lib
 import Language.Haskell.TH.Syntax (addDependentFile)
+import Language.Haskell.TH.Syntax qualified as TH
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
 import Text.XML.Light
@@ -34,20 +35,6 @@ data MessageSpec = MessageSpec {
   opcode :: Opcode,
   arguments :: [ArgumentSpec]
 }
-  deriving stock Show
-
-
-data ArgumentType
-  = IntArgument
-  | UIntArgument
-  | FixedArgument
-  | StringArgument
-  | ArrayArgument
-  | ObjectArgument String
-  | UnknownObjectArgument
-  | NewIdArgument String
-  | UnknownNewIdArgument
-  | FdArgument
   deriving stock Show
 
 data ArgumentSpec = ArgumentSpec {
@@ -148,6 +135,14 @@ derivingInterfaceClient = derivClause (Just AnyclassStrategy) [[t|IsInterfaceSid
 derivingInterfaceServer :: Q DerivClause
 derivingInterfaceServer = derivClause (Just AnyclassStrategy) [[t|IsInterfaceSide 'Server|]]
 
+promoteArgumentType :: ArgumentType -> Q Type
+promoteArgumentType arg = do
+  argExp <- (TH.lift arg)
+  ConT <$> matchCon argExp
+  where
+    matchCon :: Exp -> Q Name
+    matchCon (ConE name) = pure name
+    matchCon _ = fail "Can only promote ConE expression"
 
 
 -- * XML parser
