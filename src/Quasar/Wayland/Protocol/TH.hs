@@ -182,7 +182,13 @@ isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, 
         getMessageE :: Q Exp
         getMessageE = applyA (conE (msg.msgConName)) ((\argT -> [|getArgument @($argT)|]) . argumentSpecType <$> msg.msgSpec.arguments)
     putMessageD :: Q Dec
-    putMessageD = funD 'putMessage [clause [] (normalB [|undefined|]) []]
+    putMessageD = funD 'putMessage (putMessageClauseD <$> msgs)
+    putMessageClauseD :: MessageContext -> Q Clause
+    putMessageClauseD msg = clause [msgConP msg] (normalB (putMessageE msg.msgSpec.arguments)) []
+      where
+        putMessageE :: [ArgumentSpec] -> Q Exp
+        putMessageE [] = [|pure ()|]
+        putMessageE args = doE ((\arg -> noBindS [|putArgument @($(argumentSpecType arg)) $(msgArgE msg arg)|]) <$> args)
 
 
 interfaceN :: InterfaceSpec -> Name
