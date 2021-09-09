@@ -53,9 +53,6 @@ generateWaylandProcol protocolFile = do
   addDependentFile protocolFile
   xml <- liftIO (BS.readFile protocolFile)
   protocol <- parseProtocol xml
-
-  traceIO $ show $ interfaces protocol
-
   concat <$> mapM interfaceDec protocol.interfaces
 
 
