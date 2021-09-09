@@ -141,14 +141,9 @@ instance IsSide 'Server where
   getDown :: forall m i. IsInterface i => Object 'Server m i -> Opcode -> Get (Down 'Server i)
   getDown = getMessage @(Down 'Server i)
 
-class
-  (
-    IsSide s,
-    IsInterface i,
-    IsMessage (Up s i),
-    IsMessage (Down s i)
-  )
-  => IsInterfaceSide (s :: Side) i where
+
+-- | Empty class, only required to combine constraints
+class (IsSide s, IsInterface i, IsMessage (Up s i), IsMessage (Down s i)) => IsInterfaceSide (s :: Side) i
 
 
 -- | Data kind
