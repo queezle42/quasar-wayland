@@ -53,7 +53,8 @@ generateWaylandProcol protocolFile = do
   addDependentFile protocolFile
   xml <- liftIO (BS.readFile protocolFile)
   protocol <- parseProtocol xml
-  concat <$> mapM interfaceDec protocol.interfaces
+  (public, internals) <- unzip <$> mapM interfaceDecs protocol.interfaces
+  pure $ mconcat public <> mconcat internals
 
 
 tellQ :: Q a -> WriterT [a] Q ()
@@ -66,16 +67,21 @@ tellQ action = tell =<< lift (singleton <$> action)
 tellQs :: Q [a] -> WriterT [a] Q ()
 tellQs = tell <=< lift
 
-interfaceDec :: InterfaceSpec -> Q [Dec]
-interfaceDec interface = execWriterT do
-  tellQ $ dataD (pure []) iName [] Nothing [normalC iName []] [derivingInterfaceClient, derivingInterfaceServer]
-  tellQ $ instanceD (pure []) [t|IsInterface $iT|] instanceDecs
+interfaceDecs :: InterfaceSpec -> Q ([Dec], [Dec])
+interfaceDecs interface = do
+  public <- execWriterT do
+    pure ()
+  internals <- execWriterT do
+    tellQ $ dataD (pure []) iName [] Nothing [normalC iName []] [derivingInterfaceClient, derivingInterfaceServer]
+    tellQ $ instanceD (pure []) [t|IsInterface $iT|] instanceDecs
 
-  when (length interface.requests > 0) do
-    tellQs $ messageTypeDecs rTypeName (requestContext <$> interface.requests)
+    when (length interface.requests > 0) do
+      tellQs $ messageTypeDecs rTypeName (requestContext <$> interface.requests)
 
-  when (length interface.events > 0) do
-    tellQs $ messageTypeDecs eTypeName (eventContext <$> interface.events)
+    when (length interface.events > 0) do
+      tellQs $ messageTypeDecs eTypeName (eventContext <$> interface.events)
+
+  pure (public, internals)
 
   where
     iName = interfaceN interface
