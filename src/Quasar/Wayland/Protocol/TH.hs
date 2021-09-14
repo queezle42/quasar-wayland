@@ -2,6 +2,7 @@ module Quasar.Wayland.Protocol.TH (
   generateWaylandProcol
 ) where
 
+import Control.Monad.Catch
 import Control.Monad.Writer
 import Data.Binary
 import Data.ByteString qualified as BS
@@ -70,16 +71,17 @@ tellQs = tell <=< lift
 interfaceDecs :: InterfaceSpec -> Q ([Dec], [Dec])
 interfaceDecs interface = do
   public <- execWriterT do
-    pure ()
+    tellQ requestClassD
+    tellQ eventClassD
   internals <- execWriterT do
     tellQ $ dataD (pure []) iName [] Nothing [normalC iName []] [derivingInterfaceClient, derivingInterfaceServer]
     tellQ $ instanceD (pure []) [t|IsInterface $iT|] instanceDecs
 
     when (length interface.requests > 0) do
-      tellQs $ messageTypeDecs rTypeName (requestContext <$> interface.requests)
+      tellQs $ messageTypeDecs rTypeName requestContexts
 
     when (length interface.events > 0) do
-      tellQs $ messageTypeDecs eTypeName (eventContext <$> interface.events)
+      tellQs $ messageTypeDecs eTypeName eventContexts
 
   pure (public, internals)
 
@@ -94,15 +96,15 @@ interfaceDecs interface = do
     rT :: Q Type
     rT = if length interface.requests > 0 then conT rTypeName else [t|Void|]
     rTypeName :: Name
-    rTypeName = mkName $ "Request_" <> interface.name
+    rTypeName = mkName $ "R_" <> interface.name
     rConName :: RequestSpec -> Name
-    rConName (RequestSpec request) = mkName $ "Request_" <> interface.name <> "_" <> request.name
+    rConName (RequestSpec request) = mkName $ "R_" <> interface.name <> "_" <> request.name
     eT :: Q Type
     eT = if length interface.events > 0 then conT eTypeName else [t|Void|]
     eTypeName :: Name
-    eTypeName = mkName $ "Event_" <> interface.name
+    eTypeName = mkName $ "E_" <> interface.name
     eConName :: EventSpec -> Name
-    eConName (EventSpec event) = mkName $ "Event_" <> interface.name <> "_" <> event.name
+    eConName (EventSpec event) = mkName $ "E_" <> interface.name <> "_" <> event.name
     requestContext :: RequestSpec -> MessageContext
     requestContext req@(RequestSpec msgSpec) = MessageContext {
       msgInterfaceT = iT,
@@ -111,6 +113,7 @@ interfaceDecs interface = do
       msgInterfaceSpec = interface,
       msgSpec = msgSpec
     }
+    requestContexts = requestContext <$> interface.requests
     eventContext :: EventSpec -> MessageContext
     eventContext ev@(EventSpec msgSpec) = MessageContext {
       msgInterfaceT = iT,
@@ -119,6 +122,52 @@ interfaceDecs interface = do
       msgInterfaceSpec = interface,
       msgSpec = msgSpec
     }
+    eventContexts = eventContext <$> interface.events
+
+    aName :: Name
+    aName = mkName "a"
+    aType :: Q Type
+    aType = varT aName
+    mName :: Name
+    mName = mkName "m"
+    mType :: Q Type
+    mType = varT mName
+
+    requestClassD :: Q Dec
+    requestClassD =
+      -- [t|MonadCatch $mType|]
+      classD (cxt []) (requestClassN interface) [plainTV mName, plainTV aName] [] (callSigD <$> requestContexts)
+
+    eventClassD :: Q Dec
+    eventClassD =
+      -- [t|MonadCatch $mType|]
+      classD (cxt []) (eventClassN interface) [plainTV mName, plainTV aName] [] (callSigD <$> eventContexts)
+
+    callSigD :: MessageContext -> Q Dec
+    callSigD msg = sigD (mkName (interface.name <> "__" <> msg.msgSpec.name)) [t|$aType -> $(applyArgTypes [t|$mType ()|])|]
+      where
+        applyArgTypes :: Q Type -> Q Type
+        applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType <$> msg.msgSpec.arguments)
+
+
+interfaceN :: InterfaceSpec -> Name
+interfaceN interface = mkName $ "I_" <> interface.name
+
+interfaceT :: InterfaceSpec -> Q Type
+interfaceT interface = conT (interfaceN interface)
+
+requestClassN :: InterfaceSpec -> Name
+requestClassN interface = mkName $ "Requests_" <> interface.name
+
+requestClassT :: InterfaceSpec -> Q Type
+requestClassT interface = conT (requestClassN interface)
+
+eventClassN :: InterfaceSpec -> Name
+eventClassN interface = mkName $ "Events_" <> interface.name
+
+eventClassT :: InterfaceSpec -> Q Type
+eventClassT interface = conT (eventClassN interface)
+
 
 
 data MessageContext = MessageContext {
@@ -139,7 +188,8 @@ msgArgE _msg arg = varE (msgArgTempName arg)
 
 -- | Helper for 'msgConP' and 'msgArgE'.
 msgArgTempName :: ArgumentSpec -> Name
-msgArgTempName = mkName . ("x" <>) . show . (.index)
+msgArgTempName arg = mkName arg.name
+
 
 messageTypeDecs :: Name -> [MessageContext] -> Q [Dec]
 messageTypeDecs name msgs = execWriterT do
@@ -194,11 +244,6 @@ isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, 
         putMessageE args = doE ((\arg -> noBindS [|putArgument @($(argumentSpecType arg)) $(msgArgE msg arg)|]) <$> args)
 
 
-interfaceN :: InterfaceSpec -> Name
-interfaceN interface = mkName $ "I_" <> interface.name
-
-interfaceT :: InterfaceSpec -> Q Type
-interfaceT interface = conT (interfaceN interface)
 
 derivingEq :: Q DerivClause
 derivingEq = derivClause (Just StockStrategy) [[t|Eq|]]
