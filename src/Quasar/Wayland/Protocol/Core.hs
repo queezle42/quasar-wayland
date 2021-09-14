@@ -405,7 +405,7 @@ initialProtocolState wlDisplayCallback wlRegistryCallback = sendInitialMessage i
 feedInput :: (IsSide s, MonadCatch m) => ByteString -> ProtocolStep s m ()
 feedInput bytes = protocolStep do
   feed
-  runCallbacks
+  receiveMessages
   where
     feed = State.modify \st -> st {
       bytesReceived = st.bytesReceived + fromIntegral (BS.length bytes),
@@ -434,12 +434,12 @@ takeOutbox st = (maybeOutboxBytes, st{outbox = Nothing})
 sendInitialMessage :: ProtocolState s m -> ProtocolState s m
 sendInitialMessage = sendMessageInternal 1 1 [DynamicNewIdArgument 2]
 
-runCallbacks :: (IsSide s, MonadCatch m) => StateT (ProtocolState s m) m ()
-runCallbacks = receiveRawMessage >>= \case
+receiveMessages :: (IsSide s, MonadCatch m) => StateT (ProtocolState s m) m ()
+receiveMessages = receiveRawMessage >>= \case
   Nothing -> pure ()
   Just rawMessage -> do
     handleRawMessage rawMessage
-    runCallbacks
+    receiveMessages
 
 handleRawMessage :: forall s m. (IsSide s, MonadCatch m) => RawMessage -> StateT (ProtocolState s m) m ()
 handleRawMessage rawMessage@(oId, opcode, body) = do
