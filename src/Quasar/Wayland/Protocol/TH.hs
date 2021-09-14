@@ -224,16 +224,23 @@ isMessageInstanceD :: Q Type -> [MessageContext] -> Q Dec
 isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, getMessageD, putMessageD]
   where
     opcodeNameD :: Q Dec
-    opcodeNameD = funD 'opcodeName (opcodeNameClauseD <$> msgs)
-    opcodeNameClauseD :: MessageContext -> Q Clause
-    opcodeNameClauseD msg = clause [litP (integerL (fromIntegral msg.msgSpec.opcode))] (normalB ([|Just $(stringE msg.msgSpec.name)|])) []
+    opcodeNameD = funD 'opcodeName ((opcodeNameClause <$> msgs) <> [opcodeNameInvalidClause])
+    opcodeNameClause :: MessageContext -> Q Clause
+    opcodeNameClause msg = clause [litP (integerL (fromIntegral msg.msgSpec.opcode))] (normalB ([|Just $(stringE msg.msgSpec.name)|])) []
+    opcodeNameInvalidClause :: Q Clause
+    opcodeNameInvalidClause = clause [wildP] (normalB ([|Nothing|])) []
     getMessageD :: Q Dec
-    getMessageD = funD 'getMessage (getMessageClauseD <$> msgs)
-    getMessageClauseD :: MessageContext -> Q Clause
-    getMessageClauseD msg = clause [wildP, litP (integerL (fromIntegral msg.msgSpec.opcode))] (normalB getMessageE) []
+    getMessageD = funD 'getMessage ((getMessageClause <$> msgs) <> [getMessageInvalidOpcodeClause])
+    getMessageClause :: MessageContext -> Q Clause
+    getMessageClause msg = clause [wildP, litP (integerL (fromIntegral msg.msgSpec.opcode))] (normalB getMessageE) []
       where
         getMessageE :: Q Exp
         getMessageE = applyA (conE (msg.msgConName)) ((\argT -> [|getArgument @($argT)|]) . argumentSpecType <$> msg.msgSpec.arguments)
+    getMessageInvalidOpcodeClause :: Q Clause
+    getMessageInvalidOpcodeClause = do
+      let object = mkName "object"
+      let opcode = mkName "opcode"
+      clause [varP object, varP opcode] (normalB [|invalidOpcode $(varE object) $(varE opcode)|]) []
     putMessageD :: Q Dec
     putMessageD = funD 'putMessage (putMessageClauseD <$> msgs)
     putMessageClauseD :: MessageContext -> Q Clause

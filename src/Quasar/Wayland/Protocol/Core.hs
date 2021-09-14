@@ -32,6 +32,7 @@ module Quasar.Wayland.Protocol.Core (
   -- * Message decoder operations
   WireFormat(..),
   dropRemaining,
+  invalidOpcode,
 ) where
 
 import Control.Monad (replicateM_)
