@@ -31,7 +31,11 @@ instance IsDisposable WaylandClient where
   toDisposable (WaylandClient connection) = toDisposable connection
 
 newWaylandClient :: MonadResourceManager m => Socket -> m WaylandClient
-newWaylandClient socket = WaylandClient <$> newWaylandConnection @I_wl_display @I_wl_registry clientCallback clientCallback socket
+newWaylandClient socket = WaylandClient <$>
+  newWaylandConnection
+    (clientCallback @I_wl_display)
+    (clientCallback @I_wl_registry)
+    socket
 
 clientCallback :: IsInterfaceSide 'Client i => SimpleCallback 'Client STM i
 clientCallback = SimpleCallback {
