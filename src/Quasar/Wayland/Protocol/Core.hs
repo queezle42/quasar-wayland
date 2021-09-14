@@ -382,7 +382,10 @@ setException ex = protocolStep do
 
 -- | Sends a message without checking any ids or creating proxy objects objects.
 sendMessage :: forall s m i. (IsInterfaceSide s i, MonadCatch m) => Object s m i -> Up s i -> ProtocolStep s m ()
-sendMessage object message = protocolStep do
+sendMessage object message = protocolStep $ sendMessageInternal object message
+
+sendMessageInternal :: forall s m i. (IsInterfaceSide s i, MonadCatch m) => Object s m i -> Up s i -> ProtocolAction s m ()
+sendMessageInternal object message = do
   traceM $ "-> " <> showObjectMessage object message
   sendRawMessage messageWithHeader
   where
