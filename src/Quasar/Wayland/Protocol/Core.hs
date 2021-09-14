@@ -172,19 +172,14 @@ class (
 class IsSide (s :: Side) where
   type Up s i
   type Down s i
-  getDown :: forall m i. IsInterface i => Object s m i -> Opcode -> Get (Down s i)
 
 instance IsSide 'Client where
   type Up 'Client i = Request i
   type Down 'Client i = Event i
-  getDown :: forall m i. IsInterface i => Object 'Client m i -> Opcode -> Get (Down 'Client i)
-  getDown = getMessage @(Down 'Client i)
 
 instance IsSide 'Server where
   type Up 'Server i = Event i
   type Down 'Server i = Request i
-  getDown :: forall m i. IsInterface i => Object 'Server m i -> Opcode -> Get (Down 'Server i)
-  getDown = getMessage @(Down 'Server i)
 
 
 --- | Empty class, used to combine constraints
@@ -195,6 +190,13 @@ class (
     IsMessage (Down s i)
   )
   => IsInterfaceSide (s :: Side) i
+
+
+getDown :: forall s m i. IsInterfaceSide s i => Object s m i -> Opcode -> Get (Down s i)
+getDown = getMessage @(Down s i)
+
+putUp :: forall s i. IsInterfaceSide s i => Up s i -> Put
+putUp = putMessage @(Up s i)
 
 
 class IsInterfaceSide s i => IsInterfaceHandler s m i a where
@@ -409,7 +411,7 @@ feedInput bytes = protocolStep do
       inboxDecoder = pushChunk st.inboxDecoder bytes
     }
 
-sendMessage :: (IsSide s, MonadCatch m) => Object s m i -> Up s i -> ProtocolStep s m ()
+sendMessage :: (IsInterfaceSide s i, MonadCatch m) => Object s m i -> Up s i -> ProtocolStep s m ()
 sendMessage object message = protocolStep do
   undefined message
   runCallbacks
