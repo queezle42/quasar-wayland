@@ -9,6 +9,7 @@ module Quasar.Wayland.Protocol.Core (
   Side(..),
   IsInterface(..),
   IsInterfaceSide(..),
+  IsInterfaceHandler(..),
   Object,
   IsObject(..),
   IsObject,
@@ -16,9 +17,7 @@ module Quasar.Wayland.Protocol.Core (
   ProtocolState,
   ClientProtocolState,
   ServerProtocolState,
-  ClientCallback,
-  ServerCallback,
-  Callback(..),
+  SimpleCallback(..),
   ProtocolStep,
   initialProtocolState,
   sendMessage,
@@ -157,9 +156,8 @@ instance WireFormat 'FdArgument where
   showArgument = undefined
 
 
--- | A proxy type (in the haskell sense) for a Wayland interface.
-class
-  (
+-- | Class for a proxy type (in the haskell sense) that describes a Wayland interface.
+class (
     IsMessage (Request i),
     IsMessage (Event i)
   )
@@ -186,14 +184,24 @@ instance IsSide 'Server where
   getDown = getMessage @(Down 'Server i)
 
 
--- | Empty class, only required to combine constraints
-class (IsSide s, IsInterface i, IsMessage (Up s i), IsMessage (Down s i)) => IsInterfaceSide (s :: Side) i
+--- | Empty class, used to combine constraints
+class (
+    IsSide s,
+    IsInterface i,
+    IsMessage (Up s i),
+    IsMessage (Down s i)
+  )
+  => IsInterfaceSide (s :: Side) i
+
+
+class IsInterfaceSide s i => IsInterfaceHandler s m i a where
+  handleMessage :: a -> Object s m i -> Down s i -> m ()
 
 
 -- | Data kind
 data Side = Client | Server
 
-data Object s m i = IsInterfaceSide s i => Object ObjectId (Callback s m i)
+data Object s m i = forall a. IsInterfaceHandler s m i a => Object ObjectId a
 
 class IsObject a where
   objectId :: a -> ObjectId
@@ -297,12 +305,12 @@ data ProtocolState (s :: Side) m = ProtocolState {
 }
 
 
-type ClientCallback m i = Callback 'Client m i
-type ServerCallback m i = Callback 'Server m i
-
-data Callback s m i = Callback {
-  messageCallback :: Object s m i -> Down s i -> StateT (ProtocolState s m) m ()
+data SimpleCallback s m i = SimpleCallback {
+  messageCallback :: Object s m i -> Down s i -> m ()
 }
+
+instance IsInterfaceSide s i => IsInterfaceHandler s m i (SimpleCallback s m i) where
+  handleMessage cb object msg = cb.messageCallback object msg
 
 -- * Exceptions
 
@@ -342,8 +350,8 @@ protocolStep action inState = do
 
 initialProtocolState
   :: forall wl_display wl_registry s m. (IsInterfaceSide s wl_display, IsInterfaceSide s wl_registry)
-  => Callback s m wl_display
-  -> Callback s m wl_registry
+  => SimpleCallback s m wl_display
+  -> SimpleCallback s m wl_registry
   -> ProtocolState s m
 initialProtocolState wlDisplayCallback wlRegistryCallback = sendInitialMessage initialState
   where
@@ -398,11 +406,11 @@ runCallbacks :: (IsSide s, MonadCatch m) => StateT (ProtocolState s m) m ()
 runCallbacks = receiveRawMessage >>= \case
   Nothing -> pure ()
   Just rawMessage -> do
-    handleMessage rawMessage
+    handleRawMessage rawMessage
     runCallbacks
 
-handleMessage :: forall s m. (IsSide s, MonadCatch m) => RawMessage -> StateT (ProtocolState s m) m ()
-handleMessage rawMessage@(oId, opcode, body) = do
+handleRawMessage :: forall s m. (IsSide s, MonadCatch m) => RawMessage -> StateT (ProtocolState s m) m ()
+handleRawMessage rawMessage@(oId, opcode, body) = do
   st <- State.get
   case HM.lookup oId st.objects of
     Nothing -> throwM $ ProtocolException $ "Received message with invalid object id " <> show oId
@@ -424,10 +432,11 @@ getMessageAction
   -> Object s m i
   -> RawMessage
   -> Get (ProtocolAction s m ())
-getMessageAction objects object@(Object _ callback) (oId, opcode, body) = do
+getMessageAction objects object@(Object _ objectHandler) (oId, opcode, body) = do
   message <- getDown object opcode
-  -- TODO apply message to object
-  pure $ traceM $ "<- " <> showObjectMessage object message
+  pure do
+    --traceM $ "<- " <> showObjectMessage object message
+    lift $ handleMessage objectHandler object message
 
 type ProtocolAction s m a = StateT (ProtocolState s m) m a
 
