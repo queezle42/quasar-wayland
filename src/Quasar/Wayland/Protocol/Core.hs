@@ -465,9 +465,7 @@ getMessageAction
   -> Get (ProtocolAction s m ())
 getMessageAction objects object@(Object _ objectHandler) (oId, opcode, body) = do
   message <- getDown object opcode
-  pure do
-    --traceM $ "<- " <> showObjectMessage object message
-    handleMessage objectHandler object message
+  pure $ handleMessage objectHandler object message
 
 type ProtocolAction s m a = StateT (ProtocolState s m) m a
 
