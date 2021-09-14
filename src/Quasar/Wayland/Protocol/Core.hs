@@ -324,7 +324,9 @@ data ProtocolException = ProtocolException String
 
 type ProtocolStep s m a = ProtocolState s m -> m (Either SomeException a, Maybe BSL.ByteString, ProtocolState s m)
 
-protocolStep :: forall s m a. MonadCatch m => StateT (ProtocolState s m) m a -> ProtocolStep s m a
+type ProtocolAction s m a = StateT (ProtocolState s m) m a
+
+protocolStep :: forall s m a. MonadCatch m => ProtocolAction s m a -> ProtocolStep s m a
 protocolStep action inState = do
   mapM_ throwM inState.protocolException
   (result, (outbox, outState)) <- fmap takeOutbox . storeExceptionIfFailed <$> runStateT (try action) inState
@@ -374,6 +376,10 @@ feedInput bytes = protocolStep do
       inboxDecoder = pushChunk st.inboxDecoder bytes
     }
 
+setException :: (MonadCatch m, Exception e) => e -> ProtocolStep s m ()
+setException ex = protocolStep do
+  State.modify \st -> st{protocolException = Just (toException ex)}
+
 -- | Sends a message without checking any ids or creating proxy objects objects.
 sendMessage :: forall s m i. (IsInterfaceSide s i, MonadCatch m) => Object s m i -> Up s i -> ProtocolStep s m ()
 sendMessage object message = protocolStep do
@@ -394,12 +400,6 @@ sendMessage object message = protocolStep do
     msgSizeInteger :: Integer
     msgSizeInteger = 8 + fromIntegral (BSL.length body)
 
-setException :: (MonadCatch m, Exception e) => e -> ProtocolStep s m ()
-setException ex = protocolStep do
-  State.modify \st -> st{protocolException = Just (toException ex)}
-
--- * Internals
-
 -- | Take data that has to be sent (if available)
 takeOutbox :: ProtocolState s m ->  (Maybe BSL.ByteString, ProtocolState s m)
 takeOutbox st = (maybeOutboxData, st{outbox = Nothing, bytesSent = st.bytesSent + outboxNumBytes})
@@ -409,14 +409,14 @@ takeOutbox st = (maybeOutboxData, st{outbox = Nothing, bytesSent = st.bytesSent 
     outboxNumBytes = maybe 0 BSL.length maybeOutboxData
 
 
-receiveMessages :: (IsSide s, MonadCatch m) => StateT (ProtocolState s m) m ()
+receiveMessages :: (IsSide s, MonadCatch m) => ProtocolAction s m ()
 receiveMessages = receiveRawMessage >>= \case
   Nothing -> pure ()
   Just rawMessage -> do
     handleRawMessage rawMessage
     receiveMessages
 
-handleRawMessage :: forall s m. MonadCatch m => RawMessage -> StateT (ProtocolState s m) m ()
+handleRawMessage :: forall s m. MonadCatch m => RawMessage -> ProtocolAction s m ()
 handleRawMessage (oId, opcode, body) = do
   objects <- State.gets (.objects)
   case HM.lookup oId objects of
@@ -442,11 +442,9 @@ getMessageAction object@(Object _ objectHandler) opcode = do
   message <- getDown object opcode
   pure $ handleMessage objectHandler object message
 
-type ProtocolAction s m a = StateT (ProtocolState s m) m a
-
 type RawMessage = (ObjectId, Opcode, BSL.ByteString)
 
-receiveRawMessage :: forall s m. MonadCatch m => StateT (ProtocolState s m) m (Maybe RawMessage)
+receiveRawMessage :: forall s m. MonadCatch m => ProtocolAction s m (Maybe RawMessage)
 receiveRawMessage = do
   st <- State.get
   (result, newDecoder) <- checkDecoder st.inboxDecoder
@@ -455,7 +453,7 @@ receiveRawMessage = do
   where
     checkDecoder
       :: Decoder RawMessage
-      -> StateT (ProtocolState s m) m (Maybe RawMessage, Decoder RawMessage)
+      -> ProtocolAction s m (Maybe RawMessage, Decoder RawMessage)
     checkDecoder (Fail _ _ message) = throwM (ParserFailed "RawMessage" message)
     checkDecoder x@(Partial _) = pure (Nothing, x)
     checkDecoder (Done leftovers _ result) = pure (Just result, pushChunk (runGetIncremental getRawMessage) leftovers)
