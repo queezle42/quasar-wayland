@@ -35,11 +35,7 @@ module Quasar.Wayland.Protocol.Core (
 
 import Control.Monad (replicateM_)
 import Control.Monad.Catch
-import Control.Monad.Catch.Pure
-import Control.Monad.Reader (ReaderT, runReaderT)
-import Control.Monad.Reader qualified as Reader
-import Control.Monad.Writer (WriterT, runWriterT, execWriterT, tell)
-import Control.Monad.State (StateT, runStateT, lift)
+import Control.Monad.State (StateT, runStateT)
 import Control.Monad.State qualified as State
 import Data.Binary
 import Data.Binary.Get
@@ -50,11 +46,8 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
-import Data.Kind
 import Data.Maybe (isJust)
-import Data.Typeable (Typeable, cast)
 import Data.Void (absurd)
-import GHC.TypeLits
 import Language.Haskell.TH.Syntax (Lift)
 import Quasar.Prelude
 
@@ -338,10 +331,10 @@ protocolStep action inState = do
   pure (result, outbox, outState)
   where
     storeExceptionIfFailed :: (Either SomeException a, ProtocolState s m) -> (Either SomeException a, ProtocolState s m)
-    storeExceptionIfFailed (Left ex, st) = (Left ex, setException ex st)
+    storeExceptionIfFailed (Left ex, st) = (Left ex, setException' ex st)
     storeExceptionIfFailed x = x
-    setException :: (MonadCatch m, Exception e) => e -> (ProtocolState s m) -> (ProtocolState s m)
-    setException ex st =
+    setException' :: Exception e => e -> (ProtocolState s m) -> (ProtocolState s m)
+    setException' ex st =
       if isJust st.protocolException
         then st
         else st{protocolException = Just (toException ex)}
@@ -408,7 +401,7 @@ setException ex = protocolStep do
 -- * Internals
 
 -- | Take data that has to be sent (if available)
-takeOutbox :: MonadCatch m => ProtocolState s m ->  (Maybe BSL.ByteString, ProtocolState s m)
+takeOutbox :: ProtocolState s m ->  (Maybe BSL.ByteString, ProtocolState s m)
 takeOutbox st = (maybeOutboxData, st{outbox = Nothing, bytesSent = st.bytesSent + outboxNumBytes})
   where
     maybeOutboxData = if isJust st.protocolException then Nothing else outboxData
@@ -423,30 +416,29 @@ receiveMessages = receiveRawMessage >>= \case
     handleRawMessage rawMessage
     receiveMessages
 
-handleRawMessage :: forall s m. (IsSide s, MonadCatch m) => RawMessage -> StateT (ProtocolState s m) m ()
-handleRawMessage rawMessage@(oId, opcode, body) = do
-  st <- State.get
-  case HM.lookup oId st.objects of
+handleRawMessage :: forall s m. MonadCatch m => RawMessage -> StateT (ProtocolState s m) m ()
+handleRawMessage (oId, opcode, body) = do
+  objects <- State.gets (.objects)
+  case HM.lookup oId objects of
     Nothing -> throwM $ ProtocolException $ "Received message with invalid object id " <> show oId
 
     Just (SomeObject object) ->
-      case runGetOrFail (getMessageAction st.objects object rawMessage) body of
+      case runGetOrFail (getMessageAction object opcode) body of
         Left (_, _, message) ->
           throwM $ ParserFailed (describeDownMessage object opcode body) message
         Right ("", _, result) -> result
         Right (leftovers, _, _) ->
           throwM $ ParserFailed (describeDownMessage object opcode body) (show (BSL.length leftovers) <> "B not parsed")
 
-    Just (UnknownObject interface oId) -> do
+    Just (UnknownObject interface _) -> do
       throwM $ ProtocolException $ "Received message for object without handler: " <> interface <> "@" <> show oId
 
 getMessageAction
-  :: (IsInterfaceSide s i, MonadCatch m)
-  => HashMap ObjectId (SomeObject s m)
-  -> Object s m i
-  -> RawMessage
+  :: IsInterfaceSide s i
+  => Object s m i
+  -> Opcode
   -> Get (ProtocolAction s m ())
-getMessageAction objects object@(Object _ objectHandler) (oId, opcode, body) = do
+getMessageAction object@(Object _ objectHandler) opcode = do
   message <- getDown object opcode
   pure $ handleMessage objectHandler object message
 
@@ -454,7 +446,7 @@ type ProtocolAction s m a = StateT (ProtocolState s m) m a
 
 type RawMessage = (ObjectId, Opcode, BSL.ByteString)
 
-receiveRawMessage :: forall s m a. MonadCatch m => StateT (ProtocolState s m) m (Maybe RawMessage)
+receiveRawMessage :: forall s m. MonadCatch m => StateT (ProtocolState s m) m (Maybe RawMessage)
 receiveRawMessage = do
   st <- State.get
   (result, newDecoder) <- checkDecoder st.inboxDecoder
@@ -462,8 +454,7 @@ receiveRawMessage = do
   pure result
   where
     checkDecoder
-      :: MonadCatch m
-      => Decoder RawMessage
+      :: Decoder RawMessage
       -> StateT (ProtocolState s m) m (Maybe RawMessage, Decoder RawMessage)
     checkDecoder (Fail _ _ message) = throwM (ParserFailed "RawMessage" message)
     checkDecoder x@(Partial _) = pure (Nothing, x)
