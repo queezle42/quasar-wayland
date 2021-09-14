@@ -419,13 +419,14 @@ handleMessage rawMessage@(oId, opcode, body) = do
       throwM $ ProtocolException $ "Received message for object without handler: " <> interface <> "@" <> show oId
 
 getMessageAction
-  :: (IsSide s, IsInterface i, MonadCatch m)
+  :: (IsInterfaceSide s i, MonadCatch m)
   => HashMap ObjectId (SomeObject s m)
   -> Object s m i
   -> RawMessage
   -> Get (ProtocolAction s m ())
 getMessageAction objects object@(Object _ callback) (oId, opcode, body) = do
   message <- getDown object opcode
+  -- TODO apply message to object
   pure $ traceM $ "<- " <> showObjectMessage object message
 
 type ProtocolAction s m a = StateT (ProtocolState s m) m a
