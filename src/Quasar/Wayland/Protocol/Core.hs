@@ -18,7 +18,7 @@ module Quasar.Wayland.Protocol.Core (
   ClientProtocolState,
   ServerProtocolState,
   Callback(..),
-  lowLevelCallback,
+  internalFnCallback,
   traceCallback,
   ignoreMessage,
   ProtocolStep,
@@ -322,8 +322,8 @@ data LowLevelCallback s m i = IsInterfaceSide s i => FnCallback (Object s m i ->
 instance IsInterfaceSide s i => IsInterfaceHandler s m i (LowLevelCallback s m i) where
   handleMessage (FnCallback fn) object msg = fn object msg
 
-lowLevelCallback :: IsInterfaceSide s i => (Object s m i -> Down s i -> ProtocolAction s m ()) -> Callback s m i
-lowLevelCallback = Callback . FnCallback
+internalFnCallback :: IsInterfaceSide s i => (Object s m i -> Down s i -> ProtocolAction s m ()) -> Callback s m i
+internalFnCallback = Callback . FnCallback
 
 
 {-# WARNING traceCallback "Trace." #-}
@@ -336,13 +336,13 @@ lowLevelCallback = Callback . FnCallback
 --
 -- Uses `traceM` internally.
 traceCallback :: (IsInterfaceSide 'Client i, Monad m) => Callback 'Client m i -> Callback 'Client m i
-traceCallback next = lowLevelCallback \object message -> do
+traceCallback next = internalFnCallback \object message -> do
   traceM $ "<- " <> showObjectMessage object message
   handleMessage next object message
 
 -- | A `Callback` that ignores all messages. Intended for development purposes, e.g. together with `traceCallback`.
 ignoreMessage :: (IsInterfaceSide 'Client i, Monad m) => Callback 'Client m i
-ignoreMessage = lowLevelCallback \_ _ -> pure ()
+ignoreMessage = internalFnCallback \_ _ -> pure ()
 
 -- * Exceptions
 
@@ -412,10 +412,10 @@ feedInput bytes = protocolStep do
       inboxDecoder = pushChunk st.inboxDecoder bytes
     }
 
-sendMessage :: (IsInterfaceSide s i, MonadCatch m) => Object s m i -> Up s i -> ProtocolStep s m ()
-sendMessage object message = protocolStep do
   undefined message
   runCallbacks
+sendMessage :: forall s m i. (IsInterfaceSide s i, MonadCatch m) => Object s m i -> Up s i -> ProtocolStep s m ()
+sendMessage object message = protocolStep do
 
 setException :: (MonadCatch m, Exception e) => e -> ProtocolStep s m ()
 setException ex = protocolStep do
