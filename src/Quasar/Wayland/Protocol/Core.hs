@@ -157,7 +157,7 @@ instance WireFormat 'FdArgument where
   showArgument = undefined
 
 
--- | A wayland interface
+-- | A proxy type (in the haskell sense) for a Wayland interface.
 class
   (
     IsMessage (Request i),
