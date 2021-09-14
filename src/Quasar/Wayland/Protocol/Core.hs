@@ -17,7 +17,10 @@ module Quasar.Wayland.Protocol.Core (
   ProtocolState,
   ClientProtocolState,
   ServerProtocolState,
-  SimpleCallback(..),
+  Callback(..),
+  lowLevelCallback,
+  traceCallback,
+  ignoreMessage,
   ProtocolStep,
   initialProtocolState,
   sendMessage,
@@ -195,13 +198,13 @@ class (
 
 
 class IsInterfaceSide s i => IsInterfaceHandler s m i a where
-  handleMessage :: a -> Object s m i -> Down s i -> m ()
+  handleMessage :: a -> Object s m i -> Down s i -> ProtocolAction s m ()
 
 
 -- | Data kind
 data Side = Client | Server
 
-data Object s m i = forall a. IsInterfaceHandler s m i a => Object ObjectId a
+data Object s m i = IsInterfaceSide s i => Object ObjectId (Callback s m i)
 
 class IsObject a where
   objectId :: a -> ObjectId
@@ -305,12 +308,38 @@ data ProtocolState (s :: Side) m = ProtocolState {
 }
 
 
-data SimpleCallback s m i = SimpleCallback {
-  messageCallback :: Object s m i -> Down s i -> m ()
-}
+data Callback s m i = forall a. IsInterfaceHandler s m i a => Callback a
 
-instance IsInterfaceSide s i => IsInterfaceHandler s m i (SimpleCallback s m i) where
-  handleMessage cb object msg = cb.messageCallback object msg
+instance IsInterfaceSide s i => IsInterfaceHandler s m i (Callback s m i) where
+  handleMessage (Callback callback) = handleMessage callback
+
+
+data LowLevelCallback s m i = IsInterfaceSide s i => FnCallback (Object s m i -> Down s i -> ProtocolAction s m ())
+
+instance IsInterfaceSide s i => IsInterfaceHandler s m i (LowLevelCallback s m i) where
+  handleMessage (FnCallback fn) object msg = fn object msg
+
+lowLevelCallback :: IsInterfaceSide s i => (Object s m i -> Down s i -> ProtocolAction s m ()) -> Callback s m i
+lowLevelCallback = Callback . FnCallback
+
+
+{-# WARNING traceCallback "Trace." #-}
+-- | The 'traceCallback' callback outputs a trace for every received message, before passing the message to the callback
+-- argument.
+--
+-- The 'trace' function should /only/ be used for debugging, or for monitoring execution. The function is not
+-- referentially transparent: its type indicates that it is a pure function but it has the side effect of outputting the
+-- trace message.
+--
+-- Uses `traceM` internally.
+traceCallback :: (IsInterfaceSide 'Client i, Monad m) => Callback 'Client m i -> Callback 'Client m i
+traceCallback next = lowLevelCallback \object message -> do
+  traceM $ "<- " <> showObjectMessage object message
+  handleMessage next object message
+
+-- | A `Callback` that ignores all messages. Intended for development purposes, e.g. together with `traceCallback`.
+ignoreMessage :: (IsInterfaceSide 'Client i, Monad m) => Callback 'Client m i
+ignoreMessage = lowLevelCallback \_ _ -> pure ()
 
 -- * Exceptions
 
@@ -350,8 +379,8 @@ protocolStep action inState = do
 
 initialProtocolState
   :: forall wl_display wl_registry s m. (IsInterfaceSide s wl_display, IsInterfaceSide s wl_registry)
-  => SimpleCallback s m wl_display
-  -> SimpleCallback s m wl_registry
+  => Callback s m wl_display
+  -> Callback s m wl_registry
   -> ProtocolState s m
 initialProtocolState wlDisplayCallback wlRegistryCallback = sendInitialMessage initialState
   where
@@ -436,7 +465,7 @@ getMessageAction objects object@(Object _ objectHandler) (oId, opcode, body) = d
   message <- getDown object opcode
   pure do
     --traceM $ "<- " <> showObjectMessage object message
-    lift $ handleMessage objectHandler object message
+    handleMessage objectHandler object message
 
 type ProtocolAction s m a = StateT (ProtocolState s m) m a
 

@@ -36,8 +36,8 @@ data SocketClosed = SocketClosed
 
 newWaylandConnection
   :: forall wl_display wl_registry s m. (IsInterfaceSide s wl_display, IsInterfaceSide s wl_registry, MonadResourceManager m)
-  => SimpleCallback s STM wl_display
-  -> SimpleCallback s STM wl_registry
+  => Callback s STM wl_display
+  -> Callback s STM wl_registry
   -> Socket
   -> m (WaylandConnection s)
 newWaylandConnection wlDisplayCallback wlRegistryCallback socket = do
