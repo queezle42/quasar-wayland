@@ -2,21 +2,19 @@
 
 module Quasar.Wayland.Protocol.Core (
   ObjectId,
+  NewId(..),
   Opcode,
   ArgumentType(..),
   Fixed,
-  IsSide,
+  IsSide(..),
   Side(..),
   IsInterface(..),
-  IsInterfaceSide(..),
+  IsInterfaceSide,
   IsInterfaceHandler(..),
   Object,
-  IsObject(..),
   IsObject,
   IsMessage(..),
   ProtocolState,
-  ClientProtocolState,
-  ServerProtocolState,
   Callback(..),
   internalFnCallback,
   traceCallback,
@@ -272,39 +270,10 @@ showObjectMessage object message =
   objectInterfaceName object <> "@" <> show (objectId object) <> "." <> show message
 
 
--- TODO remove
-data DynamicArgument
-  = DynamicIntArgument Int32
-  | DynamicUIntArgument Word32
-  -- TODO
-  | DynamicFixedArgument Void
-  | DynamicStringArgument String
-  | DynamicObjectArgument ObjectId
-  | DynamicNewIdArgument ObjectId
-  | DynamicFdArgument ()
-
-dynamicArgumentSize :: DynamicArgument -> Word16
-dynamicArgumentSize (DynamicIntArgument _) = 4
-dynamicArgumentSize (DynamicUIntArgument _) = 4
-dynamicArgumentSize (DynamicObjectArgument _) = 4
-dynamicArgumentSize (DynamicNewIdArgument _) = 4
-dynamicArgumentSize _ = undefined
-
-putDynamicArgument :: DynamicArgument -> Put
-putDynamicArgument (DynamicIntArgument x) = putInt32host x
-putDynamicArgument (DynamicUIntArgument x) = putWord32host x
-putDynamicArgument (DynamicObjectArgument x) = putWord32host x
-putDynamicArgument (DynamicNewIdArgument x) = putWord32host x
-putDynamicArgument _ = undefined
-
-
-type ClientProtocolState m = ProtocolState 'Client m
-type ServerProtocolState m = ProtocolState 'Server m
-
 data ProtocolState (s :: Side) m = ProtocolState {
   protocolException :: Maybe SomeException,
-  bytesReceived :: !Word64,
-  bytesSent :: !Word64,
+  bytesReceived :: !Int64,
+  bytesSent :: !Int64,
   inboxDecoder :: Decoder RawMessage,
   outbox :: Maybe Put,
   objects :: HashMap ObjectId (SomeObject s m)
@@ -384,8 +353,8 @@ initialProtocolState
   :: forall wl_display wl_registry s m. (IsInterfaceSide s wl_display, IsInterfaceSide s wl_registry)
   => Callback s m wl_display
   -> Callback s m wl_registry
-  -> ProtocolState s m
-initialProtocolState wlDisplayCallback wlRegistryCallback = sendInitialMessage initialState
+  -> (ProtocolState s m, Object s m wl_display)
+initialProtocolState wlDisplayCallback wlRegistryCallback = (initialState, wlDisplay)
   where
     wlDisplay :: Object s m wl_display
     wlDisplay = Object 1 wlDisplayCallback
@@ -412,10 +381,25 @@ feedInput bytes = protocolStep do
       inboxDecoder = pushChunk st.inboxDecoder bytes
     }
 
-  undefined message
-  runCallbacks
+-- | Sends a message without checking any ids or creating proxy objects objects.
 sendMessage :: forall s m i. (IsInterfaceSide s i, MonadCatch m) => Object s m i -> Up s i -> ProtocolStep s m ()
 sendMessage object message = protocolStep do
+  traceM $ "-> " <> showObjectMessage object message
+  sendRawMessage messageWithHeader
+  where
+    body :: BSL.ByteString
+    opcode :: Opcode
+    (opcode, body) = runPutM $ putUp object message
+    messageWithHeader :: Put
+    messageWithHeader = do
+      putWord32host $ objectId object
+      putWord32host $ (fromIntegral msgSize `shiftL` 16) .|. fromIntegral opcode
+      putLazyByteString body
+    msgSize :: Word16
+    msgSize = if msgSizeInteger <= fromIntegral (maxBound :: Word16) then fromIntegral msgSizeInteger else error "Message too large"
+    -- TODO: body length should be returned from `putMessage`, instead of realizing it to a ByteString here
+    msgSizeInteger :: Integer
+    msgSizeInteger = 8 + fromIntegral (BSL.length body)
 
 setException :: (MonadCatch m, Exception e) => e -> ProtocolStep s m ()
 setException ex = protocolStep do
@@ -425,14 +409,12 @@ setException ex = protocolStep do
 
 -- | Take data that has to be sent (if available)
 takeOutbox :: MonadCatch m => ProtocolState s m ->  (Maybe BSL.ByteString, ProtocolState s m)
-takeOutbox st = (maybeOutboxBytes, st{outbox = Nothing})
+takeOutbox st = (maybeOutboxData, st{outbox = Nothing, bytesSent = st.bytesSent + outboxNumBytes})
   where
-    maybeOutboxBytes = if isJust st.protocolException then Nothing else outboxBytes
-    outboxBytes = runPut <$> st.outbox
+    maybeOutboxData = if isJust st.protocolException then Nothing else outboxData
+    outboxData = runPut <$> st.outbox
+    outboxNumBytes = maybe 0 BSL.length maybeOutboxData
 
-
-sendInitialMessage :: ProtocolState s m -> ProtocolState s m
-sendInitialMessage = sendMessageInternal 1 1 [DynamicNewIdArgument 2]
 
 receiveMessages :: (IsSide s, MonadCatch m) => StateT (ProtocolState s m) m ()
 receiveMessages = receiveRawMessage >>= \case
@@ -520,19 +502,7 @@ skipPadding = do
   skip $ fromIntegral ((4 - (bytes `mod` 4)) `mod` 4)
 
 
-sendMessageInternal :: ObjectId -> Opcode -> [DynamicArgument] -> ProtocolState s m -> ProtocolState s m
-sendMessageInternal oId opcode args = sendRaw do
-  putWord32host oId
-  putWord32host $ (fromIntegral msgSize `shiftL` 16) .|. fromIntegral opcode
-  mapM_ putDynamicArgument args
-  -- TODO padding
-  where
-    msgSize :: Word16
-    msgSize = if msgSizeInteger <= fromIntegral (maxBound :: Word16) then fromIntegral msgSizeInteger else undefined
-    msgSizeInteger :: Integer
-    msgSizeInteger = foldr ((+) . (fromIntegral . dynamicArgumentSize)) 8 args :: Integer
-
-sendRaw :: Put -> ProtocolState s m -> ProtocolState s m
-sendRaw x oldState = oldState {
-  outbox = Just (maybe x (<> x) oldState.outbox)
+sendRawMessage :: MonadCatch m => Put -> ProtocolAction s m ()
+sendRawMessage x = State.modify \st -> st {
+  outbox = Just (maybe x (<> x) st.outbox)
 }

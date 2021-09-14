@@ -36,6 +36,8 @@ newWaylandClient socket = WaylandClient <$>
     @I_wl_display
     @I_wl_registry
     (traceCallback ignoreMessage)
+    -- HACK to send get_registry
+    (Just (R_wl_display_get_registry (NewId 2)))
     (traceCallback ignoreMessage)
     socket
 

@@ -37,11 +37,12 @@ data SocketClosed = SocketClosed
 newWaylandConnection
   :: forall wl_display wl_registry s m. (IsInterfaceSide s wl_display, IsInterfaceSide s wl_registry, MonadResourceManager m)
   => Callback s STM wl_display
+  -> Maybe (Up s wl_display)
   -> Callback s STM wl_registry
   -> Socket
   -> m (WaylandConnection s)
-newWaylandConnection wlDisplayCallback wlRegistryCallback socket = do
-  protocolStateVar <- liftIO $ newTVarIO $ initialProtocolState wlDisplayCallback wlRegistryCallback
+newWaylandConnection wlDisplayCallback initializationMessage wlRegistryCallback socket = do
+  protocolStateVar <- liftIO $ newTVarIO protocolState
   outboxVar <- liftIO newEmptyTMVarIO
 
   resourceManager <- newResourceManager
@@ -60,10 +61,16 @@ newWaylandConnection wlDisplayCallback wlRegistryCallback socket = do
       connectionThread connection $ sendThread connection
       connectionThread connection $ receiveThread connection
 
-    -- HACK to send first message (queued internally)
-    stepProtocol connection $ feedInput ""
+    -- Create registry, if requested
+    forM_ initializationMessage \msg ->
+      sendProtocolMessage connection wlDisplay msg
 
     pure connection
+  where
+    (protocolState, wlDisplay) = initialProtocolState wlDisplayCallback wlRegistryCallback
+
+sendProtocolMessage :: (IsInterfaceSide s i, MonadIO m) => WaylandConnection s -> Object s STM i -> Up s i -> m ()
+sendProtocolMessage connection object message = stepProtocol connection $ sendMessage object message
 
 stepProtocol :: forall s m a. MonadIO m => WaylandConnection s -> ProtocolStep s STM a -> m a
 stepProtocol connection step = liftIO do
