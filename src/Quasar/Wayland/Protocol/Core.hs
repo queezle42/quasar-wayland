@@ -196,8 +196,8 @@ class (
 getDown :: forall s m i. IsInterfaceSide s i => Object s m i -> Opcode -> Get (Down s i)
 getDown = getMessage @(Down s i)
 
-putUp :: forall s i. IsInterfaceSide s i => Up s i -> Put
-putUp = putMessage @(Up s i)
+putUp :: forall s m i. IsInterfaceSide s i => Object s m i -> Up s i -> PutM Opcode
+putUp _ = putMessage @(Up s i)
 
 
 class IsInterfaceSide s i => IsInterfaceHandler s m i a where
@@ -256,7 +256,7 @@ instance IsObjectSide (SomeObject s m) where
 class (Eq a, Show a) => IsMessage a where
   opcodeName :: Opcode -> Maybe String
   getMessage :: IsInterface i => Object s m i -> Opcode -> Get a
-  putMessage :: a -> PutM ()
+  putMessage :: a -> PutM Opcode
 
 instance IsMessage Void where
   opcodeName _ = Nothing

@@ -247,9 +247,10 @@ isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, 
     putMessageClauseD msg = clause [msgConP msg] (normalB (putMessageE msg.msgSpec.arguments)) []
       where
         putMessageE :: [ArgumentSpec] -> Q Exp
-        putMessageE [] = [|pure ()|]
-        putMessageE args = doE ((\arg -> noBindS [|putArgument @($(argumentSpecType arg)) $(msgArgE msg arg)|]) <$> args)
-
+        putMessageE [] = opcodeE
+        putMessageE args = doE (((\arg -> noBindS [|putArgument @($(argumentSpecType arg)) $(msgArgE msg arg)|]) <$> args) <> [noBindS opcodeE])
+        opcodeE :: Q Exp
+        opcodeE = [|pure $(litE $ integerL $ fromIntegral msg.msgSpec.opcode)|]
 
 
 derivingEq :: Q DerivClause
