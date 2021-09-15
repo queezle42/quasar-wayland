@@ -342,10 +342,13 @@ parseMessage interfaceName (opcode, element) = do
   name <- getAttr "name" element
   since <- read <<$>> peekAttr "since" element
   arguments <- mapM parseArgument $ zip [0..] $ findChildren (qname "arg") element
-  forM_ arguments \arg ->
+  forM_ arguments \arg -> do
     when
-      do arg.argType == GenericNewIdArgument && interfaceName /= "wl_registry"
-      do fail $ "Invalid GenericNewIdArgument encountered on " <> interfaceName <> "." <> name <> " (only valid on wl_registry)"
+      do arg.argType == GenericNewIdArgument && (interfaceName /= "wl_registry" || name /= "bind")
+      do fail $ "Invalid 'new_id' argument without 'interface' attribute encountered on " <> interfaceName <> "." <> name <> " (only valid on wl_registry.bind)"
+    when
+      do arg.argType == GenericObjectArgument && (interfaceName /= "wl_display" || name /= "error")
+      do fail $ "Invalid 'object' argument without 'interface' attribute encountered on " <> interfaceName <> "." <> name <> " (only valid on wl_display.error)"
   pure MessageSpec  {
     name,
     since,
