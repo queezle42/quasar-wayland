@@ -552,7 +552,7 @@ getWaylandBlob = do
 putWaylandBlob :: BS.ByteString -> Put
 putWaylandBlob blob = do
   let size = BS.length blob
-  putWord32host (fromIntegral size)
+  putWord32host (fromIntegral (size + 1))
   putByteString blob
   putWord8 0
   replicateM_ ((4 - (size `mod` 4)) `mod` 4) (putWord8 0)
