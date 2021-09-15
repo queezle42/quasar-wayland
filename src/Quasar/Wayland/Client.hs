@@ -6,13 +6,8 @@ module Quasar.Wayland.Client (
 
 import Control.Concurrent.STM
 import Control.Monad.Catch
-import Control.Monad.State (StateT, lift, runStateT, execStateT)
-import Data.ByteString qualified as BS
-import Data.ByteString.Lazy qualified as BSL
 import Network.Socket (Socket)
 import Network.Socket qualified as Socket
-import Network.Socket.ByteString qualified as Socket
-import Network.Socket.ByteString.Lazy qualified as SocketL
 import Quasar
 import Quasar.Prelude
 import Quasar.Wayland.Connection
@@ -35,7 +30,7 @@ newWaylandClient :: MonadResourceManager m => Socket -> m WaylandClient
 newWaylandClient socket = do
   (connection, wlDisplay) <- newWaylandConnection @I_wl_display (traceCallback ignoreMessage) socket
 
-  (wlRegistry, newId) <- stepProtocol connection $ newObject @'Client @STM @I_wl_registry (traceCallback ignoreMessage)
+  (_wlRegistry, newId) <- stepProtocol connection $ newObject @'Client @STM @I_wl_registry (traceCallback ignoreMessage)
   stepProtocol connection $ sendMessage wlDisplay $ R_wl_display_get_registry newId
   pure $ WaylandClient connection wlDisplay
 
