@@ -555,13 +555,19 @@ putWaylandBlob blob = do
   putWord32host (fromIntegral (size + 1))
   putByteString blob
   putWord8 0
-  replicateM_ ((4 - (size `mod` 4)) `mod` 4) (putWord8 0)
+  replicateM_ (padding size) (putWord8 0)
 
 
 skipPadding :: Get ()
 skipPadding = do
   bytes <- bytesRead
-  skip $ fromIntegral ((4 - (bytes `mod` 4)) `mod` 4)
+  skip $ fromIntegral (padding bytes)
+
+paddedSize :: Integral a => a -> a
+paddedSize size = size + padding size
+
+padding :: Integral a => a -> a
+padding size = ((4 - (size `mod` 4)) `mod` 4)
 
 
 sendRawMessage :: MonadCatch m => Put -> ProtocolAction s m ()
