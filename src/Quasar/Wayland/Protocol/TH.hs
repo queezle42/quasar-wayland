@@ -198,7 +198,8 @@ msgArgE _msg arg = varE (msgArgTempName arg)
 
 -- | Helper for 'msgConP' and 'msgArgE'.
 msgArgTempName :: ArgumentSpec -> Name
-msgArgTempName arg = mkName arg.name
+-- Add an "_" to prevent name conflicts with everything
+msgArgTempName arg = mkName $ arg.name <> "_"
 
 
 messageTypeDecs :: Name -> [MessageContext] -> Q [Dec]
