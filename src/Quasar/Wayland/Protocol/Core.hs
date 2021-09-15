@@ -403,7 +403,7 @@ setException ex = protocolStep do
   State.modify \st -> st{protocolException = Just (toException ex)}
 
 
--- Create an object. The caller is responsible for sending the 'NewId' exactly once before using the object.
+-- | Create an object. The caller is responsible for sending the 'NewId' exactly once before using the object.
 newObject
   :: forall s m i. (IsInterfaceSide s i, MonadCatch m)
   => Callback s m i
@@ -415,14 +415,12 @@ newObjectInternal
   => Callback s m i
   -> ProtocolAction s m (Object s m i, NewId (InterfaceName i))
 newObjectInternal callback = do
-  oId <- allocateObjectId @s @m @i
-  let
-    object = Object oId callback
-    someObject = SomeObject object
-  State.modify \st -> st { objects = HM.insert oId someObject st.objects}
-  pure (object, NewId oId)
+  genOId <- allocateObjectId @s @m
+  let oId = NewId @(InterfaceName i) genOId
+  object <- newObjectFromId oId callback
+  pure (object, oId)
   where
-    allocateObjectId :: forall s m i. (IsInterfaceSide s i, MonadCatch m) => ProtocolAction s m GenericObjectId
+    allocateObjectId :: forall s m. (IsSide s, MonadCatch m) => ProtocolAction s m GenericObjectId
     allocateObjectId = do
       st <- State.get
       let
@@ -432,6 +430,18 @@ newObjectInternal callback = do
       when (nextId' == maximumId @s) $ throwM MaximumIdReached
       State.put $ st {nextId = nextId'}
       pure id
+
+newObjectFromId
+  :: forall s m i. (IsInterfaceSide s i, MonadCatch m)
+  => NewId (InterfaceName i)
+  -> Callback s m i
+  -> ProtocolAction s m (Object s m i)
+newObjectFromId (NewId oId) callback = do
+  let
+    object = Object oId callback
+    someObject = SomeObject object
+  State.modify \st -> st { objects = HM.insert oId someObject st.objects}
+  pure object
 
 
 -- | Sends a message without checking any ids or creating proxy objects objects.
