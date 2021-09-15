@@ -1,6 +1,7 @@
 module Quasar.Wayland.Connection (
   WaylandConnection,
   newWaylandConnection,
+  stepProtocol,
 ) where
 
 import Control.Concurrent.STM
@@ -35,13 +36,11 @@ data SocketClosed = SocketClosed
   deriving anyclass Exception
 
 newWaylandConnection
-  :: forall wl_display wl_registry s m. (IsInterfaceSide s wl_display, IsInterfaceSide s wl_registry, MonadResourceManager m)
+  :: forall wl_display wl_registry s m. (IsInterfaceSide s wl_display, MonadResourceManager m)
   => Callback s STM wl_display
-  -> Maybe (Up s wl_display)
-  -> Callback s STM wl_registry
   -> Socket
-  -> m (WaylandConnection s)
-newWaylandConnection wlDisplayCallback initializationMessage wlRegistryCallback socket = do
+  -> m (WaylandConnection s, Object s STM wl_display)
+newWaylandConnection wlDisplayCallback socket = do
   protocolStateVar <- liftIO $ newTVarIO protocolState
   outboxVar <- liftIO newEmptyTMVarIO
 
@@ -61,16 +60,9 @@ newWaylandConnection wlDisplayCallback initializationMessage wlRegistryCallback 
       connectionThread connection $ sendThread connection
       connectionThread connection $ receiveThread connection
 
-    -- Create registry, if requested
-    forM_ initializationMessage \msg ->
-      sendProtocolMessage connection wlDisplay msg
-
-    pure connection
+    pure (connection, wlDisplay)
   where
-    (protocolState, wlDisplay) = initialProtocolState wlDisplayCallback wlRegistryCallback
-
-sendProtocolMessage :: (IsInterfaceSide s i, MonadIO m) => WaylandConnection s -> Object s STM i -> Up s i -> m ()
-sendProtocolMessage connection object message = stepProtocol connection $ sendMessage object message
+    (protocolState, wlDisplay) = initialProtocolState wlDisplayCallback
 
 stepProtocol :: forall s m a. MonadIO m => WaylandConnection s -> ProtocolStep s STM a -> m a
 stepProtocol connection step = liftIO do

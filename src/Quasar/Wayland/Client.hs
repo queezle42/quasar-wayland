@@ -1,6 +1,7 @@
 module Quasar.Wayland.Client (
   connectWaylandClient,
   newWaylandClient,
+  connectWaylandSocket,
 ) where
 
 import Control.Concurrent.STM
@@ -22,42 +23,40 @@ import System.FilePath ((</>), isRelative)
 import Text.Read (readEither)
 
 
-data WaylandClient = WaylandClient (WaylandConnection 'Client)
+data WaylandClient = WaylandClient (WaylandConnection 'Client) (Object 'Client STM I_wl_display)
 
 instance IsResourceManager WaylandClient where
-  toResourceManager (WaylandClient connection) = toResourceManager connection
+  toResourceManager (WaylandClient connection _) = toResourceManager connection
 
 instance IsDisposable WaylandClient where
-  toDisposable (WaylandClient connection) = toDisposable connection
+  toDisposable (WaylandClient connection _) = toDisposable connection
 
 newWaylandClient :: MonadResourceManager m => Socket -> m WaylandClient
-newWaylandClient socket = WaylandClient <$>
-  newWaylandConnection
-    @I_wl_display
-    @I_wl_registry
-    (traceCallback ignoreMessage)
-    -- HACK to send get_registry
-    (Just (R_wl_display_get_registry (NewId 2)))
-    (traceCallback ignoreMessage)
-    socket
+newWaylandClient socket = do
+  (connection, wlDisplay) <- newWaylandConnection @I_wl_display (traceCallback ignoreMessage) socket
+
+  (wlRegistry, newId) <- stepProtocol connection $ newObject @'Client @STM @I_wl_registry (traceCallback ignoreMessage)
+  stepProtocol connection $ sendMessage wlDisplay $ R_wl_display_get_registry newId
+  pure $ WaylandClient connection wlDisplay
 
 connectWaylandClient :: MonadResourceManager m => m WaylandClient
 connectWaylandClient = mask_ do
   socket <- liftIO connectWaylandSocket
   newWaylandClient socket
-  where
-    connectWaylandSocket :: IO Socket
-    connectWaylandSocket = do
-      lookupEnv "WAYLAND_SOCKET" >>= \case
-        -- Parent process already established connection
-        Just waylandSocketEnv -> do
-          case readEither waylandSocketEnv of
-            Left err -> fail $ "Failed to parse WAYLAND_SOCKET: " <> err
-            Right fd -> Socket.mkSocket fd
-        Nothing -> do
-          path <- getWaylandSocketPath
-          newUnixSocket path
 
+connectWaylandSocket :: IO Socket
+connectWaylandSocket = do
+  lookupEnv "WAYLAND_SOCKET" >>= \case
+    -- Parent process already established connection
+    Just waylandSocketEnv -> do
+      case readEither waylandSocketEnv of
+        Left err -> fail $ "Failed to parse WAYLAND_SOCKET: " <> err
+        Right fd -> Socket.mkSocket fd
+    Nothing -> do
+      path <- getWaylandSocketPath
+      newUnixSocket path
+
+  where
     getWaylandSocketPath :: IO FilePath
     getWaylandSocketPath = do
       waylandDisplayEnv <- lookupEnv "WAYLAND_DISPLAY"

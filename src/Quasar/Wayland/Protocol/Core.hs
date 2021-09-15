@@ -2,6 +2,7 @@
 
 module Quasar.Wayland.Protocol.Core (
   ObjectId,
+  GenericObjectId,
   NewId(..),
   Opcode,
   ArgumentType(..),
@@ -22,6 +23,7 @@ module Quasar.Wayland.Protocol.Core (
   ProtocolStep,
   initialProtocolState,
   sendMessage,
+  newObject,
   feedInput,
   setException,
 
@@ -47,12 +49,18 @@ import Data.ByteString.Lazy qualified as BSL
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Maybe (isJust)
+import Data.Proxy
 import Data.Void (absurd)
+import GHC.TypeLits
 import Language.Haskell.TH.Syntax (Lift)
 import Quasar.Prelude
 
 
-type ObjectId = Word32
+newtype ObjectId (j :: Symbol) = ObjectId GenericObjectId
+  deriving stock (Eq, Show)
+
+type GenericObjectId = Word32
+
 type Opcode = Word16
 
 -- | Signed 24.8 decimal numbers.
@@ -62,13 +70,15 @@ newtype Fixed = Fixed Word32
 instance Show Fixed where
   show x = "[fixed " <> show x <> "]"
 
-newtype NewId = NewId ObjectId
-  deriving newtype (Eq, Show)
+newtype NewId (j :: Symbol) = NewId GenericObjectId
+  deriving stock (Eq, Show)
+
+newtype GenericNewId = GenericNewId GenericObjectId
+  deriving stock (Eq, Show)
 
 
 dropRemaining :: Get ()
 dropRemaining = void getRemainingLazyByteString
-
 
 
 data ArgumentType
@@ -78,9 +88,9 @@ data ArgumentType
   | StringArgument
   | ArrayArgument
   | ObjectArgument String
-  | UnknownObjectArgument
+  | GenericObjectArgument
   | NewIdArgument String
-  | UnknownNewIdArgument
+  | GenericNewIdArgument
   | FdArgument
   deriving stock (Eq, Show, Lift)
 
@@ -120,29 +130,29 @@ instance WireFormat 'ArrayArgument where
   getArgument = getWaylandBlob
   showArgument array = "[array " <> show (BS.length array) <> "B]"
 
-instance WireFormat 'ObjectArgument where
-  type Argument 'ObjectArgument = ObjectId
+instance KnownSymbol j => WireFormat (ObjectId (j :: Symbol)) where
+  type Argument (ObjectId j) = ObjectId j
+  putArgument (ObjectId oId) = putWord32host oId
+  getArgument = ObjectId <$> getWord32host
+  showArgument (ObjectId oId) = symbolVal @j Proxy <> "@" <> show oId
+
+instance WireFormat 'GenericObjectArgument where
+  type Argument 'GenericObjectArgument = GenericObjectId
   putArgument = putWord32host
   getArgument = getWord32host
-  showArgument oId = "@" <> show oId
+  showArgument oId = "[unknown]@" <> show oId
 
-instance WireFormat 'UnknownObjectArgument where
-  type Argument 'UnknownObjectArgument = ObjectId
-  putArgument = putWord32host
-  getArgument = getWord32host
-  showArgument oId = "@" <> show oId
-
-instance WireFormat 'NewIdArgument where
-  type Argument 'NewIdArgument = NewId
+instance KnownSymbol j => WireFormat (NewId (j :: Symbol)) where
+  type Argument (NewId j) = NewId j
   putArgument (NewId newId) = putWord32host newId
   getArgument = NewId <$> getWord32host
-  showArgument newId = "new @" <> show newId
+  showArgument (NewId newId) = "new " <> symbolVal @j Proxy <> "@" <> show newId
 
-instance WireFormat 'UnknownNewIdArgument where
-  type Argument 'UnknownNewIdArgument = NewId
-  putArgument (NewId newId) = putWord32host newId
-  getArgument = NewId <$> getWord32host
-  showArgument newId = "new @" <> show newId
+instance WireFormat 'GenericNewIdArgument where
+  type Argument 'GenericNewIdArgument = GenericNewId
+  putArgument (GenericNewId newId) = putWord32host newId
+  getArgument = GenericNewId <$> getWord32host
+  showArgument newId = "new [unknown]@" <> show newId
 
 instance WireFormat 'FdArgument where
   type Argument 'FdArgument = Void
@@ -159,19 +169,27 @@ class (
   => IsInterface i where
   type Request i
   type Event i
+  type InterfaceName i :: Symbol
   interfaceName :: String
 
 class IsSide (s :: Side) where
   type Up s i
   type Down s i
+  initialId :: GenericObjectId
+  maximumId :: GenericObjectId
 
 instance IsSide 'Client where
   type Up 'Client i = Request i
   type Down 'Client i = Event i
+  -- Id #1 is reserved for wl_display
+  initialId = 2
+  maximumId = 0xfeffffff
 
 instance IsSide 'Server where
   type Up 'Server i = Event i
   type Down 'Server i = Request i
+  initialId = 0xff000000
+  maximumId = 0xffffffff
 
 
 --- | Empty class, used to combine constraints
@@ -198,10 +216,10 @@ class IsInterfaceSide s i => IsInterfaceHandler s m i a where
 -- | Data kind
 data Side = Client | Server
 
-data Object s m i = IsInterfaceSide s i => Object ObjectId (Callback s m i)
+data Object s m i = IsInterfaceSide s i => Object GenericObjectId (Callback s m i)
 
 class IsObject a where
-  objectId :: a -> ObjectId
+  objectId :: a -> GenericObjectId
   objectInterfaceName :: a -> String
 
 class IsObjectSide a where
@@ -225,7 +243,7 @@ instance forall s m i. IsInterfaceSide s i => IsObjectSide (Object s m i) where
 -- | Wayland object quantification wrapper
 data SomeObject s m
   = forall i. IsInterfaceSide s i => SomeObject (Object s m i)
-  | UnknownObject String ObjectId
+  | UnknownObject String GenericObjectId
 
 instance IsObject (SomeObject s m) where
   objectId (SomeObject object) = objectId object
@@ -269,7 +287,8 @@ data ProtocolState (s :: Side) m = ProtocolState {
   bytesSent :: !Int64,
   inboxDecoder :: Decoder RawMessage,
   outbox :: Maybe Put,
-  objects :: HashMap ObjectId (SomeObject s m)
+  objects :: HashMap GenericObjectId (SomeObject s m),
+  nextId :: Word32
 }
 
 
@@ -320,10 +339,15 @@ data ProtocolException = ProtocolException String
   deriving stock Show
   deriving anyclass Exception
 
+data MaximumIdReached = MaximumIdReached
+  deriving stock Show
+  deriving anyclass Exception
+
 -- * Monad plumbing
 
 type ProtocolStep s m a = ProtocolState s m -> m (Either SomeException a, Maybe BSL.ByteString, ProtocolState s m)
 
+-- Must not be exported. 'ProtocolStep' ensures proper protocol failure in case of exceptions.
 type ProtocolAction s m a = StateT (ProtocolState s m) m a
 
 protocolStep :: forall s m a. MonadCatch m => ProtocolAction s m a -> ProtocolStep s m a
@@ -345,16 +369,13 @@ protocolStep action inState = do
 -- * Exported functions
 
 initialProtocolState
-  :: forall wl_display wl_registry s m. (IsInterfaceSide s wl_display, IsInterfaceSide s wl_registry)
+  :: forall wl_display wl_registry s m. IsInterfaceSide s wl_display
   => Callback s m wl_display
-  -> Callback s m wl_registry
   -> (ProtocolState s m, Object s m wl_display)
-initialProtocolState wlDisplayCallback wlRegistryCallback = (initialState, wlDisplay)
+initialProtocolState wlDisplayCallback = (initialState, wlDisplay)
   where
     wlDisplay :: Object s m wl_display
     wlDisplay = Object 1 wlDisplayCallback
-    wlRegistry :: Object s m wl_registry
-    wlRegistry = Object 2 wlRegistryCallback
     initialState :: ProtocolState s m
     initialState = ProtocolState {
       protocolException = Nothing,
@@ -362,7 +383,8 @@ initialProtocolState wlDisplayCallback wlRegistryCallback = (initialState, wlDis
       bytesSent = 0,
       inboxDecoder = runGetIncremental getRawMessage,
       outbox = Nothing,
-      objects = HM.fromList [(1, (SomeObject wlDisplay)), (2, (SomeObject wlRegistry))]
+      objects = HM.fromList [(1, (SomeObject wlDisplay))],
+      nextId = initialId @s
     }
 
 -- | Feed the protocol newly received data
@@ -379,6 +401,38 @@ feedInput bytes = protocolStep do
 setException :: (MonadCatch m, Exception e) => e -> ProtocolStep s m ()
 setException ex = protocolStep do
   State.modify \st -> st{protocolException = Just (toException ex)}
+
+
+-- Create an object. The caller is responsible for sending the 'NewId' exactly once before using the object.
+newObject
+  :: forall s m i. (IsInterfaceSide s i, MonadCatch m)
+  => Callback s m i
+  -> ProtocolStep s m (Object s m i, NewId (InterfaceName i))
+newObject callback = protocolStep $ newObjectInternal callback
+
+newObjectInternal
+  :: forall s m i. (IsInterfaceSide s i, MonadCatch m)
+  => Callback s m i
+  -> ProtocolAction s m (Object s m i, NewId (InterfaceName i))
+newObjectInternal callback = do
+  oId <- allocateObjectId @s @m @i
+  let
+    object = Object oId callback
+    someObject = SomeObject object
+  State.modify \st -> st { objects = HM.insert oId someObject st.objects}
+  pure (object, NewId oId)
+  where
+    allocateObjectId :: forall s m i. (IsInterfaceSide s i, MonadCatch m) => ProtocolAction s m GenericObjectId
+    allocateObjectId = do
+      st <- State.get
+      let
+        id = st.nextId
+        nextId' = id + 1
+
+      when (nextId' == maximumId @s) $ throwM MaximumIdReached
+      State.put $ st {nextId = nextId'}
+      pure id
+
 
 -- | Sends a message without checking any ids or creating proxy objects objects.
 sendMessage :: forall s m i. (IsInterfaceSide s i, MonadCatch m) => Object s m i -> Up s i -> ProtocolStep s m ()
@@ -445,7 +499,7 @@ getMessageAction object@(Object _ objectHandler) opcode = do
   message <- getDown object opcode
   pure $ handleMessage objectHandler object message
 
-type RawMessage = (ObjectId, Opcode, BSL.ByteString)
+type RawMessage = (GenericObjectId, Opcode, BSL.ByteString)
 
 receiveRawMessage :: forall s m. MonadCatch m => ProtocolAction s m (Maybe RawMessage)
 receiveRawMessage = do

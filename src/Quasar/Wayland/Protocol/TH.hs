@@ -89,9 +89,10 @@ interfaceDecs interface = do
     iName = interfaceN interface
     iT = interfaceT interface
     instanceDecs = [
-      valD (varP 'interfaceName) (normalB (stringE interface.name)) [],
       tySynInstD (tySynEqn Nothing (appT (conT ''Request) iT) rT),
-      tySynInstD (tySynEqn Nothing (appT (conT ''Event) iT) eT)
+      tySynInstD (tySynEqn Nothing (appT (conT ''Event) iT) eT),
+      tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceName) iT) (litT (strTyLit interface.name))),
+      valD (varP 'interfaceName) (normalB (stringE interface.name)) []
       ]
     rT :: Q Type
     rT = if length interface.requests > 0 then conT rTypeName else [t|Void|]
@@ -148,6 +149,15 @@ interfaceDecs interface = do
       where
         applyArgTypes :: Q Type -> Q Type
         applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType <$> msg.msgSpec.arguments)
+
+interfaceSideInstanceDs :: InterfaceSpec -> Q [Dec]
+interfaceSideInstanceDs interface = execWriterT do
+  tellQs [d|instance IsInterfaceSide 'Client $iT|]
+  tellQs [d|instance IsInterfaceSide 'Server $iT|]
+  --tellQs [d|instance forall m a. IsInterfaceHandler 'Client m $iT a where {handleMessage = undefined}|]
+  --tellQs [d|instance forall m a. IsInterfaceHandler 'Server m $iT a where {handleMessage = undefined}|]
+  where
+    iT = interfaceT interface
 
 
 interfaceN :: InterfaceSpec -> Name
@@ -272,12 +282,14 @@ argumentSpecType :: ArgumentSpec -> Q Type
 argumentSpecType argSpec = promoteArgumentSpecType argSpec.argType
 
 promoteArgumentSpecType :: ArgumentType -> Q Type
+promoteArgumentSpecType (ObjectArgument iName) = [t|ObjectId $(litT $ strTyLit iName)|]
+promoteArgumentSpecType (NewIdArgument iName) = [t|NewId $(litT $ strTyLit iName)|]
 promoteArgumentSpecType arg = do
   argExp <- (TH.lift arg)
-  ConT <$> matchCon argExp
+  matchCon argExp
   where
-    matchCon :: Exp -> Q Name
-    matchCon (ConE name) = pure name
+    matchCon :: Exp -> Q Type
+    matchCon (ConE name) = pure $ ConT name
     matchCon (AppE x _) = matchCon x
     matchCon _ = fail "Can only promote ConE expression"
 
@@ -310,8 +322,8 @@ parseInterface :: MonadFail m => Element -> m InterfaceSpec
 parseInterface element = do
   name <- getAttr "name" element
   version <- read <$> getAttr "version" element
-  requests <- mapM parseRequest $ zip [0..] $ findChildren (qname "request") element
-  events <- mapM parseEvent $ zip [0..] $ findChildren (qname "event") element
+  requests <- mapM (parseRequest name) $ zip [0..] $ findChildren (qname "request") element
+  events <- mapM (parseEvent name) $ zip [0..] $ findChildren (qname "event") element
   pure InterfaceSpec {
     name,
     version,
@@ -319,17 +331,21 @@ parseInterface element = do
     events
   }
 
-parseRequest :: MonadFail m => (Opcode, Element) -> m RequestSpec
-parseRequest x = RequestSpec <$> parseMessage x
+parseRequest :: MonadFail m => String -> (Opcode, Element) -> m RequestSpec
+parseRequest x y = RequestSpec <$> parseMessage x y
 
-parseEvent :: MonadFail m => (Opcode, Element) -> m EventSpec
-parseEvent x = EventSpec <$> parseMessage x
+parseEvent :: MonadFail m => String -> (Opcode, Element) -> m EventSpec
+parseEvent x y = EventSpec <$> parseMessage x y
 
-parseMessage :: MonadFail m => (Opcode, Element) -> m MessageSpec
-parseMessage (opcode, element) = do
+parseMessage :: MonadFail m => String -> (Opcode, Element) -> m MessageSpec
+parseMessage interfaceName (opcode, element) = do
   name <- getAttr "name" element
   since <- read <<$>> peekAttr "since" element
   arguments <- mapM parseArgument $ zip [0..] $ findChildren (qname "arg") element
+  forM_ arguments \arg ->
+    when
+      do arg.argType == GenericNewIdArgument && interfaceName /= "wl_registry"
+      do fail $ "Invalid GenericNewIdArgument encountered on " <> interfaceName <> "." <> name <> " (only valid on wl_registry)"
   pure MessageSpec  {
     name,
     since,
@@ -357,9 +373,9 @@ parseArgument (index, element) = do
     parseArgumentType "string" Nothing = pure StringArgument
     parseArgumentType "array" Nothing = pure ArrayArgument
     parseArgumentType "object" (Just interface) = pure (ObjectArgument interface)
-    parseArgumentType "object" Nothing = pure UnknownObjectArgument
+    parseArgumentType "object" Nothing = pure GenericObjectArgument
     parseArgumentType "new_id" (Just interface) = pure (NewIdArgument interface)
-    parseArgumentType "new_id" Nothing = pure UnknownNewIdArgument
+    parseArgumentType "new_id" Nothing = pure GenericNewIdArgument
     parseArgumentType "fd" Nothing = pure FdArgument
     parseArgumentType x Nothing = fail $ "Unknown argument type \"" <> x <> "\" encountered"
     parseArgumentType x _ = fail $ "Argument type \"" <> x <> "\" should not have \"interface\" attribute"
