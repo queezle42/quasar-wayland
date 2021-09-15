@@ -28,6 +28,7 @@ module Quasar.Wayland.Protocol.Core (
   setException,
 
   showObjectMessage,
+  isNewId,
 
   -- * Message decoder operations
   WireFormat(..),
@@ -93,6 +94,11 @@ data ArgumentType
   | GenericNewIdArgument
   | FdArgument
   deriving stock (Eq, Show, Lift)
+
+isNewId :: ArgumentType -> Bool
+isNewId (NewIdArgument _) = True
+isNewId GenericNewIdArgument = True
+isNewId _ = False
 
 class (Eq (Argument a), Show (Argument a)) => WireFormat a where
   type Argument a

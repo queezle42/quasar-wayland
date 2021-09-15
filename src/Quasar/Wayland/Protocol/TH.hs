@@ -37,14 +37,16 @@ data MessageSpec = MessageSpec {
   name :: String,
   since :: Maybe Integer,
   opcode :: Opcode,
-  arguments :: [ArgumentSpec]
+  arguments :: [ArgumentSpec],
+  isDestructor :: Bool
 }
   deriving stock Show
 
 data ArgumentSpec = ArgumentSpec {
   name :: String,
   index :: Integer,
-  argType :: ArgumentType
+  argType :: ArgumentType,
+  nullable :: Bool
 }
   deriving stock Show
 
@@ -333,41 +335,73 @@ parseInterface element = do
   }
 
 parseRequest :: MonadFail m => String -> (Opcode, Element) -> m RequestSpec
-parseRequest x y = RequestSpec <$> parseMessage x y
+parseRequest x y = RequestSpec <$> parseMessage True x y
 
 parseEvent :: MonadFail m => String -> (Opcode, Element) -> m EventSpec
-parseEvent x y = EventSpec <$> parseMessage x y
+parseEvent x y = EventSpec <$> parseMessage False x y
 
-parseMessage :: MonadFail m => String -> (Opcode, Element) -> m MessageSpec
-parseMessage interfaceName (opcode, element) = do
+parseMessage :: MonadFail m => Bool -> String -> (Opcode, Element) -> m MessageSpec
+parseMessage isRequest interfaceName (opcode, element) = do
+  let isEvent = not isRequest
+
   name <- getAttr "name" element
+
+  let description = interfaceName <> "." <> name
+
+  mtype <- peekAttr "type" element
   since <- read <<$>> peekAttr "since" element
-  arguments <- mapM parseArgument $ zip [0..] $ findChildren (qname "arg") element
+  arguments <- mapM (parseArgument description) $ zip [0..] $ findChildren (qname "arg") element
+
+  isDestructor <-
+    case mtype of
+      Nothing -> pure False
+      Just "destructor" -> pure True
+      Just messageType -> fail $ "Unknown message type: " <> messageType
+
+  when
+    do isEvent && isDestructor
+    do fail $ "Event cannot be a destructor: " <> description
+
+  when
+    do (foldr (\arg -> if isNewId arg.argType then (+ 1) else id) 0 arguments) > 1
+    do fail $ "Message creates multiple objects: " <> description
+
   forM_ arguments \arg -> do
     when
       do arg.argType == GenericNewIdArgument && (interfaceName /= "wl_registry" || name /= "bind")
-      do fail $ "Invalid 'new_id' argument without 'interface' attribute encountered on " <> interfaceName <> "." <> name <> " (only valid on wl_registry.bind)"
+      do fail $ "Invalid \"new_id\" argument without \"interface\" attribute encountered on " <> description <> " (only valid on wl_registry.bind)"
     when
       do arg.argType == GenericObjectArgument && (interfaceName /= "wl_display" || name /= "error")
-      do fail $ "Invalid 'object' argument without 'interface' attribute encountered on " <> interfaceName <> "." <> name <> " (only valid on wl_display.error)"
+      do fail $ "Invalid \"object\" argument without \"interface\" attribute encountered on " <> description <> " (only valid on wl_display.error)"
+
   pure MessageSpec  {
     name,
     since,
     opcode,
-    arguments
+    arguments,
+    isDestructor
   }
 
 
-parseArgument :: forall m. MonadFail m => (Integer, Element) -> m ArgumentSpec
-parseArgument (index, element) = do
+parseArgument :: forall m. MonadFail m => String -> (Integer, Element) -> m ArgumentSpec
+parseArgument messageDescription (index, element) = do
   name <- getAttr "name" element
   argTypeStr <- getAttr "type" element
   interface <- peekAttr "interface" element
   argType <- parseArgumentType argTypeStr interface
+
+  let description = messageDescription <> "." <> name
+
+  nullable <- peekAttr "allow-null" element >>= \case
+    Just "true" -> pure True
+    Just "false" -> pure False
+    Just x -> fail $ "Invalid value for attribute \"allow-null\" on " <> description <> ": " <> x
+    Nothing -> pure False
   pure ArgumentSpec {
     name,
     index,
-    argType
+    argType,
+    nullable
   }
   where
     parseArgumentType :: String -> Maybe String -> m ArgumentType
