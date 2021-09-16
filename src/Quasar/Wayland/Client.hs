@@ -30,8 +30,8 @@ newWaylandClient :: MonadResourceManager m => Socket -> m WaylandClient
 newWaylandClient socket = do
   (connection, wlDisplay) <- newWaylandConnection @I_wl_display (traceCallback ignoreMessage) socket
 
-  (_wlRegistry, newId) <- stepProtocol connection $ newObject @'Client @I_wl_registry (traceCallback ignoreMessage)
-  stepProtocol connection $ sendMessage wlDisplay $ R_wl_display_get_registry newId
+  (_wlRegistry, newId) <- runProtocolM connection.protocolHandle $ newObject @'Client @I_wl_registry (traceCallback ignoreMessage)
+  runProtocolM connection.protocolHandle $ sendMessage wlDisplay $ R_wl_display_get_registry newId
   pure $ WaylandClient connection wlDisplay
 
 connectWaylandClient :: MonadResourceManager m => m WaylandClient

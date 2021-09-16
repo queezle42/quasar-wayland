@@ -1,7 +1,6 @@
 module Quasar.Wayland.Connection (
-  WaylandConnection,
+  WaylandConnection(protocolHandle),
   newWaylandConnection,
-  stepProtocol,
 ) where
 
 import Control.Concurrent.STM
@@ -19,8 +18,7 @@ import Quasar.Wayland.Protocol.Generated
 
 
 data WaylandConnection s = WaylandConnection {
-  protocolStateVar :: TVar (ProtocolState s),
-  outboxVar :: TMVar BSL.ByteString,
+  protocolHandle :: ProtocolHandle s,
   socket :: Socket,
   resourceManager :: ResourceManager
 }
@@ -36,20 +34,18 @@ data SocketClosed = SocketClosed
   deriving anyclass Exception
 
 newWaylandConnection
-  :: forall wl_display wl_registry s m. (IsInterfaceSide s wl_display, MonadResourceManager m)
+  :: forall wl_display s m. (IsInterfaceSide s wl_display, MonadResourceManager m)
   => Callback s wl_display
   -> Socket
   -> m (WaylandConnection s, Object s wl_display)
 newWaylandConnection wlDisplayCallback socket = do
-  protocolStateVar <- liftIO $ newTVarIO protocolState
-  outboxVar <- liftIO newEmptyTMVarIO
+  (wlDisplay, protocolHandle) <- liftIO $ atomically $ initializeProtocol wlDisplayCallback pure
 
   resourceManager <- newResourceManager
 
   onResourceManager resourceManager do
     let connection = WaylandConnection {
-      protocolStateVar,
-      outboxVar,
+      protocolHandle,
       socket,
       resourceManager
     }
@@ -61,20 +57,6 @@ newWaylandConnection wlDisplayCallback socket = do
       connectionThread connection $ receiveThread connection
 
     pure (connection, wlDisplay)
-  where
-    (protocolState, wlDisplay) = initialProtocolState wlDisplayCallback
-
-stepProtocol :: forall s m a. MonadIO m => WaylandConnection s -> ProtocolStep s a -> m a
-stepProtocol connection step = liftIO do
-  result <- atomically do
-    oldState <- readTVar connection.protocolStateVar
-    (result, outBytes, newState) <- step oldState
-    writeTVar connection.protocolStateVar newState
-    mapM_ (putTMVar connection.outboxVar) outBytes
-    pure result
-  case result of
-    Left ex -> throwM (ex :: SomeException)
-    Right result -> pure result
 
 connectionThread :: MonadAsync m => WaylandConnection s -> IO () -> m ()
 connectionThread connection work = async_ $ liftIO $ work `catches` [ignoreCancelTask, handleAll]
@@ -84,7 +66,7 @@ connectionThread connection work = async_ $ liftIO $ work `catches` [ignoreCance
 
 sendThread :: WaylandConnection s -> IO ()
 sendThread connection = forever do
-  bytes <- atomically $ takeTMVar connection.outboxVar
+  bytes <- takeOutbox connection.protocolHandle
 
   traceIO $ "Sending " <> show (BSL.length bytes) <> " bytes"
   SocketL.sendAll connection.socket bytes
@@ -99,7 +81,7 @@ receiveThread connection = forever do
 
   traceIO $ "Received " <> show (BS.length bytes) <> " bytes"
 
-  stepProtocol connection $ feedInput bytes
+  feedInput connection.protocolHandle bytes
 
 closeConnection :: WaylandConnection s -> IO (Awaitable ())
 closeConnection connection = do

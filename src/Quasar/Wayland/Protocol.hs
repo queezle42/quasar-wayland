@@ -12,24 +12,23 @@ import Quasar.Wayland.Protocol.Core
 import Quasar.Wayland.Protocol.Generated
 
 
-createClientStateWithRegistry :: STM (ProtocolState 'Client)
+createClientStateWithRegistry :: STM (ProtocolHandle 'Client)
 createClientStateWithRegistry = do
-  (wlRegistry, state') <- runStateT go initialState'
-  pure state'
+  (wlRegistry, protocolHandle) <- initializeProtocol wlDisplayCallback createRegistry
+  pure protocolHandle
   where
-    (initialState', wlDisplay) = initialProtocolState wlDisplayCallback
-
-    go :: ProtocolAction 'Client (Object 'Client I_wl_registry)
-    go = do
-      (wlRegistry, newId) <- newObjectInternal @'Client @I_wl_registry (traceCallback ignoreMessage)
-      sendMessageInternal wlDisplay $ R_wl_display_get_registry newId
+    createRegistry :: Object 'Client I_wl_display -> ProtocolM 'Client (Object 'Client I_wl_registry)
+    createRegistry wlDisplay = do
+      (wlRegistry, newId) <- newObject @'Client @I_wl_registry (traceCallback ignoreMessage)
+      sendMessage wlDisplay $ R_wl_display_get_registry newId
 
       pure wlRegistry
 
     wlDisplayCallback :: IsInterfaceSide 'Client I_wl_display => Callback 'Client I_wl_display
     wlDisplayCallback = internalFnCallback handler
       where
-        handler :: Object 'Client I_wl_display -> E_wl_display -> ProtocolAction 'Client ()
+        -- | wl_display is specified to never change, so manually specifying the callback is safe
+        handler :: Object 'Client I_wl_display -> E_wl_display -> ProtocolM 'Client ()
         -- TODO parse oId
         handler _ (E_wl_display_error oId code message) = throwM $ ServerError code (toString message)
         handler _ (E_wl_display_delete_id deletedId) = pure () -- TODO confirm delete
