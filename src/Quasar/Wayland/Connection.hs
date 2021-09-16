@@ -19,7 +19,7 @@ import Quasar.Wayland.Protocol.Generated
 
 
 data WaylandConnection s = WaylandConnection {
-  protocolStateVar :: TVar (ProtocolState s STM),
+  protocolStateVar :: TVar (ProtocolState s),
   outboxVar :: TMVar BSL.ByteString,
   socket :: Socket,
   resourceManager :: ResourceManager
@@ -37,9 +37,9 @@ data SocketClosed = SocketClosed
 
 newWaylandConnection
   :: forall wl_display wl_registry s m. (IsInterfaceSide s wl_display, MonadResourceManager m)
-  => Callback s STM wl_display
+  => Callback s wl_display
   -> Socket
-  -> m (WaylandConnection s, Object s STM wl_display)
+  -> m (WaylandConnection s, Object s wl_display)
 newWaylandConnection wlDisplayCallback socket = do
   protocolStateVar <- liftIO $ newTVarIO protocolState
   outboxVar <- liftIO newEmptyTMVarIO
@@ -64,7 +64,7 @@ newWaylandConnection wlDisplayCallback socket = do
   where
     (protocolState, wlDisplay) = initialProtocolState wlDisplayCallback
 
-stepProtocol :: forall s m a. MonadIO m => WaylandConnection s -> ProtocolStep s STM a -> m a
+stepProtocol :: forall s m a. MonadIO m => WaylandConnection s -> ProtocolStep s a -> m a
 stepProtocol connection step = liftIO do
   result <- atomically do
     oldState <- readTVar connection.protocolStateVar

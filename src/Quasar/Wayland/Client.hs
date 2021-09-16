@@ -18,7 +18,7 @@ import System.FilePath ((</>), isRelative)
 import Text.Read (readEither)
 
 
-data WaylandClient = WaylandClient (WaylandConnection 'Client) (Object 'Client STM I_wl_display)
+data WaylandClient = WaylandClient (WaylandConnection 'Client) (Object 'Client I_wl_display)
 
 instance IsResourceManager WaylandClient where
   toResourceManager (WaylandClient connection _) = toResourceManager connection
@@ -30,7 +30,7 @@ newWaylandClient :: MonadResourceManager m => Socket -> m WaylandClient
 newWaylandClient socket = do
   (connection, wlDisplay) <- newWaylandConnection @I_wl_display (traceCallback ignoreMessage) socket
 
-  (_wlRegistry, newId) <- stepProtocol connection $ newObject @'Client @STM @I_wl_registry (traceCallback ignoreMessage)
+  (_wlRegistry, newId) <- stepProtocol connection $ newObject @'Client @I_wl_registry (traceCallback ignoreMessage)
   stepProtocol connection $ sendMessage wlDisplay $ R_wl_display_get_registry newId
   pure $ WaylandClient connection wlDisplay
 
