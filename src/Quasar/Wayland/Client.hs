@@ -1,4 +1,5 @@
 module Quasar.Wayland.Client (
+  WaylandClient(display),
   connectWaylandClient,
   newWaylandClient,
   connectWaylandSocket,
@@ -11,6 +12,8 @@ import Network.Socket qualified as Socket
 import Quasar
 import Quasar.Prelude
 import Quasar.Wayland.Connection
+import Quasar.Wayland.Display
+import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Core
 import Quasar.Wayland.Protocol.Generated
 import System.Environment (getEnv, lookupEnv)
@@ -18,7 +21,10 @@ import System.FilePath ((</>), isRelative)
 import Text.Read (readEither)
 
 
-data WaylandClient = WaylandClient (WaylandConnection 'Client) (Object 'Client I_wl_display)
+data WaylandClient = WaylandClient {
+  connection :: WaylandConnection 'Client,
+  display :: ClientDisplay
+}
 
 instance IsResourceManager WaylandClient where
   toResourceManager (WaylandClient connection _) = toResourceManager connection
@@ -28,11 +34,11 @@ instance IsDisposable WaylandClient where
 
 newWaylandClient :: MonadResourceManager m => Socket -> m WaylandClient
 newWaylandClient socket = do
-  (connection, wlDisplay) <- newWaylandConnection @I_wl_display (traceCallback ignoreMessage) socket
-
-  (_wlRegistry, newId) <- runProtocolM connection.protocolHandle $ newObject @'Client @I_wl_registry (traceCallback ignoreMessage)
-  runProtocolM connection.protocolHandle $ sendMessage wlDisplay $ R_wl_display_get_registry newId
-  pure $ WaylandClient connection wlDisplay
+  (display, connection) <- newWaylandConnection newClientDisplay socket
+  pure WaylandClient {
+    connection,
+    display
+  }
 
 connectWaylandClient :: MonadResourceManager m => m WaylandClient
 connectWaylandClient = mask_ do

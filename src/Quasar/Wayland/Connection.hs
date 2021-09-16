@@ -1,5 +1,5 @@
 module Quasar.Wayland.Connection (
-  WaylandConnection(protocolHandle),
+  WaylandConnection,
   newWaylandConnection,
 ) where
 
@@ -14,7 +14,6 @@ import Network.Socket.ByteString.Lazy qualified as SocketL
 import Quasar
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
-import Quasar.Wayland.Protocol.Generated
 
 
 data WaylandConnection s = WaylandConnection {
@@ -34,12 +33,12 @@ data SocketClosed = SocketClosed
   deriving anyclass Exception
 
 newWaylandConnection
-  :: forall wl_display s m. (IsInterfaceSide s wl_display, MonadResourceManager m)
-  => Callback s wl_display
+  :: forall s m a. (IsSide s, MonadResourceManager m)
+  => STM (a, ProtocolHandle s)
   -> Socket
-  -> m (WaylandConnection s, Object s wl_display)
-newWaylandConnection wlDisplayCallback socket = do
-  (wlDisplay, protocolHandle) <- liftIO $ atomically $ initializeProtocol wlDisplayCallback pure
+  -> m (a, WaylandConnection s)
+newWaylandConnection initializeProtocolAction socket = do
+  (result, protocolHandle) <- liftIO $ atomically $ initializeProtocolAction
 
   resourceManager <- newResourceManager
 
@@ -56,7 +55,7 @@ newWaylandConnection wlDisplayCallback socket = do
       connectionThread connection $ sendThread connection
       connectionThread connection $ receiveThread connection
 
-    pure (connection, wlDisplay)
+    pure (result, connection)
 
 connectionThread :: MonadAsync m => WaylandConnection s -> IO () -> m ()
 connectionThread connection work = async_ $ liftIO $ work `catches` [ignoreCancelTask, handleAll]
