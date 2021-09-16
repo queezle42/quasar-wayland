@@ -16,6 +16,7 @@ module Quasar.Wayland.Protocol.Core (
   IsObject,
   IsMessage(..),
   ProtocolState,
+  ProtocolAction,
   Callback(..),
   internalFnCallback,
   traceCallback,
@@ -26,9 +27,13 @@ module Quasar.Wayland.Protocol.Core (
   newObject,
   feedInput,
   setException,
+  newObjectInternal,
+  sendMessageInternal,
 
   showObjectMessage,
   isNewId,
+
+  ServerError(..),
 
   -- * Message decoder operations
   WireFormat(..),
@@ -346,6 +351,10 @@ data ProtocolException = ProtocolException String
   deriving anyclass Exception
 
 data MaximumIdReached = MaximumIdReached
+  deriving stock Show
+  deriving anyclass Exception
+
+data ServerError = ServerError Word32 String
   deriving stock Show
   deriving anyclass Exception
 
