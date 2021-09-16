@@ -530,7 +530,10 @@ sendMessage object message = do
       putWord32host $ (fromIntegral msgSize `shiftL` 16) .|. fromIntegral opcode
       putLazyByteString body
     msgSize :: Word16
-    msgSize = if msgSizeInteger <= fromIntegral (maxBound :: Word16) then fromIntegral msgSizeInteger else error "Message too large"
+    msgSize =
+      if msgSizeInteger <= fromIntegral (maxBound :: Word16)
+        then fromIntegral msgSizeInteger
+        else error "Message too large"
     -- TODO: body length should be returned from `putMessage`, instead of realizing it to a ByteString here
     msgSizeInteger :: Integer
     msgSizeInteger = 8 + fromIntegral (BSL.length body)
