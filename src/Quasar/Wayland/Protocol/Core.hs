@@ -480,7 +480,8 @@ takeOutbox protocol = runProtocolTransaction protocol do
   pure sendData
 
 
--- | Create an object. The caller is responsible for sending the 'NewId' exactly once before using the object.
+-- | Create an object. The caller is responsible for sending the 'NewId' immediately (exactly once; in the same STM
+-- transaction; before using the object).
 newObject
   :: forall s i. IsInterfaceSide s i
   => Callback s i
