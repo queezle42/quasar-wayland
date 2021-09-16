@@ -54,8 +54,7 @@ module Quasar.Wayland.Protocol.Core (
 import Control.Concurrent.STM
 import Control.Monad (replicateM_)
 import Control.Monad.Catch
-import Control.Monad.Reader (ReaderT, runReaderT, ask, asks, lift)
-import Control.Monad.State qualified as State
+import Control.Monad.Reader (ReaderT, runReaderT, ask, lift)
 import Data.Binary
 import Data.Binary.Get
 import Data.Binary.Put
@@ -65,7 +64,6 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
-import Data.Maybe (isJust)
 import Data.Proxy
 import Data.Void (absurd)
 import GHC.TypeLits
@@ -418,11 +416,11 @@ initializeProtocol wlDisplayCallback initializationAction = do
     nextIdVar
   }
   stateVar <- newTVar (Right state)
-  let handle = ProtocolHandle {
+  let protocol = ProtocolHandle {
     stateVar
   }
   result <- runReaderT (initializationAction wlDisplay) state
-  pure (result, handle)
+  pure (result, protocol)
   where
     wlDisplay :: Object s wl_display
     wlDisplay = Object 1 wlDisplayCallback
@@ -438,8 +436,7 @@ runProtocolM (ProtocolHandle stateVar) action = do
       Left ex -> throwM ex
       Right state -> do
         -- Run action, catch exceptions
-        result <- runReaderT (try action) state
-        case result of
+        runReaderT (try action) state >>= \case
           Left ex -> do
             -- Action failed, change protocol state to failed
             writeTVar stateVar (Left ex)

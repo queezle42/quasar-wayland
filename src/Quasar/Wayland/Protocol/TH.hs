@@ -2,15 +2,14 @@ module Quasar.Wayland.Protocol.TH (
   generateWaylandProcol
 ) where
 
-import Control.Monad.Catch
 import Control.Monad.Writer
-import Data.Binary
 import Data.ByteString qualified as BS
 import Language.Haskell.TH
-import Language.Haskell.TH.Lib
-import Language.Haskell.TH.Syntax (BangType, VarBangType, addDependentFile)
+--import Language.Haskell.TH.Lib
+import Language.Haskell.TH.Syntax (BangType, addDependentFile)
 import Language.Haskell.TH.Syntax qualified as TH
 import Data.List (intersperse)
+import Prelude qualified
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
 import Text.XML.Light
@@ -324,7 +323,7 @@ parseProtocol xml = do
 parseInterface :: MonadFail m => Element -> m InterfaceSpec
 parseInterface element = do
   name <- getAttr "name" element
-  version <- read <$> getAttr "version" element
+  version <- Prelude.read <$> getAttr "version" element
   requests <- mapM (parseRequest name) $ zip [0..] $ findChildren (qname "request") element
   events <- mapM (parseEvent name) $ zip [0..] $ findChildren (qname "event") element
   pure InterfaceSpec {
@@ -341,15 +340,15 @@ parseEvent :: MonadFail m => String -> (Opcode, Element) -> m EventSpec
 parseEvent x y = EventSpec <$> parseMessage False x y
 
 parseMessage :: MonadFail m => Bool -> String -> (Opcode, Element) -> m MessageSpec
-parseMessage isRequest interfaceName (opcode, element) = do
+parseMessage isRequest interface (opcode, element) = do
   let isEvent = not isRequest
 
   name <- getAttr "name" element
 
-  let description = interfaceName <> "." <> name
+  let description = interface <> "." <> name
 
   mtype <- peekAttr "type" element
-  since <- read <<$>> peekAttr "since" element
+  since <- Prelude.read <<$>> peekAttr "since" element
   arguments <- mapM (parseArgument description) $ zip [0..] $ findChildren (qname "arg") element
 
   isDestructor <-
@@ -363,15 +362,15 @@ parseMessage isRequest interfaceName (opcode, element) = do
     do fail $ "Event cannot be a destructor: " <> description
 
   when
-    do (foldr (\arg -> if isNewId arg.argType then (+ 1) else id) 0 arguments) > 1
+    do (foldr (\arg -> if isNewId arg.argType then (+ 1) else id) 0 arguments) > (1 :: Int)
     do fail $ "Message creates multiple objects: " <> description
 
   forM_ arguments \arg -> do
     when
-      do arg.argType == GenericNewIdArgument && (interfaceName /= "wl_registry" || name /= "bind")
+      do arg.argType == GenericNewIdArgument && (interface /= "wl_registry" || name /= "bind")
       do fail $ "Invalid \"new_id\" argument without \"interface\" attribute encountered on " <> description <> " (only valid on wl_registry.bind)"
     when
-      do arg.argType == GenericObjectArgument && (interfaceName /= "wl_display" || name /= "error")
+      do arg.argType == GenericObjectArgument && (interface /= "wl_display" || name /= "error")
       do fail $ "Invalid \"object\" argument without \"interface\" attribute encountered on " <> description <> " (only valid on wl_display.error)"
 
   pure MessageSpec  {

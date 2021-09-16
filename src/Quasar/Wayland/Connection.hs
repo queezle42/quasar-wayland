@@ -58,10 +58,11 @@ newWaylandConnection initializeProtocolAction socket = do
     pure (result, connection)
 
 connectionThread :: MonadAsync m => WaylandConnection s -> IO () -> m ()
-connectionThread connection work = async_ $ liftIO $ work `catches` [ignoreCancelTask, handleAll]
+connectionThread connection work = async_ $ liftIO $ work `catches` [ignoreCancelTask, traceAndDisposeConnection]
   where
+    ignoreCancelTask :: Handler IO a
     ignoreCancelTask = Handler (throwM :: CancelTask -> IO a)
-    handleAll = Handler (\(ex :: SomeException) -> traceIO (displayException ex) >> void (dispose connection))
+    traceAndDisposeConnection = Handler (\(ex :: SomeException) -> traceIO (displayException ex) >> void (dispose connection))
 
 sendThread :: WaylandConnection s -> IO ()
 sendThread connection = forever do
