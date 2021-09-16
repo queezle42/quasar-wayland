@@ -3,10 +3,10 @@
 module Quasar.Wayland.Protocol.Core (
   ObjectId,
   GenericObjectId,
-  NewId(..),
+  NewId,
   Opcode,
   ArgumentType(..),
-  Fixed,
+  Fixed(..),
   IsSide(..),
   Side(..),
   IsInterface(..),

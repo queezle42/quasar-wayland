@@ -13,7 +13,7 @@ import Network.Socket.ByteString qualified as Socket
 import Network.Socket.ByteString.Lazy qualified as SocketL
 import Quasar
 import Quasar.Prelude
-import Quasar.Wayland.Protocol.Core
+import Quasar.Wayland.Protocol
 
 
 data WaylandConnection s = WaylandConnection {

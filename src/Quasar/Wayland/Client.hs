@@ -14,8 +14,6 @@ import Quasar.Prelude
 import Quasar.Wayland.Connection
 import Quasar.Wayland.Display
 import Quasar.Wayland.Protocol
-import Quasar.Wayland.Protocol.Core
-import Quasar.Wayland.Protocol.Generated
 import System.Environment (getEnv, lookupEnv)
 import System.FilePath ((</>), isRelative)
 import Text.Read (readEither)

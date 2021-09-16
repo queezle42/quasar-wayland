@@ -11,7 +11,7 @@ import Data.ByteString.UTF8 qualified as BS
 import Data.HashMap.Strict qualified as HM
 import Data.Tuple (swap)
 import Quasar.Prelude
-import Quasar.Wayland.Protocol.Core
+import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 
 data ClientRegistry = ClientRegistry {

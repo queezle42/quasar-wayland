@@ -87,11 +87,12 @@ library
     Quasar.Wayland.Connection
     Quasar.Wayland.Display
     Quasar.Wayland.Protocol
-    Quasar.Wayland.Protocol.Core
     Quasar.Wayland.Protocol.Display
     Quasar.Wayland.Protocol.Generated
     Quasar.Wayland.Protocol.TH
     Quasar.Wayland.Registry
+  other-modules:
+    Quasar.Wayland.Protocol.Core
   build-depends:
     base >=4.7 && <5,
     binary,
