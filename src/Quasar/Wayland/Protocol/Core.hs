@@ -23,6 +23,7 @@ module Quasar.Wayland.Protocol.Core (
   feedInput,
   setException,
   takeOutbox,
+  runProtocolTransaction,
   runProtocolM,
 
   -- * Low-level protocol interaction
@@ -425,11 +426,12 @@ initializeProtocol wlDisplayCallback initializationAction = do
     wlDisplay :: Object s wl_display
     wlDisplay = Object 1 wlDisplayCallback
 
--- | Entry point to run a protocol action, effectively an 'atomically' with correct error handling.
+-- | Run a protocol action in 'IO'. If an exception occurs, it is stored as a protocol failure and is then
+-- re-thrown.
 --
--- Throws an exception, when the protocol reaches or is in a failed (/error) state.
-runProtocolM :: (MonadIO m, MonadThrow m) => ProtocolHandle s -> ProtocolM s a -> m a
-runProtocolM (ProtocolHandle stateVar) action = do
+-- Throws an exception, if the protocol is already in a failed state.
+runProtocolTransaction :: MonadIO m => ProtocolHandle s -> ProtocolM s a -> m a
+runProtocolTransaction (ProtocolHandle stateVar) action = do
   result <- liftIO $ atomically do
     readTVar stateVar >>= \case
       -- Protocol is already in a failed state
@@ -444,25 +446,33 @@ runProtocolM (ProtocolHandle stateVar) action = do
           Right result -> do
             pure (Right result)
   -- Transaction is committed, rethrow exception if the action failed
-  either throwM pure result
+  either (liftIO . throwM) pure result
 
+
+-- | Run a 'ProtocolM'-action inside 'STM'.
+--
+-- Exceptions are not handled and reset the transaction (as usual with STM).
+--
+-- Throws an exception, if the protocol is already in a failed state.
+runProtocolM :: ProtocolHandle s -> ProtocolM s a -> STM a
+runProtocolM protocol action = either throwM (runReaderT action) =<< readTVar protocol.stateVar
 
 
 -- | Feed the protocol newly received data.
 feedInput :: (IsSide s, MonadIO m, MonadThrow m) => ProtocolHandle s -> ByteString -> m ()
-feedInput protocol bytes = runProtocolM protocol do
-  -- Exposing MonadIO instead of STM to the outside and using `runProtocolM` here enforces correct exception handling.
+feedInput protocol bytes = runProtocolTransaction protocol do
+  -- Exposing MonadIO instead of STM to the outside and using `runProtocolTransaction` here enforces correct exception handling.
   modifyProtocolVar (.bytesReceivedVar) (+ fromIntegral (BS.length bytes))
   modifyProtocolVar (.inboxDecoderVar) (`pushChunk` bytes)
   receiveMessages
 
 -- | Set the protocol to a failed state, e.g. when the socket closed unexpectedly.
 setException :: (Exception e, MonadIO m, MonadThrow m) => ProtocolHandle s -> e -> m ()
-setException protocol ex = runProtocolM protocol $ throwM ex
+setException protocol ex = runProtocolTransaction protocol $ throwM ex
 
 -- | Take data that has to be sent. Blocks until data is available.
 takeOutbox :: (MonadIO m, MonadThrow m) => ProtocolHandle s -> m (BSL.ByteString)
-takeOutbox protocol = runProtocolM protocol do
+takeOutbox protocol = runProtocolTransaction protocol do
   mOutboxData <- stateProtocolVar (.outboxVar) (\mOutboxData -> (mOutboxData, Nothing))
   outboxData <- maybe (lift retry) pure mOutboxData
   let sendData = runPut outboxData

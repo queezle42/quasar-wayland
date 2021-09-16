@@ -24,6 +24,7 @@ module Quasar.Wayland.Protocol (
 
   -- ** Low-level protocol interaction
   ProtocolM,
+  runProtocolTransaction,
   runProtocolM,
   Object,
   newObject,
