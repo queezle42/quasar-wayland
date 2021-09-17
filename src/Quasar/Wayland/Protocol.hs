@@ -6,7 +6,7 @@ module Quasar.Wayland.Protocol (
   -- ** Wire types
   ObjectId,
   GenericObjectId,
-  NewId(..),
+  NewId,
   Fixed(..),
 
   -- ** Classes for generated interfaces

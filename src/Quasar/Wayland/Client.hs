@@ -5,7 +5,6 @@ module Quasar.Wayland.Client (
   connectWaylandSocket,
 ) where
 
-import Control.Concurrent.STM
 import Control.Monad.Catch
 import Network.Socket (Socket)
 import Network.Socket qualified as Socket

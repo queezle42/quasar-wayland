@@ -4,9 +4,6 @@ module Quasar.Wayland.Display (
 ) where
 
 import Control.Concurrent.STM
-import Control.Monad.Catch
-import Data.ByteString.UTF8 qualified as BS
-import Data.HashMap.Strict qualified as HM
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Display

@@ -7,7 +7,6 @@ import Control.Concurrent.STM
 import Control.Monad.Fix (mfix)
 import Control.Monad.Reader (lift)
 import Data.ByteString qualified as BS
-import Data.ByteString.UTF8 qualified as BS
 import Data.HashMap.Strict qualified as HM
 import Data.Tuple (swap)
 import Quasar.Prelude

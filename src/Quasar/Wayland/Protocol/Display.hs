@@ -2,7 +2,6 @@ module Quasar.Wayland.Protocol.Display (
   clientWlDisplayCallback,
 ) where
 
-import Control.Concurrent.STM
 import Control.Monad.Catch
 import Data.ByteString.UTF8 qualified as BS
 import Data.HashMap.Strict qualified as HM

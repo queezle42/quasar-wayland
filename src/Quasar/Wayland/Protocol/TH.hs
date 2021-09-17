@@ -5,7 +5,6 @@ module Quasar.Wayland.Protocol.TH (
 import Control.Monad.Writer
 import Data.ByteString qualified as BS
 import Language.Haskell.TH
---import Language.Haskell.TH.Lib
 import Language.Haskell.TH.Syntax (BangType, addDependentFile)
 import Language.Haskell.TH.Syntax qualified as TH
 import Data.List (intersperse)
