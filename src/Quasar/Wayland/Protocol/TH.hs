@@ -108,13 +108,15 @@ interfaceDecs interface = do
     iName = interfaceN interface
     iT = interfaceT interface
     instanceDecs = [
-      tySynInstD (tySynEqn Nothing (appT (conT ''WireRequest) iT) rT),
+      tySynInstD (tySynEqn Nothing (appT (conT ''Requests) iT) (requestsT interface)),
+      tySynInstD (tySynEqn Nothing (appT (conT ''Events) iT) (eventsT interface)),
+      tySynInstD (tySynEqn Nothing (appT (conT ''WireRequest) iT) wireRequestT),
       tySynInstD (tySynEqn Nothing (appT (conT ''WireEvent) iT) eT),
       tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceName) iT) (litT (strTyLit interface.name))),
       valD (varP 'interfaceName) (normalB (stringE interface.name)) []
       ]
-    rT :: Q Type
-    rT = if length interface.requests > 0 then conT rTypeName else [t|Void|]
+    wireRequestT :: Q Type
+    wireRequestT = if length interface.requests > 0 then conT rTypeName else [t|Void|]
     rTypeName :: Name
     rTypeName = mkName $ "WireRequest_" <> interface.name
     rConName :: RequestSpec -> Name
@@ -128,7 +130,7 @@ interfaceDecs interface = do
     requestContext :: RequestSpec -> MessageContext
     requestContext req@(RequestSpec msgSpec) = MessageContext {
       msgInterfaceT = iT,
-      msgT = rT,
+      msgT = wireRequestT,
       msgConName = rConName req,
       msgInterfaceSpec = interface,
       msgSpec = msgSpec
@@ -145,10 +147,10 @@ interfaceDecs interface = do
     eventContexts = eventContext <$> interface.events
 
     requestRecordD :: Q Dec
-    requestRecordD = messageRecordD (requestClassN interface) requestContexts
+    requestRecordD = messageRecordD (requestsName interface) requestContexts
 
     eventRecordD :: Q Dec
-    eventRecordD = messageRecordD (eventClassN interface) eventContexts
+    eventRecordD = messageRecordD (eventsName interface) eventContexts
 
 messageRecordD :: Name -> [MessageContext] -> Q Dec
 messageRecordD name messageContexts = dataD (cxt []) name [] Nothing [con] []
@@ -177,17 +179,17 @@ interfaceN interface = mkName $ "Interface_" <> interface.name
 interfaceT :: InterfaceSpec -> Q Type
 interfaceT interface = conT (interfaceN interface)
 
-requestClassN :: InterfaceSpec -> Name
-requestClassN interface = mkName $ "Requests_" <> interface.name
+requestsName :: InterfaceSpec -> Name
+requestsName interface = mkName $ "Requests_" <> interface.name
 
-requestClassT :: InterfaceSpec -> Q Type
-requestClassT interface = conT (requestClassN interface)
+requestsT :: InterfaceSpec -> Q Type
+requestsT interface = conT (requestsName interface)
 
-eventClassN :: InterfaceSpec -> Name
-eventClassN interface = mkName $ "Events_" <> interface.name
+eventsName :: InterfaceSpec -> Name
+eventsName interface = mkName $ "Events_" <> interface.name
 
-eventClassT :: InterfaceSpec -> Q Type
-eventClassT interface = conT (eventClassN interface)
+eventsT :: InterfaceSpec -> Q Type
+eventsT interface = conT (eventsName interface)
 
 
 

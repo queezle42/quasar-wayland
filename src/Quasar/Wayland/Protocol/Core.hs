@@ -183,6 +183,8 @@ class (
     IsMessage (WireEvent i)
   )
   => IsInterface i where
+  type Requests i
+  type Events i
   type WireRequest i
   type WireEvent i
   type InterfaceName i :: Symbol
@@ -215,7 +217,7 @@ class (
     IsMessage (WireUp s i),
     IsMessage (WireDown s i)
   )
-  => IsInterfaceSide (s :: Side) i
+  => IsInterfaceSide (s :: Side) i where
 
 
 getWireDown :: forall s i. IsInterfaceSide s i => Object s i -> Opcode -> Get (ProtocolM s (WireDown s i))
