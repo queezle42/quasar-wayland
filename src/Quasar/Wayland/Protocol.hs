@@ -11,7 +11,7 @@ module Quasar.Wayland.Protocol (
   WlString(..),
 
   -- ** Classes for generated interfaces
-  IsInterface(WireRequest, WireEvent, InterfaceName, interfaceName),
+  IsInterface(InterfaceName, interfaceName),
   Side(..),
   IsSide(WireUp, WireDown),
   IsInterfaceSide,
