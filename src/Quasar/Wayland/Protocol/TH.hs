@@ -155,10 +155,12 @@ messageRecordD name messageContexts = dataD (cxt []) name [] Nothing [con] []
   where
     con = recC name (recField <$> messageContexts)
     recField :: MessageContext -> Q VarBangType
-    recField msg = varDefaultBangType (mkName msg.msgSpec.name) [t|$(applyArgTypes [t|STM ()|])|]
+    recField msg = varDefaultBangType (mkName msg.msgSpec.name) [t|$(applyArgTypes [t|STM $returnType|])|]
       where
         applyArgTypes :: Q Type -> Q Type
         applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType <$> msg.msgSpec.arguments)
+        returnType :: Q Type
+        returnType = buildTupleType $ sequence $ catMaybes $ argumentReturnType <$> msg.msgSpec.arguments
 
 
 interfaceSideInstanceDs :: InterfaceSpec -> Q [Dec]
@@ -225,7 +227,7 @@ messageTypeDecs name msgs = execWriterT do
     con msg = normalC (msg.msgConName) (conField <$> msg.msgSpec.arguments)
       where
         conField :: ArgumentSpec -> Q BangType
-        conField arg = defaultBangType (argumentType arg)
+        conField arg = defaultBangType (argumentWireType arg)
     showInstanceD :: Q Dec
     showInstanceD = instanceD (pure []) [t|Show $t|] [showD]
     showD :: Q Dec
@@ -238,7 +240,7 @@ messageTypeDecs name msgs = execWriterT do
         []
       where
         showArgE :: ArgumentSpec -> [Q Exp]
-        showArgE arg = [stringE (arg.name ++ "="), [|showArgument @($(argumentType arg)) $(msgArgE msg arg)|]]
+        showArgE arg = [stringE (arg.name ++ "="), [|showArgument @($(argumentWireType arg)) $(msgArgE msg arg)|]]
 
 isMessageInstanceD :: Q Type -> [MessageContext] -> Q Dec
 isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, getMessageD, putMessageD]
@@ -255,7 +257,7 @@ isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, 
     getMessageClause msg = clause [wildP, litP (integerL (fromIntegral msg.msgSpec.opcode))] (normalB getMessageE) []
       where
         getMessageE :: Q Exp
-        getMessageE = applyALifted (conE (msg.msgConName)) ((\argT -> [|getArgument @($argT)|]) . argumentType <$> msg.msgSpec.arguments)
+        getMessageE = applyALifted (conE (msg.msgConName)) ((\argT -> [|getArgument @($argT)|]) . argumentWireType <$> msg.msgSpec.arguments)
     getMessageInvalidOpcodeClause :: Q Clause
     getMessageInvalidOpcodeClause = do
       let object = mkName "object"
@@ -270,7 +272,7 @@ isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, 
         putMessageE args = [|($(litE $ integerL $ fromIntegral msg.msgSpec.opcode), ) <$> $(putMessageBodyE args)|]
         putMessageBodyE :: [ArgumentSpec] -> Q Exp
         putMessageBodyE [] = [|pure []|]
-        putMessageBodyE args = [|sequence $(listE ((\arg -> [|putArgument @($(argumentType arg)) $(msgArgE msg arg)|]) <$> args))|]
+        putMessageBodyE args = [|sequence $(listE ((\arg -> [|putArgument @($(argumentWireType arg)) $(msgArgE msg arg)|]) <$> args))|]
 
 
 derivingEq :: Q DerivClause
@@ -285,20 +287,46 @@ derivingInterfaceClient = derivClause (Just AnyclassStrategy) [[t|IsInterfaceSid
 derivingInterfaceServer :: Q DerivClause
 derivingInterfaceServer = derivClause (Just AnyclassStrategy) [[t|IsInterfaceSide 'Server|]]
 
+-- | Map an argument to its high-level api type
 argumentType :: ArgumentSpec -> Q Type
-argumentType argSpec = promoteArgumentType argSpec.argType
+argumentType argSpec = liftArgumentType argSpec.argType
 
-promoteArgumentType :: ArgumentType -> Q Type
-promoteArgumentType IntArgument = [t|Int32|]
-promoteArgumentType UIntArgument = [t|Word32|]
-promoteArgumentType FixedArgument = [t|Fixed|]
-promoteArgumentType StringArgument = [t|WlString|]
-promoteArgumentType ArrayArgument = [t|BS.ByteString|]
-promoteArgumentType (ObjectArgument iName) = [t|ObjectId $(litT (strTyLit iName))|]
-promoteArgumentType GenericObjectArgument = [t|GenericObjectId|]
-promoteArgumentType (NewIdArgument iName) = [t|NewId $(litT (strTyLit iName))|]
-promoteArgumentType GenericNewIdArgument = [t|GenericNewId|]
-promoteArgumentType FdArgument = [t|Void|] -- TODO
+-- | Map an argument to its high-level return type, if required
+argumentReturnType :: ArgumentSpec -> Maybe (Q Type)
+argumentReturnType argSpec = liftArgumentReturnType argSpec.argType
+
+-- | Map an argument to its wire representation type
+argumentWireType :: ArgumentSpec -> Q Type
+argumentWireType argSpec = liftArgumentWireType argSpec.argType
+
+
+liftArgumentType :: ArgumentType -> Q Type
+liftArgumentType (ObjectArgument iName) = [t|ObjectId $(litT (strTyLit iName))|]
+liftArgumentType GenericObjectArgument = [t|GenericObjectId|]
+liftArgumentType (NewIdArgument iName) = [t|NewId $(litT (strTyLit iName))|]
+liftArgumentType GenericNewIdArgument = [t|GenericNewId|]
+liftArgumentType FdArgument = [t|Void|] -- TODO
+liftArgumentType x = liftArgumentWireType x
+
+liftArgumentReturnType :: ArgumentType -> Maybe (Q Type)
+liftArgumentReturnType (NewIdArgument iName) = Just [t|Void|]
+liftArgumentReturnType GenericNewIdArgument = Just [t|Void|]
+liftArgumentReturnType _ = Nothing
+
+liftArgumentWireType :: ArgumentType -> Q Type
+liftArgumentWireType IntArgument = [t|Int32|]
+liftArgumentWireType UIntArgument = [t|Word32|]
+liftArgumentWireType FixedArgument = [t|Fixed|]
+liftArgumentWireType StringArgument = [t|WlString|]
+liftArgumentWireType ArrayArgument = [t|BS.ByteString|]
+liftArgumentWireType (ObjectArgument iName) = [t|ObjectId $(litT (strTyLit iName))|]
+liftArgumentWireType GenericObjectArgument = [t|GenericObjectId|]
+liftArgumentWireType (NewIdArgument iName) = [t|NewId $(litT (strTyLit iName))|]
+liftArgumentWireType GenericNewIdArgument = [t|GenericNewId|]
+liftArgumentWireType FdArgument = [t|Void|] -- TODO
+
+
+-- * Generic TH utilities
 
 defaultBangType :: Q Type -> Q BangType
 defaultBangType = bangType (bang noSourceUnpackedness noSourceStrictness)
@@ -322,6 +350,18 @@ applyM con args = [|join $(applyA con args)|]
 applyALifted :: Q Exp -> [Q Exp] -> Q Exp
 applyALifted con [] = [|pure $ pure $con|]
 applyALifted con (monadicE:monadicEs) = foldl (\x y -> [|$x <<*>> $y|]) [|$con <<$>> $monadicE|] monadicEs
+
+
+buildTupleType :: Q [Type] -> Q Type
+buildTupleType fields = buildTupleType' =<< fields
+  where
+    buildTupleType' :: [Type] -> Q Type
+    buildTupleType' [] = [t|()|]
+    buildTupleType' [single] = pure single
+    buildTupleType' fs = pure $ go (TupleT (length fs)) fs
+    go :: Type -> [Type] -> Type
+    go t [] = t
+    go t (f:fs) = go (AppT t f) fs
 
 
 -- * XML parser
