@@ -11,12 +11,12 @@ import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Registry
 
 data ClientDisplay = ClientDisplay {
-  wlDisplay :: Object 'Client I_wl_display,
+  wlDisplay :: Object 'Client Interface_wl_display,
   registry :: ClientRegistry
 }
 
 newClientDisplay
-  :: (IsInterfaceSide 'Client I_wl_display)
+  :: (IsInterfaceSide 'Client Interface_wl_display)
   => STM (ClientDisplay, ProtocolHandle 'Client)
 newClientDisplay =
   initializeProtocol clientWlDisplayCallback \wlDisplay -> do

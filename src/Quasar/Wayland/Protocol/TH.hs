@@ -170,7 +170,7 @@ interfaceSideInstanceDs interface = execWriterT do
 
 
 interfaceN :: InterfaceSpec -> Name
-interfaceN interface = mkName $ "I_" <> interface.name
+interfaceN interface = mkName $ "Interface_" <> interface.name
 
 interfaceT :: InterfaceSpec -> Q Type
 interfaceT interface = conT (interfaceN interface)

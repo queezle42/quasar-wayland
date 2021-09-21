@@ -14,15 +14,15 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 
 data ClientRegistry = ClientRegistry {
-  wlRegistry :: Object 'Client I_wl_registry,
+  wlRegistry :: Object 'Client Interface_wl_registry,
   globalsVar :: TVar (HM.HashMap Word32 (WlString, Word32))
 }
 
-createClientRegistry :: Object 'Client I_wl_display -> ProtocolM 'Client ClientRegistry
+createClientRegistry :: Object 'Client Interface_wl_display -> ProtocolM 'Client ClientRegistry
 createClientRegistry wlDisplay = mfix \clientRegistry -> do
   globalsVar <- lift $ newTVar HM.empty
 
-  (wlRegistry, newId) <- newObject @'Client @I_wl_registry (traceCallback (callback clientRegistry))
+  (wlRegistry, newId) <- newObject @'Client @Interface_wl_registry (traceCallback (callback clientRegistry))
   sendMessage wlDisplay $ WireRequest_wl_display_get_registry newId
 
   pure ClientRegistry {
@@ -30,11 +30,11 @@ createClientRegistry wlDisplay = mfix \clientRegistry -> do
     globalsVar
   }
   where
-    callback :: ClientRegistry -> IsInterfaceSide 'Client I_wl_registry => Callback 'Client I_wl_registry
+    callback :: ClientRegistry -> IsInterfaceSide 'Client Interface_wl_registry => Callback 'Client Interface_wl_registry
     callback clientRegistry = internalFnCallback handler
       where
         -- | wl_registry is specified to never change, so manually specifying the callback is safe
-        handler :: Object 'Client I_wl_registry -> WireEvent_wl_registry -> ProtocolM 'Client ()
+        handler :: Object 'Client Interface_wl_registry -> WireEvent_wl_registry -> ProtocolM 'Client ()
         handler _ (WireEvent_wl_registry_global name interface version) = do
           lift $ modifyTVar clientRegistry.globalsVar (HM.insert name (interface, version))
         handler _ (WireEvent_wl_registry_global_remove name) = do
