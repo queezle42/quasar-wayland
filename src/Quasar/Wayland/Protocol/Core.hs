@@ -33,14 +33,14 @@ module Quasar.Wayland.Protocol.Core (
   sendMessage,
   newObject,
 
-  -- ** Callbacks
-  Callback(..),
-  internalFnCallback,
-  traceCallback,
+  -- ** WireCallbacks
+  WireCallback(..),
+  internalFnWireCallback,
+  traceWireCallback,
   ignoreMessage,
 
   -- * Protocol exceptions
-  CallbackFailed(..),
+  WireCallbackFailed(..),
   ParserFailed(..),
   ProtocolException(..),
   MaximumIdReached(..),
@@ -179,31 +179,31 @@ instance WireFormat Void where
 
 -- | Class for a proxy type (in the haskell sense) that describes a Wayland interface.
 class (
-    IsMessage (Request i),
-    IsMessage (Event i)
+    IsMessage (WireRequest i),
+    IsMessage (WireEvent i)
   )
   => IsInterface i where
-  type Request i
-  type Event i
+  type WireRequest i
+  type WireEvent i
   type InterfaceName i :: Symbol
   interfaceName :: String
 
 class IsSide (s :: Side) where
-  type Up s i
-  type Down s i
+  type WireUp s i
+  type WireDown s i
   initialId :: Word32
   maximumId :: Word32
 
 instance IsSide 'Client where
-  type Up 'Client i = Request i
-  type Down 'Client i = Event i
+  type WireUp 'Client i = WireRequest i
+  type WireDown 'Client i = WireEvent i
   -- Id #1 is reserved for wl_display
   initialId = 2
   maximumId = 0xfeffffff
 
 instance IsSide 'Server where
-  type Up 'Server i = Event i
-  type Down 'Server i = Request i
+  type WireUp 'Server i = WireEvent i
+  type WireDown 'Server i = WireRequest i
   initialId = 0xff000000
   maximumId = 0xffffffff
 
@@ -212,27 +212,27 @@ instance IsSide 'Server where
 class (
     IsSide s,
     IsInterface i,
-    IsMessage (Up s i),
-    IsMessage (Down s i)
+    IsMessage (WireUp s i),
+    IsMessage (WireDown s i)
   )
   => IsInterfaceSide (s :: Side) i
 
 
-getDown :: forall s i. IsInterfaceSide s i => Object s i -> Opcode -> Get (ProtocolM s (Down s i))
-getDown = getMessage @(Down s i)
+getWireDown :: forall s i. IsInterfaceSide s i => Object s i -> Opcode -> Get (ProtocolM s (WireDown s i))
+getWireDown = getMessage @(WireDown s i)
 
-putUp :: forall s i. IsInterfaceSide s i => Object s i -> Up s i -> ProtocolM s (Opcode, [(Put, Int)])
-putUp _ = putMessage @(Up s i)
+putWireUp :: forall s i. IsInterfaceSide s i => Object s i -> WireUp s i -> ProtocolM s (Opcode, [(Put, Int)])
+putWireUp _ = putMessage @(WireUp s i)
 
 
 class IsInterfaceSide s i => IsInterfaceHandler s i a where
-  handleMessage :: a -> Object s i -> Down s i -> ProtocolM s ()
+  handleMessage :: a -> Object s i -> WireDown s i -> ProtocolM s ()
 
 
 -- | Data kind
 data Side = Client | Server
 
-data Object s i = IsInterfaceSide s i => Object GenericObjectId (Callback s i)
+data Object s i = IsInterfaceSide s i => Object GenericObjectId (WireCallback s i)
 
 instance IsInterface i => Show (Object s i) where
   show = showObject
@@ -254,11 +254,11 @@ instance forall s i. IsInterface i => IsObject (Object s i) where
 instance forall s i. IsInterfaceSide s i => IsObjectSide (Object s i) where
   describeUpMessage object opcode body =
     objectInterfaceName object <> "@" <> show (objectId object) <>
-    "." <> fromMaybe "[invalidOpcode]" (opcodeName @(Up s i) opcode) <>
+    "." <> fromMaybe "[invalidOpcode]" (opcodeName @(WireUp s i) opcode) <>
     " (" <> show (BSL.length body) <> "B)"
   describeDownMessage object opcode body =
     objectInterfaceName object <> "@" <> show (objectId object) <>
-    "." <> fromMaybe "[invalidOpcode]" (opcodeName @(Down s i) opcode) <>
+    "." <> fromMaybe "[invalidOpcode]" (opcodeName @(WireDown s i) opcode) <>
     " (" <> show (BSL.length body) <> "B)"
 
 -- | Wayland object quantification wrapper
@@ -302,22 +302,22 @@ showObjectMessage object message =
   showObject object <> "." <> show message
 
 
-data Callback s i = forall a. IsInterfaceHandler s i a => Callback a
+data WireCallback s i = forall a. IsInterfaceHandler s i a => WireCallback a
 
-instance IsInterfaceSide s i => IsInterfaceHandler s i (Callback s i) where
-  handleMessage (Callback callback) = handleMessage callback
-
-
-data LowLevelCallback s i = IsInterfaceSide s i => FnCallback (Object s i -> Down s i -> ProtocolM s ())
-
-instance IsInterfaceSide s i => IsInterfaceHandler s i (LowLevelCallback s i) where
-  handleMessage (FnCallback fn) object msg = fn object msg
-
-internalFnCallback :: IsInterfaceSide s i => (Object s i -> Down s i -> ProtocolM s ()) -> Callback s i
-internalFnCallback = Callback . FnCallback
+instance IsInterfaceSide s i => IsInterfaceHandler s i (WireCallback s i) where
+  handleMessage (WireCallback callback) = handleMessage callback
 
 
--- | The 'traceCallback' callback outputs a trace for every received message, before passing the message to the callback
+data LowLevelWireCallback s i = IsInterfaceSide s i => FnWireCallback (Object s i -> WireDown s i -> ProtocolM s ())
+
+instance IsInterfaceSide s i => IsInterfaceHandler s i (LowLevelWireCallback s i) where
+  handleMessage (FnWireCallback fn) object msg = fn object msg
+
+internalFnWireCallback :: IsInterfaceSide s i => (Object s i -> WireDown s i -> ProtocolM s ()) -> WireCallback s i
+internalFnWireCallback = WireCallback . FnWireCallback
+
+
+-- | The 'traceWireCallback' callback outputs a trace for every received message, before passing the message to the callback
 -- argument.
 --
 -- The 'trace' function should /only/ be used for debugging, or for monitoring execution. The function is not
@@ -325,18 +325,18 @@ internalFnCallback = Callback . FnCallback
 -- trace message.
 --
 -- Uses `traceM` internally.
-traceCallback :: IsInterfaceSide 'Client i => Callback 'Client i -> Callback 'Client i
-traceCallback next = internalFnCallback \object message -> do
+traceWireCallback :: IsInterfaceSide 'Client i => WireCallback 'Client i -> WireCallback 'Client i
+traceWireCallback next = internalFnWireCallback \object message -> do
   traceM $ "<- " <> showObjectMessage object message
   handleMessage next object message
 
--- | A `Callback` that ignores all messages. Intended for development purposes, e.g. together with `traceCallback`.
-ignoreMessage :: IsInterfaceSide 'Client i => Callback 'Client i
-ignoreMessage = internalFnCallback \_ _ -> pure ()
+-- | A `WireCallback` that ignores all messages. Intended for development purposes, e.g. together with `traceWireCallback`.
+ignoreMessage :: IsInterfaceSide 'Client i => WireCallback 'Client i
+ignoreMessage = internalFnWireCallback \_ _ -> pure ()
 
 -- * Exceptions
 
-data CallbackFailed = CallbackFailed SomeException
+data WireCallbackFailed = WireCallbackFailed SomeException
   deriving stock Show
   deriving anyclass Exception
 
@@ -406,10 +406,10 @@ stateProtocolVar fn x = do
 
 initializeProtocol
   :: forall s wl_display a. (IsInterfaceSide s wl_display)
-  => Callback s wl_display
+  => WireCallback s wl_display
   -> (Object s wl_display -> ProtocolM s a)
   -> STM (a, ProtocolHandle s)
-initializeProtocol wlDisplayCallback initializationAction = do
+initializeProtocol wlDisplayWireCallback initializationAction = do
   bytesReceivedVar <- newTVar 0
   bytesSentVar <- newTVar 0
   inboxDecoderVar <- newTVar $ runGetIncremental getRawMessage
@@ -434,7 +434,7 @@ initializeProtocol wlDisplayCallback initializationAction = do
     wlDisplayId :: GenericObjectId
     wlDisplayId = GenericObjectId 1
     wlDisplay :: Object s wl_display
-    wlDisplay = Object wlDisplayId wlDisplayCallback
+    wlDisplay = Object wlDisplayId wlDisplayWireCallback
 
 -- | Run a protocol action in 'IO'. If an exception occurs, it is stored as a protocol failure and is then
 -- re-thrown.
@@ -494,7 +494,7 @@ takeOutbox protocol = runProtocolTransaction protocol do
 -- transaction; before using the object).
 newObject
   :: forall s i. IsInterfaceSide s i
-  => Callback s i
+  => WireCallback s i
   -> ProtocolM s (Object s i, NewId (InterfaceName i))
 newObject callback = do
   oId <- allocateObjectId
@@ -515,7 +515,7 @@ newObject callback = do
 newObjectFromId
   :: forall s i. IsInterfaceSide s i
   => NewId (InterfaceName i)
-  -> Callback s i
+  -> WireCallback s i
   -> ProtocolM s (Object s i)
 newObjectFromId (NewId oId) callback = do
   let
@@ -527,12 +527,12 @@ newObjectFromId (NewId oId) callback = do
 
 
 -- | Sends a message without checking any ids or creating proxy objects objects. (TODO)
-sendMessage :: forall s i. IsInterfaceSide s i => Object s i -> Up s i -> ProtocolM s ()
+sendMessage :: forall s i. IsInterfaceSide s i => Object s i -> WireUp s i -> ProtocolM s ()
 sendMessage object message = do
   isActiveObject <- HM.member oId <$> readProtocolVar (.objectsVar)
   unless isActiveObject $ throwM $ ProtocolUsageError $ "Tried to send message on an invalid object: " <> show object
 
-  (opcode, pairs) <- putUp object message
+  (opcode, pairs) <- putWireUp object message
   let (putBodyParts, partLengths) = unzip pairs
   let putBody = mconcat putBodyParts
 
@@ -581,7 +581,7 @@ getMessageAction
   -> Opcode
   -> Get (ProtocolM s ())
 getMessageAction object@(Object _ objectHandler) opcode = do
-  verifyMessage <- getDown object opcode
+  verifyMessage <- getWireDown object opcode
   pure $ handleMessage objectHandler object =<< verifyMessage
 
 type RawMessage = (GenericObjectId, Opcode, BSL.ByteString)

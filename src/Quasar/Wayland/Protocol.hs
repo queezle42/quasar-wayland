@@ -11,9 +11,9 @@ module Quasar.Wayland.Protocol (
   WlString(..),
 
   -- ** Classes for generated interfaces
-  IsInterface(Request, Event, InterfaceName, interfaceName),
+  IsInterface(WireRequest, WireEvent, InterfaceName, interfaceName),
   Side(..),
-  IsSide(Up, Down),
+  IsSide(WireUp, WireDown),
   IsInterfaceSide,
 
   -- ** Protocol execution
@@ -31,13 +31,13 @@ module Quasar.Wayland.Protocol (
   newObject,
   sendMessage,
 
-  Callback(..),
-  internalFnCallback,
-  traceCallback,
+  WireCallback(..),
+  internalFnWireCallback,
+  traceWireCallback,
   ignoreMessage,
 
   -- * Protocol exceptions
-  CallbackFailed(..),
+  WireCallbackFailed(..),
   ParserFailed(..),
   ProtocolException(..),
   MaximumIdReached(..),

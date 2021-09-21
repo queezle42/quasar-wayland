@@ -108,8 +108,8 @@ interfaceDecs interface = do
     iName = interfaceN interface
     iT = interfaceT interface
     instanceDecs = [
-      tySynInstD (tySynEqn Nothing (appT (conT ''Request) iT) rT),
-      tySynInstD (tySynEqn Nothing (appT (conT ''Event) iT) eT),
+      tySynInstD (tySynEqn Nothing (appT (conT ''WireRequest) iT) rT),
+      tySynInstD (tySynEqn Nothing (appT (conT ''WireEvent) iT) eT),
       tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceName) iT) (litT (strTyLit interface.name))),
       valD (varP 'interfaceName) (normalB (stringE interface.name)) []
       ]
@@ -150,15 +150,15 @@ interfaceDecs interface = do
     eventRecordD :: Q Dec
     eventRecordD = messageRecordD (eventClassN interface) eventContexts
 
-    messageRecordD :: Name -> [MessageContext] -> Q Dec
-    messageRecordD name messageContexts = dataD (cxt []) name [] Nothing [con] []
+messageRecordD :: Name -> [MessageContext] -> Q Dec
+messageRecordD name messageContexts = dataD (cxt []) name [] Nothing [con] []
+  where
+    con = recC name (recField <$> messageContexts)
+    recField :: MessageContext -> Q VarBangType
+    recField msg = varDefaultBangType (mkName msg.msgSpec.name) [t|$(applyArgTypes [t|STM ()|])|]
       where
-        con = recC name (recField <$> messageContexts)
-        recField :: MessageContext -> Q VarBangType
-        recField msg = varDefaultBangType (mkName msg.msgSpec.name) [t|$(applyArgTypes [t|STM ()|])|]
-          where
-            applyArgTypes :: Q Type -> Q Type
-            applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType <$> msg.msgSpec.arguments)
+        applyArgTypes :: Q Type -> Q Type
+        applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType <$> msg.msgSpec.arguments)
 
 
 interfaceSideInstanceDs :: InterfaceSpec -> Q [Dec]

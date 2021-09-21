@@ -1,5 +1,5 @@
 module Quasar.Wayland.Protocol.Display (
-  clientWlDisplayCallback,
+  clientWlDisplayWireCallback,
 ) where
 
 import Control.Monad.Catch
@@ -12,8 +12,8 @@ import Quasar.Wayland.Protocol.Generated
 --
 -- This is only required when manually managing the @wl_display@ interface (usually it's applied by
 -- 'Quasar.Wayland.Display.newClientDisplay').
-clientWlDisplayCallback :: IsInterfaceSide 'Client Interface_wl_display => Callback 'Client Interface_wl_display
-clientWlDisplayCallback = internalFnCallback handler
+clientWlDisplayWireCallback :: IsInterfaceSide 'Client Interface_wl_display => WireCallback 'Client Interface_wl_display
+clientWlDisplayWireCallback = internalFnWireCallback handler
   where
     -- | wl_display is specified to never change, so manually specifying the callback is safe
     handler :: Object 'Client Interface_wl_display -> WireEvent_wl_display -> ProtocolM 'Client ()

@@ -22,7 +22,7 @@ createClientRegistry :: Object 'Client Interface_wl_display -> ProtocolM 'Client
 createClientRegistry wlDisplay = mfix \clientRegistry -> do
   globalsVar <- lift $ newTVar HM.empty
 
-  (wlRegistry, newId) <- newObject @'Client @Interface_wl_registry (traceCallback (callback clientRegistry))
+  (wlRegistry, newId) <- newObject @'Client @Interface_wl_registry (traceWireCallback (callback clientRegistry))
   sendMessage wlDisplay $ WireRequest_wl_display_get_registry newId
 
   pure ClientRegistry {
@@ -30,8 +30,8 @@ createClientRegistry wlDisplay = mfix \clientRegistry -> do
     globalsVar
   }
   where
-    callback :: ClientRegistry -> IsInterfaceSide 'Client Interface_wl_registry => Callback 'Client Interface_wl_registry
-    callback clientRegistry = internalFnCallback handler
+    callback :: ClientRegistry -> IsInterfaceSide 'Client Interface_wl_registry => WireCallback 'Client Interface_wl_registry
+    callback clientRegistry = internalFnWireCallback handler
       where
         -- | wl_registry is specified to never change, so manually specifying the callback is safe
         handler :: Object 'Client Interface_wl_registry -> WireEvent_wl_registry -> ProtocolM 'Client ()
