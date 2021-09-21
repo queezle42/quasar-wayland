@@ -7,6 +7,7 @@ module Quasar.Wayland.Protocol.Generated where
 
 -- Imports are here to improve readability when dumping splices
 import Control.Monad.Catch
+import Control.Monad.STM
 import Data.Binary
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core

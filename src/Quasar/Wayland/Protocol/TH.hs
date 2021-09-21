@@ -2,14 +2,12 @@ module Quasar.Wayland.Protocol.TH (
   generateWaylandProcol
 ) where
 
+import Control.Monad.STM
 import Control.Monad.Writer
 import Data.ByteString qualified as BS
+import Data.List (intersperse)
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (BangType, VarBangType, addDependentFile)
-import Language.Haskell.TH.Syntax qualified as TH
-import Data.ByteString qualified as BS
-import Data.Int (Int32)
-import Data.List (intersperse)
 import Prelude qualified
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
@@ -95,7 +93,7 @@ interfaceDecs interface = do
     tellQ requestRecordD
     tellQ eventRecordD
   internals <- execWriterT do
-    tellQ $ dataD (pure []) iName [] Nothing [normalC iName []] [derivingInterfaceClient, derivingInterfaceServer]
+    tellQ $ dataD (pure []) iName [] Nothing [] [derivingInterfaceClient, derivingInterfaceServer]
     tellQ $ instanceD (pure []) [t|IsInterface $iT|] instanceDecs
 
     when (length interface.requests > 0) do
@@ -146,31 +144,18 @@ interfaceDecs interface = do
     }
     eventContexts = eventContext <$> interface.events
 
-    aName :: Name
-    aName = mkName "a"
-    aType :: Q Type
-    aType = varT aName
-    mName :: Name
-    mName = mkName "m"
-    mType :: Q Type
-    mType = varT mName
-    sName :: Name
-    sName = mkName "s"
-    sType :: Q Type
-    sType = varT sName
-
     requestRecordD :: Q Dec
     requestRecordD = messageRecordD (requestClassN interface) requestContexts
 
     eventRecordD :: Q Dec
-    eventRecordD = messageRecordD (eventClassN interface) requestContexts
+    eventRecordD = messageRecordD (eventClassN interface) eventContexts
 
     messageRecordD :: Name -> [MessageContext] -> Q Dec
     messageRecordD name messageContexts = dataD (cxt []) name [] Nothing [con] []
       where
         con = recC name (recField <$> messageContexts)
         recField :: MessageContext -> Q VarBangType
-        recField msg = varDefaultBangType (mkName msg.msgSpec.name) [t|$(applyArgTypes [t|forall s. ProtocolM s ()|])|]
+        recField msg = varDefaultBangType (mkName msg.msgSpec.name) [t|$(applyArgTypes [t|STM ()|])|]
           where
             applyArgTypes :: Q Type -> Q Type
             applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType <$> msg.msgSpec.arguments)

@@ -3,11 +3,9 @@ module Quasar.Wayland.Protocol.Display (
 ) where
 
 import Control.Monad.Catch
-import Data.HashMap.Strict qualified as HM
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
 import Quasar.Wayland.Protocol.Generated
-import Quasar.Wayland.Registry
 
 
 -- | Default implementation for @wl_display@ that handles errors and confirms deleted object ids.
