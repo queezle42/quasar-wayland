@@ -234,9 +234,14 @@ data Side = Client | Server
 
 data Object s i = IsInterfaceSide s i => Object GenericObjectId (Callback s i)
 
+instance IsInterface i => Show (Object s i) where
+  show = showObject
+
 class IsObject a where
   objectId :: a -> GenericObjectId
   objectInterfaceName :: a -> String
+  showObject :: a -> String
+  showObject object = objectInterfaceName object <> "@" <> show (objectId object)
 
 class IsObjectSide a where
   describeUpMessage :: a -> Opcode -> BSL.ByteString -> String
@@ -294,7 +299,7 @@ invalidOpcode object opcode =
 
 showObjectMessage :: (IsObject a, IsMessage b) => a -> b -> String
 showObjectMessage object message =
-  objectInterfaceName object <> "@" <> show (objectId object) <> "." <> show message
+  showObject object <> "." <> show message
 
 
 data Callback s i = forall a. IsInterfaceHandler s i a => Callback a
@@ -312,7 +317,6 @@ internalFnCallback :: IsInterfaceSide s i => (Object s i -> Down s i -> Protocol
 internalFnCallback = Callback . FnCallback
 
 
-{-# WARNING traceCallback "Trace." #-}
 -- | The 'traceCallback' callback outputs a trace for every received message, before passing the message to the callback
 -- argument.
 --
@@ -341,6 +345,10 @@ data ParserFailed = ParserFailed String String
   deriving anyclass Exception
 
 data ProtocolException = ProtocolException String
+  deriving stock Show
+  deriving anyclass Exception
+
+data ProtocolUsageError = ProtocolUsageError String
   deriving stock Show
   deriving anyclass Exception
 
@@ -521,6 +529,9 @@ newObjectFromId (NewId oId) callback = do
 -- | Sends a message without checking any ids or creating proxy objects objects. (TODO)
 sendMessage :: forall s i. IsInterfaceSide s i => Object s i -> Up s i -> ProtocolM s ()
 sendMessage object message = do
+  isActiveObject <- HM.member oId <$> readProtocolVar (.objectsVar)
+  unless isActiveObject $ throwM $ ProtocolUsageError $ "Tried to send message on an invalid object: " <> show object
+
   (opcode, pairs) <- putUp object message
   let (putBodyParts, partLengths) = unzip pairs
   let putBody = mconcat putBodyParts
@@ -529,6 +540,7 @@ sendMessage object message = do
   traceM $ "-> " <> showObjectMessage object message
   sendRawMessage $ messageWithHeader opcode body
   where
+    oId = objectId object
     messageWithHeader :: Opcode -> BSL.ByteString -> Put
     messageWithHeader opcode body = do
       putWord32host objectIdWord
