@@ -90,12 +90,15 @@ tellQs = tell <=< lift
 interfaceDecs :: InterfaceSpec -> Q ([Dec], [Dec])
 interfaceDecs interface = do
   public <- execWriterT do
-    tellQ requestRecordD
-    tellQ eventRecordD
-  internals <- execWriterT do
     tellQ $ dataD (pure []) iName [] Nothing [] [derivingInterfaceClient, derivingInterfaceServer]
     tellQ $ instanceD (pure []) [t|IsInterface $iT|] instanceDecs
 
+    when (length interface.requests > 0) do
+      tellQ requestRecordD
+
+    when (length interface.events > 0) do
+      tellQ eventRecordD
+  internals <- execWriterT do
     when (length interface.requests > 0) do
       tellQs $ messageTypeDecs rTypeName requestContexts
 
@@ -108,8 +111,8 @@ interfaceDecs interface = do
     iName = interfaceN interface
     iT = interfaceT interface
     instanceDecs = [
-      tySynInstD (tySynEqn Nothing (appT (conT ''Requests) iT) (requestsT interface)),
-      tySynInstD (tySynEqn Nothing (appT (conT ''Events) iT) (eventsT interface)),
+      tySynInstD (tySynEqn Nothing (appT (conT ''Requests) iT) (orVoid (requestsT interface))),
+      tySynInstD (tySynEqn Nothing (appT (conT ''Events) iT) (orVoid (eventsT interface))),
       tySynInstD (tySynEqn Nothing (appT (conT ''WireRequest) iT) wireRequestT),
       tySynInstD (tySynEqn Nothing (appT (conT ''WireEvent) iT) eT),
       tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceName) iT) (litT (strTyLit interface.name))),
@@ -182,14 +185,17 @@ interfaceT interface = conT (interfaceN interface)
 requestsName :: InterfaceSpec -> Name
 requestsName interface = mkName $ "Requests_" <> interface.name
 
-requestsT :: InterfaceSpec -> Q Type
-requestsT interface = conT (requestsName interface)
+requestsT :: InterfaceSpec -> Maybe (Q Type)
+requestsT interface = if (length interface.requests) > 0 then Just (conT (requestsName interface)) else Nothing
 
 eventsName :: InterfaceSpec -> Name
 eventsName interface = mkName $ "Events_" <> interface.name
 
-eventsT :: InterfaceSpec -> Q Type
-eventsT interface = conT (eventsName interface)
+eventsT :: InterfaceSpec -> Maybe (Q Type)
+eventsT interface = if (length interface.events) > 0 then Just (conT (eventsName interface)) else Nothing
+
+orVoid :: Maybe (Q Type) -> Q Type
+orVoid = fromMaybe [t|Void|]
 
 
 
