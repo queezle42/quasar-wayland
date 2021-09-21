@@ -142,12 +142,12 @@ instance WireFormat Fixed where
   showArgument = show
 
 instance WireFormat WlString where
-  putArgument (WlString x) = pure $ putWaylandBlob x
+  putArgument (WlString x) = putWaylandBlob x
   getArgument = pure . WlString <$> getWaylandBlob
   showArgument = show
 
 instance WireFormat BS.ByteString where
-  putArgument x = pure $ putWaylandBlob x
+  putArgument x = putWaylandBlob x
   getArgument = pure <$> getWaylandBlob
   showArgument array = "[array " <> show (BS.length array) <> "B]"
 
@@ -535,27 +535,20 @@ sendMessage object message = do
   (opcode, pairs) <- putUp object message
   let (putBodyParts, partLengths) = unzip pairs
   let putBody = mconcat putBodyParts
-  let bodyLength = foldr (+) 0 partLengths
-  let body = runPut putBody
+
+  let bodyLength = foldr (+) 8 partLengths
+  when (bodyLength > fromIntegral (maxBound :: Word16)) $
+    throwM $ ProtocolUsageError $ "Tried to send message larger than 2^16 bytes"
+
   traceM $ "-> " <> showObjectMessage object message
-  sendRawMessage $ messageWithHeader opcode body
+  sendRawMessage $ putHeader opcode bodyLength >> putBody
   where
     oId = objectId object
-    messageWithHeader :: Opcode -> BSL.ByteString -> Put
-    messageWithHeader opcode body = do
+    (GenericObjectId objectIdWord) = objectId object
+    putHeader :: Opcode -> Int -> Put
+    putHeader opcode msgSize = do
       putWord32host objectIdWord
       putWord32host $ (fromIntegral msgSize `shiftL` 16) .|. fromIntegral opcode
-      putLazyByteString body
-      where
-        (GenericObjectId objectIdWord) = objectId object
-        msgSize :: Word16
-        msgSize =
-          if msgSizeInteger <= fromIntegral (maxBound :: Word16)
-            then fromIntegral msgSizeInteger
-            else error "Message too large"
-        -- TODO: body length should be returned from `putMessage`, instead of realizing it to a ByteString here
-        msgSizeInteger :: Integer
-        msgSizeInteger = 8 + fromIntegral (BSL.length body)
 
 
 receiveMessages :: IsSide s => ProtocolM s ()
@@ -624,8 +617,12 @@ getWaylandBlob = do
   skipPadding
   pure string
 
-putWaylandBlob :: BS.ByteString -> (Put, Int)
-putWaylandBlob blob = (putBlob, 4 + len + pad)
+putWaylandBlob :: BS.ByteString -> ProtocolM s (Put, Int)
+putWaylandBlob blob = do
+  when (len > fromIntegral (maxBound :: Word16)) $
+    throwM $ ProtocolUsageError $ "Tried to send string or array larger than 2^16 bytes"
+
+  pure (putBlob, 4 + len + pad)
   where
     -- Total data length including null byte
     len = BS.length blob + 1
