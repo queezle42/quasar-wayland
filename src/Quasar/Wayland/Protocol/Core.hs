@@ -4,8 +4,8 @@ module Quasar.Wayland.Protocol.Core (
   ObjectId,
   GenericObjectId,
   NewId,
+  GenericNewId,
   Opcode,
-  ArgumentType(..),
   Fixed(..),
   WlString(..),
   toString,
@@ -46,9 +46,6 @@ module Quasar.Wayland.Protocol.Core (
   MaximumIdReached(..),
   ServerError(..),
 
-  -- * TH utilities
-  isNewId,
-
   -- * Message decoder operations
   WireFormat(..),
   dropRemaining,
@@ -74,23 +71,26 @@ import Data.Proxy
 import Data.String (IsString(..))
 import Data.Void (absurd)
 import GHC.TypeLits
-import Language.Haskell.TH.Syntax (Lift)
 import Quasar.Prelude
 
 
-newtype ObjectId (j :: Symbol) = ObjectId GenericObjectId
-  deriving stock (Eq, Show)
+newtype ObjectId (j :: Symbol) = ObjectId Word32
+  deriving newtype (Eq, Show, Hashable)
 
-type GenericObjectId = Word32
+newtype GenericObjectId = GenericObjectId Word32
+  deriving newtype (Eq, Show, Hashable)
+
+toGenericObjectId :: ObjectId j -> GenericObjectId
+toGenericObjectId (ObjectId oId) = GenericObjectId oId
 
 type Opcode = Word16
 
 
-newtype NewId (j :: Symbol) = NewId GenericObjectId
-  deriving stock (Eq, Show)
+newtype NewId (j :: Symbol) = NewId (ObjectId j)
+  deriving newtype (Eq, Show)
 
 newtype GenericNewId = GenericNewId GenericObjectId
-  deriving stock (Eq, Show)
+  deriving newtype (Eq, Show)
 
 
 -- | Signed 24.8 decimal numbers.
@@ -121,86 +121,57 @@ dropRemaining :: Get ()
 dropRemaining = void getRemainingLazyByteString
 
 
-data ArgumentType
-  = IntArgument
-  | UIntArgument
-  | FixedArgument
-  | StringArgument
-  | ArrayArgument
-  | ObjectArgument String
-  | GenericObjectArgument
-  | NewIdArgument String
-  | GenericNewIdArgument
-  | FdArgument
-  deriving stock (Eq, Show, Lift)
+class (Eq a, Show a) => WireFormat a where
+  putArgument :: a -> ProtocolM s (Put, Int)
+  getArgument :: Get (ProtocolM s a)
+  showArgument :: a -> String
 
-isNewId :: ArgumentType -> Bool
-isNewId (NewIdArgument _) = True
-isNewId GenericNewIdArgument = True
-isNewId _ = False
-
-class (Eq (Argument a), Show (Argument a)) => WireFormat a where
-  type Argument a
-  putArgument :: Argument a -> ProtocolM s (Put, Int)
-  getArgument :: Get (ProtocolM s (Argument a))
-  showArgument :: Argument a -> String
-
-instance WireFormat 'IntArgument where
-  type Argument 'IntArgument = Int32
+instance WireFormat Int32 where
   putArgument x = pure (putInt32host x, 4)
   getArgument = pure <$> getInt32host
   showArgument = show
 
-instance WireFormat 'UIntArgument where
-  type Argument 'UIntArgument = Word32
+instance WireFormat Word32 where
   putArgument x = pure (putWord32host x, 4)
   getArgument = pure <$> getWord32host
   showArgument = show
 
-instance WireFormat 'FixedArgument where
-  type Argument 'FixedArgument = Fixed
+instance WireFormat Fixed where
   putArgument (Fixed repr) = pure (putWord32host repr, 4)
   getArgument = pure . Fixed <$> getWord32host
   showArgument = show
 
-instance WireFormat 'StringArgument where
-  type Argument 'StringArgument = WlString
+instance WireFormat WlString where
   putArgument (WlString x) = pure $ putWaylandBlob x
   getArgument = pure . WlString <$> getWaylandBlob
   showArgument = show
 
-instance WireFormat 'ArrayArgument where
-  type Argument 'ArrayArgument = BS.ByteString
+instance WireFormat BS.ByteString where
   putArgument x = pure $ putWaylandBlob x
   getArgument = pure <$> getWaylandBlob
   showArgument array = "[array " <> show (BS.length array) <> "B]"
 
 instance KnownSymbol j => WireFormat (ObjectId (j :: Symbol)) where
-  type Argument (ObjectId j) = ObjectId j
   putArgument (ObjectId oId) = pure (putWord32host oId, 4)
   getArgument = pure . ObjectId <$> getWord32host
   showArgument (ObjectId oId) = symbolVal @j Proxy <> "@" <> show oId
 
-instance WireFormat 'GenericObjectArgument where
-  type Argument 'GenericObjectArgument = GenericObjectId
-  putArgument x = pure (putWord32host x, 4)
-  getArgument = pure <$> getWord32host
+instance WireFormat GenericObjectId where
+  putArgument (GenericObjectId oId) = pure (putWord32host oId, 4)
+  getArgument = pure . GenericObjectId <$> getWord32host
   showArgument oId = "[unknown]@" <> show oId
 
 instance KnownSymbol j => WireFormat (NewId (j :: Symbol)) where
-  type Argument (NewId j) = NewId j
-  putArgument (NewId newId) = pure (putWord32host newId, 4)
-  getArgument = pure . NewId <$> getWord32host
+  putArgument (NewId newId) = putArgument newId
+  getArgument = NewId <<$>> getArgument
   showArgument (NewId newId) = "new " <> symbolVal @j Proxy <> "@" <> show newId
 
-instance WireFormat 'GenericNewIdArgument where
-  type Argument 'GenericNewIdArgument = GenericNewId
-  putArgument (GenericNewId newId) = pure (putWord32host newId, 4)
-  getArgument = pure . GenericNewId <$> getWord32host
+instance WireFormat GenericNewId where
+  putArgument (GenericNewId newId) = putArgument newId
+  getArgument = GenericNewId <<$>> getArgument
   showArgument newId = "new [unknown]@" <> show newId
 
-instance WireFormat 'FdArgument where
-  type Argument 'FdArgument = Void
+instance WireFormat Void where
   putArgument = undefined
   getArgument = undefined
   showArgument = undefined
@@ -220,8 +191,8 @@ class (
 class IsSide (s :: Side) where
   type Up s i
   type Down s i
-  initialId :: GenericObjectId
-  maximumId :: GenericObjectId
+  initialId :: Word32
+  maximumId :: Word32
 
 instance IsSide 'Client where
   type Up 'Client i = Request i
@@ -435,7 +406,7 @@ initializeProtocol wlDisplayCallback initializationAction = do
   bytesSentVar <- newTVar 0
   inboxDecoderVar <- newTVar $ runGetIncremental getRawMessage
   outboxVar <- newTVar Nothing
-  objectsVar <- newTVar $ HM.fromList [(1, (SomeObject wlDisplay))]
+  objectsVar <- newTVar $ HM.fromList [(wlDisplayId, (SomeObject wlDisplay))]
   nextIdVar <- newTVar (initialId @s)
   let state = ProtocolState {
     bytesReceivedVar,
@@ -452,8 +423,10 @@ initializeProtocol wlDisplayCallback initializationAction = do
   result <- runReaderT (initializationAction wlDisplay) state
   pure (result, protocol)
   where
+    wlDisplayId :: GenericObjectId
+    wlDisplayId = GenericObjectId 1
     wlDisplay :: Object s wl_display
-    wlDisplay = Object 1 wlDisplayCallback
+    wlDisplay = Object wlDisplayId wlDisplayCallback
 
 -- | Run a protocol action in 'IO'. If an exception occurs, it is stored as a protocol failure and is then
 -- re-thrown.
@@ -516,12 +489,12 @@ newObject
   => Callback s i
   -> ProtocolM s (Object s i, NewId (InterfaceName i))
 newObject callback = do
-  genOId <- allocateObjectId
-  let oId = NewId @(InterfaceName i) genOId
-  object <- newObjectFromId oId callback
-  pure (object, oId)
+  oId <- allocateObjectId
+  let newId = NewId @(InterfaceName i) oId
+  object <- newObjectFromId newId callback
+  pure (object, newId)
   where
-    allocateObjectId :: ProtocolM s GenericObjectId
+    allocateObjectId :: ProtocolM s (ObjectId (InterfaceName i))
     allocateObjectId = do
       id' <- readProtocolVar (.nextIdVar)
 
@@ -529,7 +502,7 @@ newObject callback = do
       when (nextId' == maximumId @s) $ throwM MaximumIdReached
 
       writeProtocolVar (.nextIdVar) nextId'
-      pure id'
+      pure $ ObjectId id'
 
 newObjectFromId
   :: forall s i. IsInterfaceSide s i
@@ -538,9 +511,10 @@ newObjectFromId
   -> ProtocolM s (Object s i)
 newObjectFromId (NewId oId) callback = do
   let
-    object = Object oId callback
+    genericObjectId = toGenericObjectId oId
+    object = Object genericObjectId callback
     someObject = SomeObject object
-  modifyProtocolVar (.objectsVar) (HM.insert oId someObject)
+  modifyProtocolVar (.objectsVar) (HM.insert genericObjectId someObject)
   pure object
 
 
@@ -557,10 +531,11 @@ sendMessage object message = do
   where
     messageWithHeader :: Opcode -> BSL.ByteString -> Put
     messageWithHeader opcode body = do
-      putWord32host $ objectId object
+      putWord32host objectIdWord
       putWord32host $ (fromIntegral msgSize `shiftL` 16) .|. fromIntegral opcode
       putLazyByteString body
       where
+        (GenericObjectId objectIdWord) = objectId object
         msgSize :: Word16
         msgSize =
           if msgSizeInteger <= fromIntegral (maxBound :: Word16)
@@ -622,7 +597,7 @@ receiveRawMessage = do
 
 getRawMessage :: Get RawMessage
 getRawMessage = do
-  oId <- getWord32host
+  oId <- GenericObjectId <$> getWord32host
   sizeAndOpcode <- getWord32host
   let
     size = fromIntegral (sizeAndOpcode `shiftR` 16) - 8

@@ -5,8 +5,10 @@ module Quasar.Wayland.Protocol.TH (
 import Control.Monad.Writer
 import Data.ByteString qualified as BS
 import Language.Haskell.TH
-import Language.Haskell.TH.Syntax (BangType, addDependentFile)
+import Language.Haskell.TH.Syntax (BangType, VarBangType, addDependentFile)
 import Language.Haskell.TH.Syntax qualified as TH
+import Data.ByteString qualified as BS
+import Data.Int (Int32)
 import Data.List (intersperse)
 import Prelude qualified
 import Quasar.Prelude
@@ -48,6 +50,25 @@ data ArgumentSpec = ArgumentSpec {
 }
   deriving stock Show
 
+data ArgumentType
+  = IntArgument
+  | UIntArgument
+  | FixedArgument
+  | StringArgument
+  | ArrayArgument
+  | ObjectArgument String
+  | GenericObjectArgument
+  | NewIdArgument String
+  | GenericNewIdArgument
+  | FdArgument
+  deriving stock (Eq, Show)
+
+isNewId :: ArgumentType -> Bool
+isNewId (NewIdArgument _) = True
+isNewId GenericNewIdArgument = True
+isNewId _ = False
+
+
 
 generateWaylandProcol :: FilePath -> Q [Dec]
 generateWaylandProcol protocolFile = do
@@ -71,8 +92,8 @@ tellQs = tell <=< lift
 interfaceDecs :: InterfaceSpec -> Q ([Dec], [Dec])
 interfaceDecs interface = do
   public <- execWriterT do
-    tellQ requestClassD
-    tellQ eventClassD
+    tellQ requestRecordD
+    tellQ eventRecordD
   internals <- execWriterT do
     tellQ $ dataD (pure []) iName [] Nothing [normalC iName []] [derivingInterfaceClient, derivingInterfaceServer]
     tellQ $ instanceD (pure []) [t|IsInterface $iT|] instanceDecs
@@ -133,29 +154,32 @@ interfaceDecs interface = do
     mName = mkName "m"
     mType :: Q Type
     mType = varT mName
+    sName :: Name
+    sName = mkName "s"
+    sType :: Q Type
+    sType = varT sName
 
-    requestClassD :: Q Dec
-    requestClassD =
-      -- [t|MonadCatch $mType|]
-      classD (cxt []) (requestClassN interface) [plainTV mName, plainTV aName] [] (callSigD <$> requestContexts)
+    requestRecordD :: Q Dec
+    requestRecordD = messageRecordD (requestClassN interface) requestContexts
 
-    eventClassD :: Q Dec
-    eventClassD =
-      -- [t|MonadCatch $mType|]
-      classD (cxt []) (eventClassN interface) [plainTV mName, plainTV aName] [] (callSigD <$> eventContexts)
+    eventRecordD :: Q Dec
+    eventRecordD = messageRecordD (eventClassN interface) requestContexts
 
-    callSigD :: MessageContext -> Q Dec
-    callSigD msg = sigD (mkName (interface.name <> "__" <> msg.msgSpec.name)) [t|$aType -> $(applyArgTypes [t|$mType ()|])|]
+    messageRecordD :: Name -> [MessageContext] -> Q Dec
+    messageRecordD name messageContexts = dataD (cxt []) name [] Nothing [con] []
       where
-        applyArgTypes :: Q Type -> Q Type
-        applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType <$> msg.msgSpec.arguments)
+        con = recC name (recField <$> messageContexts)
+        recField :: MessageContext -> Q VarBangType
+        recField msg = varDefaultBangType (mkName msg.msgSpec.name) [t|$(applyArgTypes [t|forall s. ProtocolM s ()|])|]
+          where
+            applyArgTypes :: Q Type -> Q Type
+            applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType <$> msg.msgSpec.arguments)
+
 
 interfaceSideInstanceDs :: InterfaceSpec -> Q [Dec]
 interfaceSideInstanceDs interface = execWriterT do
   tellQs [d|instance IsInterfaceSide 'Client $iT|]
   tellQs [d|instance IsInterfaceSide 'Server $iT|]
-  --tellQs [d|instance forall m a. IsInterfaceHandler 'Client m $iT a where {handleMessage = undefined}|]
-  --tellQs [d|instance forall m a. IsInterfaceHandler 'Server m $iT a where {handleMessage = undefined}|]
   where
     iT = interfaceT interface
 
@@ -229,7 +253,7 @@ messageTypeDecs name msgs = execWriterT do
         []
       where
         showArgE :: ArgumentSpec -> [Q Exp]
-        showArgE arg = [stringE (arg.name ++ "="), [|showArgument @($(argumentSpecType arg)) $(msgArgE msg arg)|]]
+        showArgE arg = [stringE (arg.name ++ "="), [|showArgument @($(argumentType arg)) $(msgArgE msg arg)|]]
 
 isMessageInstanceD :: Q Type -> [MessageContext] -> Q Dec
 isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, getMessageD, putMessageD]
@@ -246,7 +270,7 @@ isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, 
     getMessageClause msg = clause [wildP, litP (integerL (fromIntegral msg.msgSpec.opcode))] (normalB getMessageE) []
       where
         getMessageE :: Q Exp
-        getMessageE = applyALifted (conE (msg.msgConName)) ((\argT -> [|getArgument @($argT)|]) . argumentSpecType <$> msg.msgSpec.arguments)
+        getMessageE = applyALifted (conE (msg.msgConName)) ((\argT -> [|getArgument @($argT)|]) . argumentType <$> msg.msgSpec.arguments)
     getMessageInvalidOpcodeClause :: Q Clause
     getMessageInvalidOpcodeClause = do
       let object = mkName "object"
@@ -261,7 +285,7 @@ isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, 
         putMessageE args = [|($(litE $ integerL $ fromIntegral msg.msgSpec.opcode), ) <$> $(putMessageBodyE args)|]
         putMessageBodyE :: [ArgumentSpec] -> Q Exp
         putMessageBodyE [] = [|pure []|]
-        putMessageBodyE args = [|sequence $(listE ((\arg -> [|putArgument @($(argumentSpecType arg)) $(msgArgE msg arg)|]) <$> args))|]
+        putMessageBodyE args = [|sequence $(listE ((\arg -> [|putArgument @($(argumentType arg)) $(msgArgE msg arg)|]) <$> args))|]
 
 
 derivingEq :: Q DerivClause
@@ -277,25 +301,25 @@ derivingInterfaceServer :: Q DerivClause
 derivingInterfaceServer = derivClause (Just AnyclassStrategy) [[t|IsInterfaceSide 'Server|]]
 
 argumentType :: ArgumentSpec -> Q Type
-argumentType argSpec = [t|Argument $(promoteArgumentSpecType argSpec.argType)|]
+argumentType argSpec = promoteArgumentType argSpec.argType
 
-argumentSpecType :: ArgumentSpec -> Q Type
-argumentSpecType argSpec = promoteArgumentSpecType argSpec.argType
-
-promoteArgumentSpecType :: ArgumentType -> Q Type
-promoteArgumentSpecType (ObjectArgument iName) = [t|ObjectId $(litT $ strTyLit iName)|]
-promoteArgumentSpecType (NewIdArgument iName) = [t|NewId $(litT $ strTyLit iName)|]
-promoteArgumentSpecType arg = do
-  argExp <- (TH.lift arg)
-  matchCon argExp
-  where
-    matchCon :: Exp -> Q Type
-    matchCon (ConE name) = pure $ ConT name
-    matchCon (AppE x _) = matchCon x
-    matchCon _ = fail "Can only promote ConE expression"
+promoteArgumentType :: ArgumentType -> Q Type
+promoteArgumentType IntArgument = [t|Int32|]
+promoteArgumentType UIntArgument = [t|Word32|]
+promoteArgumentType FixedArgument = [t|Fixed|]
+promoteArgumentType StringArgument = [t|WlString|]
+promoteArgumentType ArrayArgument = [t|BS.ByteString|]
+promoteArgumentType (ObjectArgument iName) = [t|ObjectId $(litT (strTyLit iName))|]
+promoteArgumentType GenericObjectArgument = [t|GenericObjectId|]
+promoteArgumentType (NewIdArgument iName) = [t|NewId $(litT (strTyLit iName))|]
+promoteArgumentType GenericNewIdArgument = [t|GenericNewId|]
+promoteArgumentType FdArgument = [t|Void|] -- TODO
 
 defaultBangType :: Q Type -> Q BangType
 defaultBangType = bangType (bang noSourceUnpackedness noSourceStrictness)
+
+varDefaultBangType  :: Name -> Q Type -> Q VarBangType
+varDefaultBangType name qType = varBangType name $ bangType (bang noSourceUnpackedness noSourceStrictness) qType
 
 
 -- | (a -> b -> c -> d) -> [m a, m b, m c] -> m d
