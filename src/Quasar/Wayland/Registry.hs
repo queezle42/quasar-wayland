@@ -15,7 +15,7 @@ import Quasar.Wayland.Protocol.Generated
 
 data ClientRegistry = ClientRegistry {
   wlRegistry :: Object 'Client I_wl_registry,
-  globalsVar :: TVar (HM.HashMap Word32 (BS.ByteString, Word32))
+  globalsVar :: TVar (HM.HashMap Word32 (WlString, Word32))
 }
 
 createClientRegistry :: Object 'Client I_wl_display -> ProtocolM 'Client ClientRegistry
@@ -23,7 +23,7 @@ createClientRegistry wlDisplay = mfix \clientRegistry -> do
   globalsVar <- lift $ newTVar HM.empty
 
   (wlRegistry, newId) <- newObject @'Client @I_wl_registry (traceCallback (callback clientRegistry))
-  sendMessage wlDisplay $ R_wl_display_get_registry newId
+  sendMessage wlDisplay $ WireRequest_wl_display_get_registry newId
 
   pure ClientRegistry {
     wlRegistry,
@@ -34,10 +34,10 @@ createClientRegistry wlDisplay = mfix \clientRegistry -> do
     callback clientRegistry = internalFnCallback handler
       where
         -- | wl_registry is specified to never change, so manually specifying the callback is safe
-        handler :: Object 'Client I_wl_registry -> E_wl_registry -> ProtocolM 'Client ()
-        handler _ (E_wl_registry_global name interface version) = do
+        handler :: Object 'Client I_wl_registry -> WireEvent_wl_registry -> ProtocolM 'Client ()
+        handler _ (WireEvent_wl_registry_global name interface version) = do
           lift $ modifyTVar clientRegistry.globalsVar (HM.insert name (interface, version))
-        handler _ (E_wl_registry_global_remove name) = do
+        handler _ (WireEvent_wl_registry_global_remove name) = do
           result <- lift $ stateTVar clientRegistry.globalsVar (swap . lookupDelete name)
           case result of
             Nothing -> traceM $ "Invalid global removed by server: " <> show name

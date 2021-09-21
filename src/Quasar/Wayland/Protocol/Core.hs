@@ -59,6 +59,7 @@ import Control.Concurrent.STM
 import Control.Monad (replicateM_)
 import Control.Monad.Catch
 import Control.Monad.Reader (ReaderT, runReaderT, ask, lift)
+import Data.Bifunctor qualified as Bifunctor
 import Data.Binary
 import Data.Binary.Get
 import Data.Binary.Put
@@ -104,6 +105,7 @@ instance Show Fixed where
 --
 -- Instances and functions in this library assume UTF-8, but the original data is also available by deconstructing.
 newtype WlString = WlString BS.ByteString
+  deriving newtype (Eq, Hashable)
 
 instance Show WlString where
   show = show . toString
@@ -139,62 +141,62 @@ isNewId _ = False
 
 class (Eq (Argument a), Show (Argument a)) => WireFormat a where
   type Argument a
-  putArgument :: Argument a -> PutM ()
-  getArgument :: Get (Argument a)
+  putArgument :: Argument a -> ProtocolM s (Put, Int)
+  getArgument :: Get (ProtocolM s (Argument a))
   showArgument :: Argument a -> String
 
 instance WireFormat 'IntArgument where
   type Argument 'IntArgument = Int32
-  putArgument = putInt32host
-  getArgument = getInt32host
+  putArgument x = pure (putInt32host x, 4)
+  getArgument = pure <$> getInt32host
   showArgument = show
 
 instance WireFormat 'UIntArgument where
   type Argument 'UIntArgument = Word32
-  putArgument = putWord32host
-  getArgument = getWord32host
+  putArgument x = pure (putWord32host x, 4)
+  getArgument = pure <$> getWord32host
   showArgument = show
 
 instance WireFormat 'FixedArgument where
   type Argument 'FixedArgument = Fixed
-  putArgument (Fixed repr) = putWord32host repr
-  getArgument = Fixed <$> getWord32host
+  putArgument (Fixed repr) = pure (putWord32host repr, 4)
+  getArgument = pure . Fixed <$> getWord32host
   showArgument = show
 
 instance WireFormat 'StringArgument where
-  type Argument 'StringArgument = BS.ByteString
-  putArgument = putWaylandBlob
-  getArgument = getWaylandBlob
+  type Argument 'StringArgument = WlString
+  putArgument (WlString x) = pure $ putWaylandBlob x
+  getArgument = pure . WlString <$> getWaylandBlob
   showArgument = show
 
 instance WireFormat 'ArrayArgument where
   type Argument 'ArrayArgument = BS.ByteString
-  putArgument = putWaylandBlob
-  getArgument = getWaylandBlob
+  putArgument x = pure $ putWaylandBlob x
+  getArgument = pure <$> getWaylandBlob
   showArgument array = "[array " <> show (BS.length array) <> "B]"
 
 instance KnownSymbol j => WireFormat (ObjectId (j :: Symbol)) where
   type Argument (ObjectId j) = ObjectId j
-  putArgument (ObjectId oId) = putWord32host oId
-  getArgument = ObjectId <$> getWord32host
+  putArgument (ObjectId oId) = pure (putWord32host oId, 4)
+  getArgument = pure . ObjectId <$> getWord32host
   showArgument (ObjectId oId) = symbolVal @j Proxy <> "@" <> show oId
 
 instance WireFormat 'GenericObjectArgument where
   type Argument 'GenericObjectArgument = GenericObjectId
-  putArgument = putWord32host
-  getArgument = getWord32host
+  putArgument x = pure (putWord32host x, 4)
+  getArgument = pure <$> getWord32host
   showArgument oId = "[unknown]@" <> show oId
 
 instance KnownSymbol j => WireFormat (NewId (j :: Symbol)) where
   type Argument (NewId j) = NewId j
-  putArgument (NewId newId) = putWord32host newId
-  getArgument = NewId <$> getWord32host
+  putArgument (NewId newId) = pure (putWord32host newId, 4)
+  getArgument = pure . NewId <$> getWord32host
   showArgument (NewId newId) = "new " <> symbolVal @j Proxy <> "@" <> show newId
 
 instance WireFormat 'GenericNewIdArgument where
   type Argument 'GenericNewIdArgument = GenericNewId
-  putArgument (GenericNewId newId) = putWord32host newId
-  getArgument = GenericNewId <$> getWord32host
+  putArgument (GenericNewId newId) = pure (putWord32host newId, 4)
+  getArgument = pure . GenericNewId <$> getWord32host
   showArgument newId = "new [unknown]@" <> show newId
 
 instance WireFormat 'FdArgument where
@@ -245,10 +247,10 @@ class (
   => IsInterfaceSide (s :: Side) i
 
 
-getDown :: forall s i. IsInterfaceSide s i => Object s i -> Opcode -> Get (Down s i)
+getDown :: forall s i. IsInterfaceSide s i => Object s i -> Opcode -> Get (ProtocolM s (Down s i))
 getDown = getMessage @(Down s i)
 
-putUp :: forall s i. IsInterfaceSide s i => Object s i -> Up s i -> PutM Opcode
+putUp :: forall s i. IsInterfaceSide s i => Object s i -> Up s i -> ProtocolM s (Opcode, [(Put, Int)])
 putUp _ = putMessage @(Up s i)
 
 
@@ -307,8 +309,8 @@ instance IsObjectSide (SomeObject s) where
 
 class (Eq a, Show a) => IsMessage a where
   opcodeName :: Opcode -> Maybe String
-  getMessage :: IsInterface i => Object s i -> Opcode -> Get a
-  putMessage :: a -> PutM Opcode
+  getMessage :: IsInterface i => Object s i -> Opcode -> Get (ProtocolM s a)
+  putMessage :: a -> ProtocolM s (Opcode, [(Put, Int)])
 
 instance IsMessage Void where
   opcodeName _ = Nothing
@@ -413,6 +415,11 @@ modifyProtocolVar fn x = do
   state <- ask
   lift $ modifyTVar (fn state) x
 
+modifyProtocolVar' :: (ProtocolState s -> TVar a) -> (a -> a) -> ProtocolM s ()
+modifyProtocolVar' fn x = do
+  state <- ask
+  lift $ modifyTVar' (fn state) x
+
 stateProtocolVar :: (ProtocolState s -> TVar a) -> (a -> (r, a)) -> ProtocolM s r
 stateProtocolVar fn x = do
   state <- ask
@@ -484,7 +491,7 @@ runProtocolM protocol action = either throwM (runReaderT action) =<< readTVar pr
 feedInput :: (IsSide s, MonadIO m, MonadThrow m) => ProtocolHandle s -> ByteString -> m ()
 feedInput protocol bytes = runProtocolTransaction protocol do
   -- Exposing MonadIO instead of STM to the outside and using `runProtocolTransaction` here enforces correct exception handling.
-  modifyProtocolVar (.bytesReceivedVar) (+ fromIntegral (BS.length bytes))
+  modifyProtocolVar' (.bytesReceivedVar) (+ fromIntegral (BS.length bytes))
   modifyProtocolVar (.inboxDecoderVar) (`pushChunk` bytes)
   receiveMessages
 
@@ -498,7 +505,7 @@ takeOutbox protocol = runProtocolTransaction protocol do
   mOutboxData <- stateProtocolVar (.outboxVar) (\mOutboxData -> (mOutboxData, Nothing))
   outboxData <- maybe (lift retry) pure mOutboxData
   let sendData = runPut outboxData
-  modifyProtocolVar (.bytesSentVar) (+ BSL.length sendData)
+  modifyProtocolVar' (.bytesSentVar) (+ BSL.length sendData)
   pure sendData
 
 
@@ -540,25 +547,28 @@ newObjectFromId (NewId oId) callback = do
 -- | Sends a message without checking any ids or creating proxy objects objects. (TODO)
 sendMessage :: forall s i. IsInterfaceSide s i => Object s i -> Up s i -> ProtocolM s ()
 sendMessage object message = do
+  (opcode, pairs) <- putUp object message
+  let (putBodyParts, partLengths) = unzip pairs
+  let putBody = mconcat putBodyParts
+  let bodyLength = foldr (+) 0 partLengths
+  let body = runPut putBody
   traceM $ "-> " <> showObjectMessage object message
-  sendRawMessage messageWithHeader
+  sendRawMessage $ messageWithHeader opcode body
   where
-    body :: BSL.ByteString
-    opcode :: Opcode
-    (opcode, body) = runPutM $ putUp object message
-    messageWithHeader :: Put
-    messageWithHeader = do
+    messageWithHeader :: Opcode -> BSL.ByteString -> Put
+    messageWithHeader opcode body = do
       putWord32host $ objectId object
       putWord32host $ (fromIntegral msgSize `shiftL` 16) .|. fromIntegral opcode
       putLazyByteString body
-    msgSize :: Word16
-    msgSize =
-      if msgSizeInteger <= fromIntegral (maxBound :: Word16)
-        then fromIntegral msgSizeInteger
-        else error "Message too large"
-    -- TODO: body length should be returned from `putMessage`, instead of realizing it to a ByteString here
-    msgSizeInteger :: Integer
-    msgSizeInteger = 8 + fromIntegral (BSL.length body)
+      where
+        msgSize :: Word16
+        msgSize =
+          if msgSizeInteger <= fromIntegral (maxBound :: Word16)
+            then fromIntegral msgSizeInteger
+            else error "Message too large"
+        -- TODO: body length should be returned from `putMessage`, instead of realizing it to a ByteString here
+        msgSizeInteger :: Integer
+        msgSizeInteger = 8 + fromIntegral (BSL.length body)
 
 
 receiveMessages :: IsSide s => ProtocolM s ()
@@ -591,8 +601,8 @@ getMessageAction
   -> Opcode
   -> Get (ProtocolM s ())
 getMessageAction object@(Object _ objectHandler) opcode = do
-  message <- getDown object opcode
-  pure $ handleMessage objectHandler object message
+  verifyMessage <- getDown object opcode
+  pure $ handleMessage objectHandler object =<< verifyMessage
 
 type RawMessage = (GenericObjectId, Opcode, BSL.ByteString)
 
@@ -627,13 +637,18 @@ getWaylandBlob = do
   skipPadding
   pure string
 
-putWaylandBlob :: BS.ByteString -> Put
-putWaylandBlob blob = do
-  let size = BS.length blob
-  putWord32host (fromIntegral (size + 1))
-  putByteString blob
-  putWord8 0
-  replicateM_ (padding size) (putWord8 0)
+putWaylandBlob :: BS.ByteString -> (Put, Int)
+putWaylandBlob blob = (putBlob, 4 + len + pad)
+  where
+    -- Total data length including null byte
+    len = BS.length blob + 1
+    -- Padding length
+    pad = padding len
+    putBlob = do
+      putWord32host (fromIntegral (len + 1))
+      putByteString blob
+      putWord8 0
+      replicateM_ pad (putWord8 0)
 
 
 skipPadding :: Get ()

@@ -3,7 +3,6 @@ module Quasar.Wayland.Protocol.Display (
 ) where
 
 import Control.Monad.Catch
-import Data.ByteString.UTF8 qualified as BS
 import Data.HashMap.Strict qualified as HM
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
@@ -19,7 +18,7 @@ clientWlDisplayCallback :: IsInterfaceSide 'Client I_wl_display => Callback 'Cli
 clientWlDisplayCallback = internalFnCallback handler
   where
     -- | wl_display is specified to never change, so manually specifying the callback is safe
-    handler :: Object 'Client I_wl_display -> E_wl_display -> ProtocolM 'Client ()
+    handler :: Object 'Client I_wl_display -> WireEvent_wl_display -> ProtocolM 'Client ()
     -- TODO parse oId
-    handler _ (E_wl_display_error oId code message) = throwM $ ServerError code (BS.toString message)
-    handler _ (E_wl_display_delete_id deletedId) = pure () -- TODO confirm delete
+    handler _ (WireEvent_wl_display_error oId code message) = throwM $ ServerError code (toString message)
+    handler _ (WireEvent_wl_display_delete_id deletedId) = pure () -- TODO confirm delete

@@ -97,15 +97,15 @@ interfaceDecs interface = do
     rT :: Q Type
     rT = if length interface.requests > 0 then conT rTypeName else [t|Void|]
     rTypeName :: Name
-    rTypeName = mkName $ "R_" <> interface.name
+    rTypeName = mkName $ "WireRequest_" <> interface.name
     rConName :: RequestSpec -> Name
-    rConName (RequestSpec request) = mkName $ "R_" <> interface.name <> "_" <> request.name
+    rConName (RequestSpec request) = mkName $ "WireRequest_" <> interface.name <> "_" <> request.name
     eT :: Q Type
     eT = if length interface.events > 0 then conT eTypeName else [t|Void|]
     eTypeName :: Name
-    eTypeName = mkName $ "E_" <> interface.name
+    eTypeName = mkName $ "WireEvent_" <> interface.name
     eConName :: EventSpec -> Name
-    eConName (EventSpec event) = mkName $ "E_" <> interface.name <> "_" <> event.name
+    eConName (EventSpec event) = mkName $ "WireEvent_" <> interface.name <> "_" <> event.name
     requestContext :: RequestSpec -> MessageContext
     requestContext req@(RequestSpec msgSpec) = MessageContext {
       msgInterfaceT = iT,
@@ -246,7 +246,7 @@ isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, 
     getMessageClause msg = clause [wildP, litP (integerL (fromIntegral msg.msgSpec.opcode))] (normalB getMessageE) []
       where
         getMessageE :: Q Exp
-        getMessageE = applyA (conE (msg.msgConName)) ((\argT -> [|getArgument @($argT)|]) . argumentSpecType <$> msg.msgSpec.arguments)
+        getMessageE = applyALifted (conE (msg.msgConName)) ((\argT -> [|getArgument @($argT)|]) . argumentSpecType <$> msg.msgSpec.arguments)
     getMessageInvalidOpcodeClause :: Q Clause
     getMessageInvalidOpcodeClause = do
       let object = mkName "object"
@@ -258,10 +258,10 @@ isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, 
     putMessageClauseD msg = clause [msgConP msg] (normalB (putMessageE msg.msgSpec.arguments)) []
       where
         putMessageE :: [ArgumentSpec] -> Q Exp
-        putMessageE [] = opcodeE
-        putMessageE args = doE (((\arg -> noBindS [|putArgument @($(argumentSpecType arg)) $(msgArgE msg arg)|]) <$> args) <> [noBindS opcodeE])
-        opcodeE :: Q Exp
-        opcodeE = [|pure $(litE $ integerL $ fromIntegral msg.msgSpec.opcode)|]
+        putMessageE args = [|($(litE $ integerL $ fromIntegral msg.msgSpec.opcode), ) <$> $(putMessageBodyE args)|]
+        putMessageBodyE :: [ArgumentSpec] -> Q Exp
+        putMessageBodyE [] = [|pure []|]
+        putMessageBodyE args = [|sequence $(listE ((\arg -> [|putArgument @($(argumentSpecType arg)) $(msgArgE msg arg)|]) <$> args))|]
 
 
 derivingEq :: Q DerivClause
@@ -307,6 +307,12 @@ applyA con (monadicE:monadicEs) = foldl (\x y -> [|$x <*> $y|]) [|$con <$> $mona
 applyM :: Q Exp -> [Q Exp] -> Q Exp
 applyM con [] = con
 applyM con args = [|join $(applyA con args)|]
+
+
+-- | (a -> b -> c -> d) -> [f (g a), f (g b), f (g c)] -> f (g d)
+applyALifted :: Q Exp -> [Q Exp] -> Q Exp
+applyALifted con [] = [|pure $ pure $con|]
+applyALifted con (monadicE:monadicEs) = foldl (\x y -> [|$x <<*>> $y|]) [|$con <<$>> $monadicE|] monadicEs
 
 
 -- * XML parser
