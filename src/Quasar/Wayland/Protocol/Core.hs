@@ -191,12 +191,16 @@ class (
   interfaceName :: String
 
 class IsSide (s :: Side) where
+  type Up s i
+  type Down s i
   type WireUp s i
   type WireDown s i
   initialId :: Word32
   maximumId :: Word32
 
 instance IsSide 'Client where
+  type Up 'Client i = Requests i
+  type Down 'Client i = Events i
   type WireUp 'Client i = WireRequest i
   type WireDown 'Client i = WireEvent i
   -- Id #1 is reserved for wl_display
@@ -204,6 +208,8 @@ instance IsSide 'Client where
   maximumId = 0xfeffffff
 
 instance IsSide 'Server where
+  type Up 'Server i = Events i
+  type Down 'Server i = Requests i
   type WireUp 'Server i = WireEvent i
   type WireDown 'Server i = WireRequest i
   initialId = 0xff000000
