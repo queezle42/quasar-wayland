@@ -7,6 +7,9 @@ module Quasar.Wayland.Protocol.Core (
   Opcode,
   ArgumentType(..),
   Fixed(..),
+  WlString(..),
+  toString,
+  fromString,
   IsSide(..),
   Side(..),
   IsInterface(..),
@@ -63,9 +66,11 @@ import Data.Bits ((.&.), (.|.), shiftL, shiftR)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
+import Data.ByteString.UTF8 qualified as BSUTF8
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Proxy
+import Data.String (IsString(..))
 import Data.Void (absurd)
 import GHC.TypeLits
 import Language.Haskell.TH.Syntax (Lift)
@@ -79,6 +84,14 @@ type GenericObjectId = Word32
 
 type Opcode = Word16
 
+
+newtype NewId (j :: Symbol) = NewId GenericObjectId
+  deriving stock (Eq, Show)
+
+newtype GenericNewId = GenericNewId GenericObjectId
+  deriving stock (Eq, Show)
+
+
 -- | Signed 24.8 decimal numbers.
 newtype Fixed = Fixed Word32
   deriving newtype Eq
@@ -86,11 +99,20 @@ newtype Fixed = Fixed Word32
 instance Show Fixed where
   show x = "[fixed " <> show x <> "]"
 
-newtype NewId (j :: Symbol) = NewId GenericObjectId
-  deriving stock (Eq, Show)
 
-newtype GenericNewId = GenericNewId GenericObjectId
-  deriving stock (Eq, Show)
+-- | A string. The encoding is not officially specified, but in practice UTF-8 is used.
+--
+-- Instances and functions in this library assume UTF-8, but the original data is also available by deconstructing.
+newtype WlString = WlString BS.ByteString
+
+instance Show WlString where
+  show = show . toString
+
+instance IsString WlString where
+  fromString = WlString . BSUTF8.fromString
+
+toString :: WlString -> String
+toString (WlString bs) = BSUTF8.toString bs
 
 
 dropRemaining :: Get ()

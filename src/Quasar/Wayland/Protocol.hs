@@ -8,6 +8,7 @@ module Quasar.Wayland.Protocol (
   GenericObjectId,
   NewId,
   Fixed(..),
+  WlString(..),
 
   -- ** Classes for generated interfaces
   IsInterface(Request, Event, InterfaceName, interfaceName),
