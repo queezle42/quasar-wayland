@@ -174,9 +174,9 @@ instance WireFormat GenericNewId where
   showArgument newId = "new [unknown]@" <> show newId
 
 instance WireFormat Void where
-  putArgument = undefined
-  getArgument = undefined
-  showArgument = undefined
+  putArgument = absurd
+  getArgument = pure <$> get
+  showArgument = absurd
 
 
 -- | Class for a proxy type (in the haskell sense) that describes a Wayland interface.
