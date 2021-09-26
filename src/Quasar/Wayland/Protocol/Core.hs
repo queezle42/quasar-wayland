@@ -242,7 +242,7 @@ class IsInterfaceSide s i => IsInterfaceHandler s i a where
 -- | Data kind
 data Side = Client | Server
 
-data Object s i = IsInterfaceSide s i => Object (ProtocolHandle s) GenericObjectId (WireCallback s i)
+data Object s i = IsInterfaceSide s i => Object (ProtocolHandle s) GenericObjectId (Up s i) (Down s i) (WireCallback s i)
 
 instance IsInterface i => Show (Object s i) where
   show = showObject
@@ -258,7 +258,7 @@ class IsObjectSide a where
   describeDownMessage :: a -> Opcode -> BSL.ByteString -> String
 
 instance forall s i. IsInterface i => IsObject (Object s i) where
-  objectId (Object _ oId _) = oId
+  objectId (Object _ oId _ _ _) = oId
   objectInterfaceName _ = interfaceName @i
 
 instance forall s i. IsInterfaceSide s i => IsObjectSide (Object s i) where
@@ -452,7 +452,7 @@ initializeProtocol wlDisplayWireCallback initializationAction = do
   }
   writeTVar stateVar (Right state)
 
-  let wlDisplay = Object protocol wlDisplayId wlDisplayWireCallback
+  let wlDisplay = Object protocol wlDisplayId undefined undefined wlDisplayWireCallback
   modifyTVar' objectsVar (HM.insert wlDisplayId (SomeObject wlDisplay))
 
   result <- runReaderT (initializationAction wlDisplay) state
@@ -546,7 +546,7 @@ newObjectFromId (NewId oId) callback = do
   protocol <- askProtocol
   let
     genericObjectId = toGenericObjectId oId
-    object = Object protocol genericObjectId callback
+    object = Object protocol genericObjectId undefined undefined callback
     someObject = SomeObject object
   modifyProtocolVar (.objectsVar) (HM.insert genericObjectId someObject)
   pure object
@@ -606,7 +606,7 @@ getMessageAction
   => Object s i
   -> Opcode
   -> Get (ProtocolM s ())
-getMessageAction object@(Object _ _ objectHandler) opcode = do
+getMessageAction object@(Object _ _ _ _ objectHandler) opcode = do
   verifyMessage <- getWireDown object opcode
   pure $ handleMessage objectHandler object =<< verifyMessage
 
