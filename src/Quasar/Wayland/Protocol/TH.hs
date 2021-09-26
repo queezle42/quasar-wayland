@@ -90,8 +90,9 @@ tellQs = tell <=< lift
 interfaceDecs :: InterfaceSpec -> Q ([Dec], [Dec])
 interfaceDecs interface = do
   public <- execWriterT do
-    tellQ $ dataD (pure []) iName [] Nothing [] [derivingInterfaceClient, derivingInterfaceServer]
+    tellQ $ dataD (pure []) iName [] Nothing [] []
     tellQ $ instanceD (pure []) [t|IsInterface $iT|] instanceDecs
+    tellQs $ interfaceSideInstanceDs interface
 
     when (length interface.requests > 0) do
       tellQ requestRecordD
@@ -170,10 +171,12 @@ messageRecordD name messageContexts = dataD (cxt []) name [] Nothing [con] []
 
 interfaceSideInstanceDs :: InterfaceSpec -> Q [Dec]
 interfaceSideInstanceDs interface = execWriterT do
-  tellQs [d|instance IsInterfaceSide 'Client $iT|]
-  tellQs [d|instance IsInterfaceSide 'Server $iT|]
+  tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Client $iT|]) [createProxyD Client]
+  tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Server $iT|]) [createProxyD Server]
   where
     iT = interfaceT interface
+    createProxyD :: Side -> Q Dec
+    createProxyD side = funD 'createProxy [clause [] (normalB [|undefined|]) []]
 
 
 interfaceN :: InterfaceSpec -> Name
@@ -288,12 +291,6 @@ derivingEq = derivClause (Just StockStrategy) [[t|Eq|]]
 
 derivingShow :: Q DerivClause
 derivingShow = derivClause (Just StockStrategy) [[t|Show|]]
-
-derivingInterfaceClient :: Q DerivClause
-derivingInterfaceClient = derivClause (Just AnyclassStrategy) [[t|IsInterfaceSide 'Client|]]
-
-derivingInterfaceServer :: Q DerivClause
-derivingInterfaceServer = derivClause (Just AnyclassStrategy) [[t|IsInterfaceSide 'Server|]]
 
 -- | Map an argument to its high-level api type
 argumentType :: ArgumentSpec -> Q Type

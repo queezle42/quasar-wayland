@@ -13,7 +13,7 @@ module Quasar.Wayland.Protocol.Core (
   IsSide(..),
   Side(..),
   IsInterface(..),
-  IsInterfaceSide,
+  IsInterfaceSide(..),
   IsInterfaceHandler(..),
   Object,
   IsObject,
@@ -226,6 +226,7 @@ class (
     IsMessage (WireDown s i)
   )
   => IsInterfaceSide (s :: Side) i where
+  createProxy :: Object s i -> Up s i
 
 
 getWireDown :: forall s i. IsInterfaceSide s i => Object s i -> Opcode -> Get (ProtocolM s (WireDown s i))
@@ -452,7 +453,7 @@ initializeProtocol wlDisplayWireCallback initializationAction = do
   }
   writeTVar stateVar (Right state)
 
-  let wlDisplay = Object protocol wlDisplayId undefined undefined wlDisplayWireCallback
+  let wlDisplay = Object protocol wlDisplayId (createProxy wlDisplay) undefined wlDisplayWireCallback
   modifyTVar' objectsVar (HM.insert wlDisplayId (SomeObject wlDisplay))
 
   result <- runReaderT (initializationAction wlDisplay) state
@@ -546,7 +547,7 @@ newObjectFromId (NewId oId) callback = do
   protocol <- askProtocol
   let
     genericObjectId = toGenericObjectId oId
-    object = Object protocol genericObjectId undefined undefined callback
+    object = Object protocol genericObjectId (createProxy object) undefined callback
     someObject = SomeObject object
   modifyProtocolVar (.objectsVar) (HM.insert genericObjectId someObject)
   pure object
