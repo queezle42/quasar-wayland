@@ -31,6 +31,7 @@ module Quasar.Wayland.Protocol.Core (
 
   -- * Low-level protocol interaction
   sendMessage,
+  objectSendMessage,
   newObject,
 
   -- ** WireCallbacks
@@ -576,6 +577,9 @@ sendMessage object message = do
     putHeader opcode msgSize = do
       putWord32host objectIdWord
       putWord32host $ (fromIntegral msgSize `shiftL` 16) .|. fromIntegral opcode
+
+objectSendMessage :: forall s i. IsInterfaceSide s i => Object s i -> WireUp s i -> STM ()
+objectSendMessage object@(Object protocol _ _ _ _) message = runProtocolM protocol $ sendMessage object message
 
 
 receiveMessages :: IsSide s => ProtocolM s ()

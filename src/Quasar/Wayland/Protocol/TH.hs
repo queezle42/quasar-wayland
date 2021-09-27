@@ -112,8 +112,8 @@ interfaceDecs interface = do
     iName = interfaceN interface
     iT = interfaceT interface
     instanceDecs = [
-      tySynInstD (tySynEqn Nothing (appT (conT ''Requests) iT) (orVoid (requestsT interface))),
-      tySynInstD (tySynEqn Nothing (appT (conT ''Events) iT) (orVoid (eventsT interface))),
+      tySynInstD (tySynEqn Nothing (appT (conT ''Requests) iT) (orUnit (requestsT interface))),
+      tySynInstD (tySynEqn Nothing (appT (conT ''Events) iT) (orUnit (eventsT interface))),
       tySynInstD (tySynEqn Nothing (appT (conT ''WireRequest) iT) wireRequestT),
       tySynInstD (tySynEqn Nothing (appT (conT ''WireEvent) iT) eT),
       tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceName) iT) (litT (strTyLit interface.name))),
@@ -156,6 +156,38 @@ interfaceDecs interface = do
     eventRecordD :: Q Dec
     eventRecordD = messageRecordD (eventsName interface) eventContexts
 
+    objectName = mkName "object"
+    objectP = varP objectName
+    objectE = varE objectName
+
+    interfaceSideInstanceDs :: InterfaceSpec -> Q [Dec]
+    interfaceSideInstanceDs interface = execWriterT do
+      tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Client $iT|]) [createProxyD Client]
+      tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Server $iT|]) [createProxyD Server]
+      where
+        iT = interfaceT interface
+        createProxyD :: Side -> Q Dec
+        createProxyD Client = funD 'createProxy [clause [objectP] (normalB requestsProxyE) (sendMessageProxy <$> requestContexts)]
+        createProxyD Server = funD 'createProxy [clause [objectP] (normalB eventsProxyE) (sendMessageProxy <$> eventContexts)]
+        requestsProxyE :: Q Exp
+        requestsProxyE
+          | length interface.requests > 0 = recConE (requestsName interface) (sendMessageProxyField <$> requestContexts)
+          | otherwise = [|()|]
+        eventsProxyE :: Q Exp
+        eventsProxyE
+          | length interface.events > 0 = recConE (eventsName interface) (sendMessageProxyField <$> eventContexts)
+          | otherwise = [|()|]
+
+    sendMessageProxyField :: MessageContext -> Q (Name, Exp)
+    sendMessageProxyField msg = (mkName msg.msgSpec.name,) <$> varE (sendMessageFunctionName msg)
+
+    sendMessageFunctionName :: MessageContext -> Name
+    sendMessageFunctionName msg = mkName $ "send_" <> msg.msgSpec.name
+
+    sendMessageProxy :: MessageContext -> Q Dec
+    sendMessageProxy msg = funD (sendMessageFunctionName msg) [clause [] (normalB [|undefined|]) []]
+
+
 messageRecordD :: Name -> [MessageContext] -> Q Dec
 messageRecordD name messageContexts = dataD (cxt []) name [] Nothing [con] []
   where
@@ -169,14 +201,6 @@ messageRecordD name messageContexts = dataD (cxt []) name [] Nothing [con] []
         returnType = buildTupleType $ sequence $ catMaybes $ argumentReturnType <$> msg.msgSpec.arguments
 
 
-interfaceSideInstanceDs :: InterfaceSpec -> Q [Dec]
-interfaceSideInstanceDs interface = execWriterT do
-  tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Client $iT|]) [createProxyD Client]
-  tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Server $iT|]) [createProxyD Server]
-  where
-    iT = interfaceT interface
-    createProxyD :: Side -> Q Dec
-    createProxyD side = funD 'createProxy [clause [] (normalB [|undefined|]) []]
 
 
 interfaceN :: InterfaceSpec -> Name
@@ -199,6 +223,9 @@ eventsT interface = if (length interface.events) > 0 then Just (conT (eventsName
 
 orVoid :: Maybe (Q Type) -> Q Type
 orVoid = fromMaybe [t|Void|]
+
+orUnit :: Maybe (Q Type) -> Q Type
+orUnit = fromMaybe [t|()|]
 
 
 
