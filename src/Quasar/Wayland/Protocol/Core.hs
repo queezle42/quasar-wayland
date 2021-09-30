@@ -13,9 +13,11 @@ module Quasar.Wayland.Protocol.Core (
   IsSide(..),
   Side(..),
   IsInterface(..),
+  interfaceName,
   IsInterfaceSide(..),
   IsInterfaceHandler(..),
   Object,
+  objectMessageHandler,
   IsObject,
   IsMessage(..),
   ProtocolHandle,
@@ -71,6 +73,7 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Proxy
 import Data.String (IsString(..))
+import Data.Kind (Type)
 import Data.Void (absurd)
 import GHC.Conc (unsafeIOToSTM)
 import GHC.TypeLits
@@ -183,15 +186,18 @@ instance WireFormat Void where
 -- | Class for a proxy type (in the haskell sense) that describes a Wayland interface.
 class (
     IsMessage (WireRequest i),
-    IsMessage (WireEvent i)
+    IsMessage (WireEvent i),
+    KnownSymbol (InterfaceName i)
   )
   => IsInterface i where
-  type Requests i
-  type Events i
+  type Requests (s :: Side) i
+  type Events (s :: Side) i
   type WireRequest i
   type WireEvent i
   type InterfaceName i :: Symbol
-  interfaceName :: String
+
+interfaceName :: forall i. IsInterface i => String
+interfaceName = symbolVal @(InterfaceName i) Proxy
 
 class IsSide (s :: Side) where
   type Up s i
@@ -202,8 +208,8 @@ class IsSide (s :: Side) where
   maximumId :: Word32
 
 instance IsSide 'Client where
-  type Up 'Client i = Requests i
-  type Down 'Client i = Events i
+  type Up 'Client i = Requests 'Client i
+  type Down 'Client i = Events 'Client i
   type WireUp 'Client i = WireRequest i
   type WireDown 'Client i = WireEvent i
   -- Id #1 is reserved for wl_display
@@ -211,8 +217,8 @@ instance IsSide 'Client where
   maximumId = 0xfeffffff
 
 instance IsSide 'Server where
-  type Up 'Server i = Events i
-  type Down 'Server i = Requests i
+  type Up 'Server i = Events 'Server i
+  type Down 'Server i = Requests 'Server i
   type WireUp 'Server i = WireEvent i
   type WireDown 'Server i = WireRequest i
   initialId = 0xff000000
@@ -228,6 +234,7 @@ class (
   )
   => IsInterfaceSide (s :: Side) i where
   createProxy :: Object s i -> Up s i
+  handleMessage :: Object s i -> WireDown s i -> STM ()
 
 
 getWireDown :: forall s i. IsInterfaceSide s i => Object s i -> Opcode -> Get (ProtocolM s (WireDown s i))
@@ -238,13 +245,24 @@ putWireUp _ = putMessage @(WireUp s i)
 
 
 class IsInterfaceSide s i => IsInterfaceHandler s i a where
-  handleMessage :: a -> Object s i -> WireDown s i -> ProtocolM s ()
+  handlerHandleMessage :: a -> Object s i -> WireDown s i -> ProtocolM s ()
 
 
 -- | Data kind
 data Side = Client | Server
 
-data Object s i = IsInterfaceSide s i => Object (ProtocolHandle s) GenericObjectId (Up s i) (Down s i) (WireCallback s i)
+
+data Object s i = IsInterfaceSide s i => Object {
+  objectProtocol :: (ProtocolHandle s),
+  objectObjectId :: GenericObjectId,
+  objectUp :: (Up s i),
+  objectDown :: (Down s i),
+  objectWireCallback :: (WireCallback s i)
+}
+
+objectMessageHandler :: Object s i -> Down s i
+objectMessageHandler = (.objectDown)
+
 
 instance IsInterface i => Show (Object s i) where
   show = showObject
@@ -260,7 +278,7 @@ class IsObjectSide a where
   describeDownMessage :: a -> Opcode -> BSL.ByteString -> String
 
 instance forall s i. IsInterface i => IsObject (Object s i) where
-  objectId (Object _ oId _ _ _) = oId
+  objectId = objectObjectId
   objectInterfaceName _ = interfaceName @i
 
 instance forall s i. IsInterfaceSide s i => IsObjectSide (Object s i) where
@@ -317,13 +335,13 @@ showObjectMessage object message =
 data WireCallback s i = forall a. IsInterfaceHandler s i a => WireCallback a
 
 instance IsInterfaceSide s i => IsInterfaceHandler s i (WireCallback s i) where
-  handleMessage (WireCallback callback) = handleMessage callback
+  handlerHandleMessage (WireCallback callback) = handlerHandleMessage callback
 
 
 data LowLevelWireCallback s i = IsInterfaceSide s i => FnWireCallback (Object s i -> WireDown s i -> ProtocolM s ())
 
 instance IsInterfaceSide s i => IsInterfaceHandler s i (LowLevelWireCallback s i) where
-  handleMessage (FnWireCallback fn) object msg = fn object msg
+  handlerHandleMessage (FnWireCallback fn) object msg = fn object msg
 
 internalFnWireCallback :: IsInterfaceSide s i => (Object s i -> WireDown s i -> ProtocolM s ()) -> WireCallback s i
 internalFnWireCallback = WireCallback . FnWireCallback
@@ -340,7 +358,7 @@ internalFnWireCallback = WireCallback . FnWireCallback
 traceWireCallback :: IsInterfaceSide 'Client i => WireCallback 'Client i -> WireCallback 'Client i
 traceWireCallback next = internalFnWireCallback \object message -> do
   traceM $ "<- " <> showObjectMessage object message
-  handleMessage next object message
+  handlerHandleMessage next object message
 
 -- | A `WireCallback` that ignores all messages. Intended for development purposes, e.g. together with `traceWireCallback`.
 ignoreMessage :: IsInterfaceSide 'Client i => WireCallback 'Client i
@@ -553,6 +571,10 @@ newObjectFromId (NewId oId) callback = do
   modifyProtocolVar (.objectsVar) (HM.insert genericObjectId someObject)
   pure object
 
+-- TODO
+-- createObject :: Callback -> STM (Object, NewId)
+-- registerObject :: NewId -> Callback -> STM (Object)
+
 
 -- | Sends a message without checking any ids or creating proxy objects objects. (TODO)
 sendMessage :: forall s i. IsInterfaceSide s i => Object s i -> WireUp s i -> ProtocolM s ()
@@ -579,7 +601,7 @@ sendMessage object message = do
       putWord32host $ (fromIntegral msgSize `shiftL` 16) .|. fromIntegral opcode
 
 objectSendMessage :: forall s i. IsInterfaceSide s i => Object s i -> WireUp s i -> STM ()
-objectSendMessage object@(Object protocol _ _ _ _) message = runProtocolM protocol $ sendMessage object message
+objectSendMessage object message = runProtocolM (objectProtocol object) $ sendMessage object message
 
 
 receiveMessages :: IsSide s => ProtocolM s ()
@@ -613,7 +635,7 @@ getMessageAction
   -> Get (ProtocolM s ())
 getMessageAction object@(Object _ _ _ _ objectHandler) opcode = do
   verifyMessage <- getWireDown object opcode
-  pure $ handleMessage objectHandler object =<< verifyMessage
+  pure $ handlerHandleMessage objectHandler object =<< verifyMessage
 
 type RawMessage = (GenericObjectId, Opcode, BSL.ByteString)
 

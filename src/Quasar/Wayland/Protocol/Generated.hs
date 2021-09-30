@@ -9,6 +9,8 @@ module Quasar.Wayland.Protocol.Generated where
 import Control.Monad.Catch
 import Control.Monad.STM
 import Data.Binary
+import Data.Void
+import GHC.Records
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
 import Quasar.Wayland.Protocol.TH

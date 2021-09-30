@@ -6,6 +6,8 @@ import Control.Monad.STM
 import Control.Monad.Writer
 import Data.ByteString qualified as BS
 import Data.List (intersperse)
+import Data.Void (absurd)
+import GHC.Records (getField)
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (BangType, VarBangType, addDependentFile)
 import Prelude qualified
@@ -92,7 +94,7 @@ interfaceDecs interface = do
   public <- execWriterT do
     tellQ $ dataD (pure []) iName [] Nothing [] []
     tellQ $ instanceD (pure []) [t|IsInterface $iT|] instanceDecs
-    tellQs $ interfaceSideInstanceDs interface
+    tellQs interfaceSideInstanceDs
 
     when (length interface.requests > 0) do
       tellQ requestRecordD
@@ -111,13 +113,13 @@ interfaceDecs interface = do
   where
     iName = interfaceN interface
     iT = interfaceT interface
+    sT = sideTVar
     instanceDecs = [
-      tySynInstD (tySynEqn Nothing (appT (conT ''Requests) iT) (orUnit (requestsT interface))),
-      tySynInstD (tySynEqn Nothing (appT (conT ''Events) iT) (orUnit (eventsT interface))),
+      tySynInstD (tySynEqn Nothing [t|$(conT ''Requests) $sT $iT|] (orUnit (requestsT interface sT))),
+      tySynInstD (tySynEqn Nothing [t|$(conT ''Events) $sT $iT|] (orUnit (eventsT interface sT))),
       tySynInstD (tySynEqn Nothing (appT (conT ''WireRequest) iT) wireRequestT),
       tySynInstD (tySynEqn Nothing (appT (conT ''WireEvent) iT) eT),
-      tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceName) iT) (litT (strTyLit interface.name))),
-      valD (varP 'interfaceName) (normalB (stringE interface.name)) []
+      tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceName) iT) (litT (strTyLit interface.name)))
       ]
     wireRequestT :: Q Type
     wireRequestT = if length interface.requests > 0 then conT rTypeName else [t|Void|]
@@ -160,48 +162,73 @@ interfaceDecs interface = do
     objectP = varP objectName
     objectE = varE objectName
 
-    interfaceSideInstanceDs :: InterfaceSpec -> Q [Dec]
-    interfaceSideInstanceDs interface = execWriterT do
-      tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Client $iT|]) [createProxyD Client]
-      tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Server $iT|]) [createProxyD Server]
-      where
-        iT = interfaceT interface
-        createProxyD :: Side -> Q Dec
-        createProxyD Client = funD 'createProxy [clause [objectP] (normalB requestsProxyE) (sendMessageProxy <$> requestContexts)]
-        createProxyD Server = funD 'createProxy [clause [objectP] (normalB eventsProxyE) (sendMessageProxy <$> eventContexts)]
-        requestsProxyE :: Q Exp
-        requestsProxyE
-          | length interface.requests > 0 = recConE (requestsName interface) (sendMessageProxyField <$> requestContexts)
-          | otherwise = [|()|]
-        eventsProxyE :: Q Exp
-        eventsProxyE
-          | length interface.events > 0 = recConE (eventsName interface) (sendMessageProxyField <$> eventContexts)
-          | otherwise = [|()|]
+    interfaceSideInstanceDs :: Q [Dec]
+    interfaceSideInstanceDs = execWriterT do
+      tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Client $iT|]) [createProxyD Client, handleMessageD Client]
+      tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Server $iT|]) [createProxyD Server, handleMessageD Server]
+
+    createProxyD :: Side -> Q Dec
+    createProxyD Client = funD 'createProxy [clause [objectP] (normalB requestsProxyE) (sendMessageProxy <$> requestContexts)]
+    createProxyD Server = funD 'createProxy [clause [objectP] (normalB eventsProxyE) (sendMessageProxy <$> eventContexts)]
+    requestsProxyE :: Q Exp
+    requestsProxyE
+      | length interface.requests > 0 = recConE (requestsName interface) (sendMessageProxyField <$> requestContexts)
+      | otherwise = [|()|]
+    eventsProxyE :: Q Exp
+    eventsProxyE
+      | length interface.events > 0 = recConE (eventsName interface) (sendMessageProxyField <$> eventContexts)
+      | otherwise = [|()|]
 
     sendMessageProxyField :: MessageContext -> Q (Name, Exp)
-    sendMessageProxyField msg = (mkName msg.msgSpec.name,) <$> varE (sendMessageFunctionName msg)
+    sendMessageProxyField msg = (messageFieldName msg, ) <$> varE (sendMessageFunctionName msg)
 
     sendMessageFunctionName :: MessageContext -> Name
-    sendMessageFunctionName msg = mkName $ "send_" <> msg.msgSpec.name
+    sendMessageFunctionName msg = mkName $ "send_" <> messageFieldNameString msg
 
     sendMessageProxy :: MessageContext -> Q Dec
-    sendMessageProxy msg = funD (sendMessageFunctionName msg) [clause [] (normalB [|undefined|]) []]
+    sendMessageProxy msg = funD (sendMessageFunctionName msg) [clause (msgArgPats msg) (normalB [|objectSendMessage object $(msgE msg)|]) []]
 
+    handleMessageD :: Side -> Q Dec
+    handleMessageD Client = funD 'handleMessage (handleMessageClauses eventContexts)
+    handleMessageD Server = funD 'handleMessage (handleMessageClauses requestContexts)
+
+    handleMessageClauses :: [MessageContext] -> [Q Clause]
+    handleMessageClauses [] = [clause [wildP] (normalB [|absurd|]) []]
+    handleMessageClauses messageContexts = handleMessageClause <$> messageContexts
+
+    handleMessageClause :: MessageContext -> Q Clause
+    handleMessageClause msg = clause [objectP, msgConP msg] (normalB bodyE) []
+      where
+        fieldNameLitT :: Q Type
+        fieldNameLitT = litT (strTyLit (messageFieldNameString msg))
+        fieldE :: Q Exp
+        fieldE = [|$(appTypeE [|getField|] fieldNameLitT) (objectMessageHandler $objectE)|]
+        bodyE :: Q Exp
+        bodyE = applyMsgArgs msg fieldE
+
+
+messageFieldName :: MessageContext -> Name
+messageFieldName msg = mkName $ messageFieldNameString msg
+
+messageFieldNameString :: MessageContext -> String
+messageFieldNameString msg = msg.msgSpec.name
 
 messageRecordD :: Name -> [MessageContext] -> Q Dec
-messageRecordD name messageContexts = dataD (cxt []) name [] Nothing [con] []
+messageRecordD name messageContexts = dataD (cxt []) name [plainTV sideTVarName] Nothing [con] []
   where
     con = recC name (recField <$> messageContexts)
     recField :: MessageContext -> Q VarBangType
-    recField msg = varDefaultBangType (mkName msg.msgSpec.name) [t|$(applyArgTypes [t|STM $returnType|])|]
+    recField msg = varDefaultBangType (messageFieldName msg) [t|$(applyArgTypes [t|STM ()|])|]
       where
         applyArgTypes :: Q Type -> Q Type
         applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType <$> msg.msgSpec.arguments)
-        returnType :: Q Type
-        returnType = buildTupleType $ sequence $ catMaybes $ argumentReturnType <$> msg.msgSpec.arguments
 
 
 
+sideTVarName :: Name
+sideTVarName = mkName "s"
+sideTVar :: Q Type
+sideTVar = varT sideTVarName
 
 interfaceN :: InterfaceSpec -> Name
 interfaceN interface = mkName $ "Interface_" <> interface.name
@@ -209,17 +236,20 @@ interfaceN interface = mkName $ "Interface_" <> interface.name
 interfaceT :: InterfaceSpec -> Q Type
 interfaceT interface = conT (interfaceN interface)
 
+interfaceTFromName :: String -> Q Type
+interfaceTFromName name = conT (mkName ("Interface_" <> name))
+
 requestsName :: InterfaceSpec -> Name
 requestsName interface = mkName $ "Requests_" <> interface.name
 
-requestsT :: InterfaceSpec -> Maybe (Q Type)
-requestsT interface = if (length interface.requests) > 0 then Just (conT (requestsName interface)) else Nothing
+requestsT :: InterfaceSpec -> Q Type -> Maybe (Q Type)
+requestsT interface sideT = if (length interface.requests) > 0 then Just [t|$(conT (requestsName interface)) $sideT|] else Nothing
 
 eventsName :: InterfaceSpec -> Name
 eventsName interface = mkName $ "Events_" <> interface.name
 
-eventsT :: InterfaceSpec -> Maybe (Q Type)
-eventsT interface = if (length interface.events) > 0 then Just (conT (eventsName interface)) else Nothing
+eventsT :: InterfaceSpec -> Q Type -> Maybe (Q Type)
+eventsT interface sideT = if (length interface.events) > 0 then Just [t|$(conT (eventsName interface)) $sideT|] else Nothing
 
 orVoid :: Maybe (Q Type) -> Q Type
 orVoid = fromMaybe [t|Void|]
@@ -239,7 +269,11 @@ data MessageContext = MessageContext {
 
 -- | Pattern to match a message. Arguments can then be accessed by using 'msgArgE'.
 msgConP :: MessageContext -> Q Pat
-msgConP msg = conP msg.msgConName (varP . msgArgTempName <$> msg.msgSpec.arguments)
+msgConP msg = conP msg.msgConName (msgArgPats msg)
+
+-- | Pattern to match all arguments of a message. Arguments can then be accessed by using e.g. 'msgArgE'.
+msgArgPats :: MessageContext -> [Q Pat]
+msgArgPats msg = varP . msgArgTempName <$> msg.msgSpec.arguments
 
 -- | Expression for accessing a message argument which has been matched from a request/event using 'msgArgConP'.
 msgArgE :: MessageContext -> ArgumentSpec -> Q Exp
@@ -247,8 +281,15 @@ msgArgE _msg arg = varE (msgArgTempName arg)
 
 -- | Helper for 'msgConP' and 'msgArgE'.
 msgArgTempName :: ArgumentSpec -> Name
--- Add an "_" to prevent name conflicts with everything
-msgArgTempName arg = mkName $ arg.name <> "_"
+-- Add a prefix to prevent name conflicts with exports from the Prelude
+msgArgTempName arg = mkName $ "arg_" <> arg.name
+
+applyMsgArgs :: MessageContext -> Q Exp -> Q Exp
+applyMsgArgs msg base = foldl appE base (msgArgE msg <$> msg.msgSpec.arguments)
+
+-- | Expression to construct a wire message with arguments which have been matched using 'msgConP'/'msgArgPats'.
+msgE :: MessageContext -> Q Exp
+msgE msg = applyMsgArgs msg (conE msg.msgConName)
 
 
 messageTypeDecs :: Name -> [MessageContext] -> Q [Dec]
@@ -323,27 +364,14 @@ derivingShow = derivClause (Just StockStrategy) [[t|Show|]]
 argumentType :: ArgumentSpec -> Q Type
 argumentType argSpec = liftArgumentType argSpec.argType
 
--- | Map an argument to its high-level return type, if required
-argumentReturnType :: ArgumentSpec -> Maybe (Q Type)
-argumentReturnType argSpec = liftArgumentReturnType argSpec.argType
+liftArgumentType :: ArgumentType -> Q Type
+--liftArgumentType (ObjectArgument iName) = [t|Object $sideTVar $(interfaceTFromName iName)|]
+liftArgumentType x = liftArgumentWireType x
+
 
 -- | Map an argument to its wire representation type
 argumentWireType :: ArgumentSpec -> Q Type
 argumentWireType argSpec = liftArgumentWireType argSpec.argType
-
-
-liftArgumentType :: ArgumentType -> Q Type
-liftArgumentType (ObjectArgument iName) = [t|ObjectId $(litT (strTyLit iName))|]
-liftArgumentType GenericObjectArgument = [t|GenericObjectId|]
-liftArgumentType (NewIdArgument iName) = [t|NewId $(litT (strTyLit iName))|]
-liftArgumentType GenericNewIdArgument = [t|GenericNewId|]
-liftArgumentType FdArgument = [t|Void|] -- TODO
-liftArgumentType x = liftArgumentWireType x
-
-liftArgumentReturnType :: ArgumentType -> Maybe (Q Type)
-liftArgumentReturnType (NewIdArgument iName) = Just [t|Void|]
-liftArgumentReturnType GenericNewIdArgument = Just [t|Void|]
-liftArgumentReturnType _ = Nothing
 
 liftArgumentWireType :: ArgumentType -> Q Type
 liftArgumentWireType IntArgument = [t|Int32|]
