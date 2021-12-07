@@ -41,6 +41,7 @@ common shared-properties
     MultiParamTypeClasses
     NamedFieldPuns
     NoImplicitPrelude
+    OverloadedRecordDot
     OverloadedStrings
     PolyKinds
     RankNTypes
@@ -52,23 +53,13 @@ common shared-properties
     TypeFamilies
     TypeOperators
     ViewPatterns
-    -- Required for the record-dot-preprocessor plugin
-    DuplicateRecordFields
-    TypeApplications
-    FlexibleContexts
-    DataKinds
-    MultiParamTypeClasses
-    TypeSynonymInstances
-    FlexibleInstances
-    UndecidableInstances
-    GADTs
   default-language: Haskell2010
   ghc-options:
-    -fplugin=RecordDotPreprocessor
     -Weverything
     -Wno-all-missed-specialisations
-    -Wno-missing-safe-haskell-mode
     -Wno-missing-import-lists
+    -Wno-missing-kind-signatures
+    -Wno-missing-safe-haskell-mode
     -Wno-unsafe
     -Werror=incomplete-patterns
     -Werror=missing-fields
@@ -107,9 +98,6 @@ library
     utf8-string,
     stm,
     xml,
-    -- required for record-dot-preprocessor
-    record-dot-preprocessor,
-    record-hasfield,
   hs-source-dirs:
     src
 
@@ -118,9 +106,6 @@ executable quasar-wayland-example
   build-depends:
     quasar,
     quasar-wayland,
-    -- required for record-dot-preprocessor
-    record-dot-preprocessor,
-    record-hasfield,
   main-is: Main.hs
   hs-source-dirs:
     example
@@ -133,9 +118,6 @@ test-suite quasar-wayland-test
     --QuickCheck,
     hspec,
     --quasar-wayland,
-    -- required for record-dot-preprocessor
-    record-dot-preprocessor,
-    record-hasfield,
   main-is: Spec.hs
   other-modules:
     --Quasar.TemplateSpec
