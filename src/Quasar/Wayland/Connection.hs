@@ -51,18 +51,16 @@ newWaylandConnection initializeProtocolAction socket = do
 
     registerDisposeAction $ closeConnection connection
 
-    runUnlimitedAsync do
-      connectionThread connection $ sendThread connection
-      connectionThread connection $ receiveThread connection
+    connectionThread connection $ sendThread connection
+    connectionThread connection $ receiveThread connection
 
     pure (result, connection)
 
-connectionThread :: MonadAsync m => WaylandConnection s -> IO () -> m ()
-connectionThread connection work = async_ $ liftIO $ work `catches` [ignoreCancelTask, traceAndDisposeConnection]
+connectionThread :: MonadResourceManager m => WaylandConnection s -> IO () -> m ()
+connectionThread connection work = asyncWithHandler_ traceAndDisposeConnection $ liftIO $ work
   where
-    ignoreCancelTask :: Handler IO a
-    ignoreCancelTask = Handler (throwM :: CancelTask -> IO a)
-    traceAndDisposeConnection = Handler (\(ex :: SomeException) -> traceIO (displayException ex) >> void (dispose connection))
+    traceAndDisposeConnection :: SomeException -> IO ()
+    traceAndDisposeConnection ex = traceIO (displayException ex) >> void (dispose connection)
 
 sendThread :: WaylandConnection s -> IO ()
 sendThread connection = forever do
@@ -83,8 +81,5 @@ receiveThread connection = forever do
 
   feedInput connection.protocolHandle bytes
 
-closeConnection :: WaylandConnection s -> IO (Awaitable ())
-closeConnection connection = do
-  -- gracefulClose may fail but guarantees that the socket is deallocated
-  Socket.close connection.socket `catch` \(_ :: SomeException) -> pure ()
-  pure $ pure ()
+closeConnection :: WaylandConnection s -> IO ()
+closeConnection connection = Socket.close connection.socket

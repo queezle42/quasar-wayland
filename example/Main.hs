@@ -7,7 +7,7 @@ import Quasar.Wayland.Client
 
 main :: IO ()
 main = do
-  withResourceManagerM do
+  withRootResourceManager do
     traceIO "Connecting"
     client <- connectWaylandClient
     traceIO "Connected"
