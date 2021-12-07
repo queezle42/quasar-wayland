@@ -103,20 +103,34 @@ tellQs = tell <=< lift
 interfaceDecs :: InterfaceSpec -> Q ([Dec], [Dec])
 interfaceDecs interface = do
   public <- execWriterT do
+    -- Main interface type
     let iCtorDec = (normalC iName [], Nothing, [])
     tellQ $ dataD_doc (pure []) iName [] Nothing [iCtorDec] [] (toDoc interface.description)
-    tellQ $ instanceD (pure []) [t|IsInterface $iT|] instanceDecs
+    -- IsInterface instance
+    tellQ $ instanceD (pure []) [t|IsInterface $iT|] [
+      tySynInstD (tySynEqn Nothing [t|$(conT ''Requests) $sT $iT|] (orUnit (requestsT interface sT))),
+      tySynInstD (tySynEqn Nothing [t|$(conT ''Events) $sT $iT|] (orUnit (eventsT interface sT))),
+      tySynInstD (tySynEqn Nothing (appT (conT ''WireRequest) iT) wireRequestT),
+      tySynInstD (tySynEqn Nothing (appT (conT ''WireEvent) iT) eT),
+      tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceName) iT) (litT (strTyLit interface.name)))
+      ]
+    -- | IsInterfaceSide instance
     tellQs interfaceSideInstanceDs
 
+    -- | Requests record
     when (length interface.requests > 0) do
       tellQ requestRecordD
 
+    -- | Events record
     when (length interface.events > 0) do
       tellQ eventRecordD
+
   internals <- execWriterT do
+    -- | Request wire type
     when (length interface.requests > 0) do
       tellQs $ messageTypeDecs rTypeName requestContexts
 
+    -- | Event wire type
     when (length interface.events > 0) do
       tellQs $ messageTypeDecs eTypeName eventContexts
 
@@ -126,13 +140,6 @@ interfaceDecs interface = do
     iName = interfaceN interface
     iT = interfaceT interface
     sT = sideTVar
-    instanceDecs = [
-      tySynInstD (tySynEqn Nothing [t|$(conT ''Requests) $sT $iT|] (orUnit (requestsT interface sT))),
-      tySynInstD (tySynEqn Nothing [t|$(conT ''Events) $sT $iT|] (orUnit (eventsT interface sT))),
-      tySynInstD (tySynEqn Nothing (appT (conT ''WireRequest) iT) wireRequestT),
-      tySynInstD (tySynEqn Nothing (appT (conT ''WireEvent) iT) eT),
-      tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceName) iT) (litT (strTyLit interface.name)))
-      ]
     wireRequestT :: Q Type
     wireRequestT = if length interface.requests > 0 then conT rTypeName else [t|Void|]
     rTypeName :: Name
