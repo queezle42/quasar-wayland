@@ -5,7 +5,7 @@ module Quasar.Wayland.Protocol.TH (
 import Control.Monad.STM
 import Control.Monad.Writer
 import Data.ByteString qualified as BS
-import Data.List (intersperse)
+import Data.List (intersperse, singleton)
 import Data.Void (absurd)
 import GHC.Records (getField)
 import Language.Haskell.TH
@@ -95,10 +95,6 @@ generateWaylandProcol protocolFile = do
 
 tellQ :: Q a -> WriterT [a] Q ()
 tellQ action = tell =<< lift (singleton <$> action)
-  where
-    -- TODO use from base (base-4.14.0.0)
-    singleton :: a -> [a]
-    singleton x = [x]
 
 tellQs :: Q [a] -> WriterT [a] Q ()
 tellQs = tell <=< lift
