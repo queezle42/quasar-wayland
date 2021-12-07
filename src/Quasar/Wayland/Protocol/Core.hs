@@ -225,7 +225,6 @@ instance IsSide 'Server where
   maximumId = 0xffffffff
 
 
---- | Empty class, used to combine constraints
 class (
     IsSide s,
     IsInterface i,
@@ -506,9 +505,9 @@ runProtocolTransaction (protocol@ProtocolHandle{stateVar}) action = do
 
 -- | Run a 'ProtocolM'-action inside 'STM'.
 --
--- Exceptions are not handled and reset the transaction (as usual with STM).
---
 -- Throws an exception, if the protocol is already in a failed state.
+--
+-- Exceptions are not handled (i.e. they usually reset the STM transaction and are not stored as a protocol failure).
 runProtocolM :: ProtocolHandle s -> ProtocolM s a -> STM a
 runProtocolM protocol action = either throwM (runReaderT action) =<< readTVar protocol.stateVar
 
@@ -635,7 +634,10 @@ getMessageAction
   -> Get (ProtocolM s ())
 getMessageAction object@(Object _ _ _ _ objectHandler) opcode = do
   verifyMessage <- getWireDown object opcode
-  pure $ handlerHandleMessage objectHandler object =<< verifyMessage
+  pure do
+    message <- verifyMessage
+    traceM $ "<- " <> showObjectMessage object message
+    handlerHandleMessage objectHandler object message
 
 type RawMessage = (GenericObjectId, Opcode, BSL.ByteString)
 

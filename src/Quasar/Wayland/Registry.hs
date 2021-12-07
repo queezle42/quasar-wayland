@@ -22,7 +22,7 @@ createClientRegistry :: Object 'Client Interface_wl_display -> ProtocolM 'Client
 createClientRegistry wlDisplay = mfix \clientRegistry -> do
   globalsVar <- lift $ newTVar HM.empty
 
-  (wlRegistry, newId) <- newObject @'Client @Interface_wl_registry (traceWireCallback (callback clientRegistry))
+  (wlRegistry, newId) <- newObject @'Client @Interface_wl_registry (callback clientRegistry)
   sendMessage wlDisplay $ WireRequest_wl_display_get_registry newId
 
   pure ClientRegistry {
