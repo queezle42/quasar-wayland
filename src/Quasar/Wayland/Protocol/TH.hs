@@ -19,9 +19,16 @@ import Text.XML.Light
 data ProtocolSpec = ProtocolSpec {interfaces :: [InterfaceSpec]}
   deriving stock Show
 
+data DescriptionSpec = DescriptionSpec {
+  summary :: Maybe String,
+  content :: Maybe String
+}
+  deriving stock Show
+
 data InterfaceSpec = InterfaceSpec {
   name :: String,
   version :: Integer,
+  description :: Maybe DescriptionSpec,
   requests :: [RequestSpec],
   events :: [EventSpec]
 }
@@ -36,6 +43,7 @@ newtype EventSpec = EventSpec {messageSpec :: MessageSpec}
 data MessageSpec = MessageSpec {
   name :: String,
   since :: Maybe Integer,
+  description :: Maybe DescriptionSpec,
   opcode :: Opcode,
   arguments :: [ArgumentSpec],
   isDestructor :: Bool
@@ -45,6 +53,7 @@ data MessageSpec = MessageSpec {
 data ArgumentSpec = ArgumentSpec {
   name :: String,
   index :: Integer,
+  summary :: Maybe String,
   argType :: ArgumentType,
   nullable :: Bool
 }
@@ -69,6 +78,11 @@ isNewId GenericNewIdArgument = True
 isNewId _ = False
 
 
+toDoc :: Maybe DescriptionSpec -> Maybe String
+toDoc (Just DescriptionSpec{content = Just x}) = Just x
+toDoc (Just DescriptionSpec{summary = Just x}) = Just x
+toDoc _ = Nothing
+
 
 generateWaylandProcol :: FilePath -> Q [Dec]
 generateWaylandProcol protocolFile = do
@@ -89,10 +103,12 @@ tellQ action = tell =<< lift (singleton <$> action)
 tellQs :: Q [a] -> WriterT [a] Q ()
 tellQs = tell <=< lift
 
+
 interfaceDecs :: InterfaceSpec -> Q ([Dec], [Dec])
 interfaceDecs interface = do
   public <- execWriterT do
-    tellQ $ dataD (pure []) iName [] Nothing [] []
+    let iCtorDec = (normalC iName [], Nothing, [])
+    tellQ $ dataD_doc (pure []) iName [] Nothing [iCtorDec] [] (toDoc interface.description)
     tellQ $ instanceD (pure []) [t|IsInterface $iT|] instanceDecs
     tellQs interfaceSideInstanceDs
 
@@ -434,15 +450,39 @@ parseProtocol xml = do
     interfaces
   }
 
+parseDescription :: MonadFail m => Element -> m DescriptionSpec
+parseDescription element = do
+  let
+    summary = findAttr (qname "summary") element
+  content <- case element.elContent of
+    [Text CData{cdVerbatim=CDataText, cdData=content}] -> pure $ Just content
+    [] -> pure Nothing
+    x -> fail $ "Cannot parse description xml: " <> show element
+  pure DescriptionSpec {
+    summary,
+    content
+  }
+
+-- | Find the description node on an element and convert it to a `DescriptionSpec`.
+findDescription :: MonadFail m => Element -> m (Maybe DescriptionSpec)
+findDescription element = do
+  case findChildren (qname "description") element of
+    [] -> pure Nothing
+    [descriptionElement] -> Just <$> parseDescription descriptionElement
+    _ -> fail "Element has more than one description"
+
+
 parseInterface :: MonadFail m => Element -> m InterfaceSpec
 parseInterface element = do
   name <- getAttr "name" element
   version <- Prelude.read <$> getAttr "version" element
+  description <- findDescription element
   requests <- mapM (parseRequest name) $ zip [0..] $ findChildren (qname "request") element
   events <- mapM (parseEvent name) $ zip [0..] $ findChildren (qname "event") element
   pure InterfaceSpec {
     name,
     version,
+    description,
     requests,
     events
   }
@@ -459,11 +499,12 @@ parseMessage isRequest interface (opcode, element) = do
 
   name <- getAttr "name" element
 
-  let description = interface <> "." <> name
+  let location = interface <> "." <> name
 
   mtype <- peekAttr "type" element
   since <- Prelude.read <<$>> peekAttr "since" element
-  arguments <- mapM (parseArgument description) $ zip [0..] $ findChildren (qname "arg") element
+  description <- findDescription element
+  arguments <- mapM (parseArgument location) $ zip [0..] $ findChildren (qname "arg") element
 
   isDestructor <-
     case mtype of
@@ -473,23 +514,24 @@ parseMessage isRequest interface (opcode, element) = do
 
   when
     do isEvent && isDestructor
-    do fail $ "Event cannot be a destructor: " <> description
+    do fail $ "Event cannot be a destructor: " <> location
 
   when
     do (foldr (\arg -> if isNewId arg.argType then (+ 1) else id) 0 arguments) > (1 :: Int)
-    do fail $ "Message creates multiple objects: " <> description
+    do fail $ "Message creates multiple objects: " <> location
 
   forM_ arguments \arg -> do
     when
       do arg.argType == GenericNewIdArgument && (interface /= "wl_registry" || name /= "bind")
-      do fail $ "Invalid \"new_id\" argument without \"interface\" attribute encountered on " <> description <> " (only valid on wl_registry.bind)"
+      do fail $ "Invalid \"new_id\" argument without \"interface\" attribute encountered on " <> location <> " (only valid on wl_registry.bind)"
     when
       do arg.argType == GenericObjectArgument && (interface /= "wl_display" || name /= "error")
-      do fail $ "Invalid \"object\" argument without \"interface\" attribute encountered on " <> description <> " (only valid on wl_display.error)"
+      do fail $ "Invalid \"object\" argument without \"interface\" attribute encountered on " <> location <> " (only valid on wl_display.error)"
 
   pure MessageSpec  {
     name,
     since,
+    description,
     opcode,
     arguments,
     isDestructor
@@ -499,20 +541,22 @@ parseMessage isRequest interface (opcode, element) = do
 parseArgument :: forall m. MonadFail m => String -> (Integer, Element) -> m ArgumentSpec
 parseArgument messageDescription (index, element) = do
   name <- getAttr "name" element
+  summary <- peekAttr "summary" element
   argTypeStr <- getAttr "type" element
   interface <- peekAttr "interface" element
   argType <- parseArgumentType argTypeStr interface
 
-  let description = messageDescription <> "." <> name
+  let location = messageDescription <> "." <> name
 
   nullable <- peekAttr "allow-null" element >>= \case
     Just "true" -> pure True
     Just "false" -> pure False
-    Just x -> fail $ "Invalid value for attribute \"allow-null\" on " <> description <> ": " <> x
+    Just x -> fail $ "Invalid value for attribute \"allow-null\" on " <> location <> ": " <> x
     Nothing -> pure False
   pure ArgumentSpec {
     name,
     index,
+    summary,
     argType,
     nullable
   }
