@@ -18,5 +18,5 @@ clientWlDisplayWireCallback = internalFnWireCallback handler
     -- | wl_display is specified to never change, so manually specifying the callback is safe
     handler :: Object 'Client Interface_wl_display -> WireEvent_wl_display -> ProtocolM 'Client ()
     -- TODO parse oId
-    handler _ (WireEvent_wl_display_error oId code message) = throwM $ ServerError code (toString message)
-    handler _ (WireEvent_wl_display_delete_id deletedId) = pure () -- TODO confirm delete
+    handler _ (WireEvent_wl_display__error oId code message) = throwM $ ServerError code (toString message)
+    handler _ (WireEvent_wl_display__delete_id deletedId) = pure () -- TODO confirm delete

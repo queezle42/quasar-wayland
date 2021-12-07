@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveLift #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Quasar.Wayland.Protocol.Core (
   ObjectId,
@@ -17,8 +16,7 @@ module Quasar.Wayland.Protocol.Core (
   interfaceName,
   IsInterfaceSide(..),
   IsInterfaceHandler(..),
-  Object,
-  objectMessageHandler,
+  Object(messageHandler),
   IsObject,
   IsMessage(..),
   ProtocolHandle,
@@ -191,8 +189,8 @@ class (
     KnownSymbol (InterfaceName i)
   )
   => IsInterface i where
-  type Requests (s :: Side) i
-  type Events (s :: Side) i
+  type RequestHandler i
+  type EventHandler i
   type WireRequest i
   type WireEvent i
   type InterfaceName i :: Symbol
@@ -201,14 +199,14 @@ interfaceName :: forall i. IsInterface i => String
 interfaceName = symbolVal @(InterfaceName i) Proxy
 
 class IsSide (s :: Side) where
-  type Down s i
+  type MessageHandler s i
   type WireUp s i
   type WireDown s i
   initialId :: Word32
   maximumId :: Word32
 
 instance IsSide 'Client where
-  type Down 'Client i = Events 'Client i
+  type MessageHandler 'Client i = EventHandler i
   type WireUp 'Client i = WireRequest i
   type WireDown 'Client i = WireEvent i
   -- Id #1 is reserved for wl_display
@@ -216,7 +214,7 @@ instance IsSide 'Client where
   maximumId = 0xfeffffff
 
 instance IsSide 'Server where
-  type Down 'Server i = Requests 'Server i
+  type MessageHandler 'Server i = RequestHandler i
   type WireUp 'Server i = WireEvent i
   type WireDown 'Server i = WireRequest i
   initialId = 0xff000000
@@ -251,13 +249,9 @@ data Side = Client | Server
 data Object s i = IsInterfaceSide s i => Object {
   objectProtocol :: (ProtocolHandle s),
   objectObjectId :: GenericObjectId,
-  objectDown :: (Down s i),
+  messageHandler :: (MessageHandler s i),
   objectWireCallback :: (WireCallback s i)
 }
-
-objectMessageHandler :: Object s i -> Down s i
-objectMessageHandler = (.objectDown)
-
 
 instance IsInterface i => Show (Object s i) where
   show = showObject

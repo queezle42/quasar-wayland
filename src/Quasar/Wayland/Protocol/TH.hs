@@ -112,8 +112,8 @@ interfaceDecs interface = do
     tellQ $ dataD_doc (pure []) iName [] Nothing [iCtorDec] [] (toWlDoc interface.description)
     -- IsInterface instance
     tellQ $ instanceD (pure []) [t|IsInterface $iT|] [
-      tySynInstD (tySynEqn Nothing [t|$(conT ''Requests) $sT $iT|] (orUnit (requestsT interface sT))),
-      tySynInstD (tySynEqn Nothing [t|$(conT ''Events) $sT $iT|] (orUnit (eventsT interface sT))),
+      tySynInstD (tySynEqn Nothing [t|$(conT ''RequestHandler) $iT|] (orUnit (requestsT interface))),
+      tySynInstD (tySynEqn Nothing [t|$(conT ''EventHandler) $iT|] (orUnit (eventsT interface))),
       tySynInstD (tySynEqn Nothing (appT (conT ''WireRequest) iT) wireRequestT),
       tySynInstD (tySynEqn Nothing (appT (conT ''WireEvent) iT) wireEventT),
       tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceName) iT) (litT (strTyLit interface.name)))
@@ -153,13 +153,13 @@ interfaceDecs interface = do
     rTypeName :: Name
     rTypeName = mkName $ "WireRequest_" <> interface.name
     rConName :: RequestSpec -> Name
-    rConName (RequestSpec request) = mkName $ "WireRequest_" <> interface.name <> "_" <> request.name
+    rConName (RequestSpec request) = mkName $ "WireRequest_" <> interface.name <> "__" <> request.name
     wireEventT :: Q Type
     wireEventT = if length interface.events > 0 then conT eTypeName else [t|Void|]
     eTypeName :: Name
     eTypeName = mkName $ "WireEvent_" <> interface.name
     eConName :: EventSpec -> Name
-    eConName (EventSpec event) = mkName $ "WireEvent_" <> interface.name <> "_" <> event.name
+    eConName (EventSpec event) = mkName $ "WireEvent_" <> interface.name <> "__" <> event.name
     wireRequestContext :: RequestSpec -> MessageContext
     wireRequestContext req@(RequestSpec msgSpec) = MessageContext {
       msgInterfaceT = iT,
@@ -214,7 +214,7 @@ interfaceDecs interface = do
         fieldNameLitT :: Q Type
         fieldNameLitT = litT (strTyLit (messageFieldNameString msg))
         fieldE :: Q Exp
-        fieldE = [|$(appTypeE [|getField|] fieldNameLitT) (objectMessageHandler $objectE)|]
+        fieldE = [|$(appTypeE [|getField|] fieldNameLitT) $objectE.messageHandler|]
         bodyE :: Q Exp
         bodyE = applyMsgArgs msg fieldE
 
@@ -244,7 +244,7 @@ messageFieldNameString :: MessageContext -> String
 messageFieldNameString msg = msg.msgSpec.name
 
 messageRecordD :: Name -> [MessageContext] -> Q Dec
-messageRecordD name messageContexts = dataD (cxt []) name [plainTV sideTVarName] Nothing [con] []
+messageRecordD name messageContexts = dataD (cxt []) name [] Nothing [con] []
   where
     con = recC name (recField <$> messageContexts)
     recField :: MessageContext -> Q VarBangType
@@ -269,16 +269,16 @@ interfaceTFromName :: String -> Q Type
 interfaceTFromName name = conT (mkName ("Interface_" <> name))
 
 requestsName :: InterfaceSpec -> Name
-requestsName interface = mkName $ "Requests_" <> interface.name
+requestsName interface = mkName $ "RequestHandler_" <> interface.name
 
-requestsT :: InterfaceSpec -> Q Type -> Maybe (Q Type)
-requestsT interface sideT = if (length interface.requests) > 0 then Just [t|$(conT (requestsName interface)) $sideT|] else Nothing
+requestsT :: InterfaceSpec -> Maybe (Q Type)
+requestsT interface = if (length interface.requests) > 0 then Just [t|$(conT (requestsName interface))|] else Nothing
 
 eventsName :: InterfaceSpec -> Name
-eventsName interface = mkName $ "Events_" <> interface.name
+eventsName interface = mkName $ "EventHandler_" <> interface.name
 
-eventsT :: InterfaceSpec -> Q Type -> Maybe (Q Type)
-eventsT interface sideT = if (length interface.events) > 0 then Just [t|$(conT (eventsName interface)) $sideT|] else Nothing
+eventsT :: InterfaceSpec -> Maybe (Q Type)
+eventsT interface = if (length interface.events) > 0 then Just [t|$(conT (eventsName interface))|] else Nothing
 
 orVoid :: Maybe (Q Type) -> Q Type
 orVoid = fromMaybe [t|Void|]

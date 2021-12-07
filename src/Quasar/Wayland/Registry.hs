@@ -23,7 +23,7 @@ createClientRegistry wlDisplay = mfix \clientRegistry -> do
   globalsVar <- lift $ newTVar HM.empty
 
   (wlRegistry, newId) <- newObject @'Client @Interface_wl_registry (callback clientRegistry)
-  sendMessage wlDisplay $ WireRequest_wl_display_get_registry newId
+  sendMessage wlDisplay $ WireRequest_wl_display__get_registry newId
 
   pure ClientRegistry {
     wlRegistry,
@@ -35,9 +35,9 @@ createClientRegistry wlDisplay = mfix \clientRegistry -> do
       where
         -- | wl_registry is specified to never change, so manually specifying the callback is safe
         handler :: Object 'Client Interface_wl_registry -> WireEvent_wl_registry -> ProtocolM 'Client ()
-        handler _ (WireEvent_wl_registry_global name interface version) = do
+        handler _ (WireEvent_wl_registry__global name interface version) = do
           lift $ modifyTVar clientRegistry.globalsVar (HM.insert name (interface, version))
-        handler _ (WireEvent_wl_registry_global_remove name) = do
+        handler _ (WireEvent_wl_registry__global_remove name) = do
           result <- lift $ stateTVar clientRegistry.globalsVar (swap . lookupDelete name)
           case result of
             Nothing -> traceM $ "Invalid global removed by server: " <> show name
