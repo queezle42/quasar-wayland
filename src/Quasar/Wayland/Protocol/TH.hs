@@ -7,7 +7,7 @@ import Control.Monad.Writer
 import Data.ByteString qualified as BS
 import Data.List (intersperse, singleton)
 import Data.Void (absurd)
-import GHC.Records (getField)
+import GHC.Records
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (BangType, VarBangType, addDependentFile)
 import Prelude qualified
@@ -78,10 +78,14 @@ isNewId GenericNewIdArgument = True
 isNewId _ = False
 
 
-toDoc :: Maybe DescriptionSpec -> Maybe String
-toDoc (Just DescriptionSpec{content = Just x}) = Just x
-toDoc (Just DescriptionSpec{summary = Just x}) = Just x
-toDoc _ = Nothing
+toWlDoc :: Maybe DescriptionSpec -> Maybe String
+toWlDoc (Just DescriptionSpec{content = Just x}) = Just x
+toWlDoc (Just DescriptionSpec{summary = Just x}) = Just x
+toWlDoc _ = Nothing
+
+withWlDoc :: Maybe DescriptionSpec -> Q Dec -> Q Dec
+withWlDoc (toWlDoc -> Just doc) = withDecDoc doc
+withWlDoc _ = id
 
 
 generateWaylandProcol :: FilePath -> Q [Dec]
@@ -105,34 +109,38 @@ interfaceDecs interface = do
   public <- execWriterT do
     -- Main interface type
     let iCtorDec = (normalC iName [], Nothing, [])
-    tellQ $ dataD_doc (pure []) iName [] Nothing [iCtorDec] [] (toDoc interface.description)
+    tellQ $ dataD_doc (pure []) iName [] Nothing [iCtorDec] [] (toWlDoc interface.description)
     -- IsInterface instance
     tellQ $ instanceD (pure []) [t|IsInterface $iT|] [
       tySynInstD (tySynEqn Nothing [t|$(conT ''Requests) $sT $iT|] (orUnit (requestsT interface sT))),
       tySynInstD (tySynEqn Nothing [t|$(conT ''Events) $sT $iT|] (orUnit (eventsT interface sT))),
       tySynInstD (tySynEqn Nothing (appT (conT ''WireRequest) iT) wireRequestT),
-      tySynInstD (tySynEqn Nothing (appT (conT ''WireEvent) iT) eT),
+      tySynInstD (tySynEqn Nothing (appT (conT ''WireEvent) iT) wireEventT),
       tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceName) iT) (litT (strTyLit interface.name)))
       ]
     -- | IsInterfaceSide instance
     tellQs interfaceSideInstanceDs
 
-    -- | Requests record
     when (length interface.requests > 0) do
-      tellQ requestRecordD
+      -- | Requests record
+      tellQ requestCallbackRecordD
+      -- | Request proxies
+      tellQs requestProxyInstanceDecs
 
-    -- | Events record
     when (length interface.events > 0) do
-      tellQ eventRecordD
+      -- | Events record
+      tellQ eventCallbackRecordD
+      -- | Event proxies
+      tellQs eventProxyInstanceDecs
 
   internals <- execWriterT do
     -- | Request wire type
     when (length interface.requests > 0) do
-      tellQs $ messageTypeDecs rTypeName requestContexts
+      tellQs $ messageTypeDecs rTypeName wireRequestContexts
 
     -- | Event wire type
     when (length interface.events > 0) do
-      tellQs $ messageTypeDecs eTypeName eventContexts
+      tellQs $ messageTypeDecs eTypeName wireEventContexts
 
   pure (public, internals)
 
@@ -146,36 +154,42 @@ interfaceDecs interface = do
     rTypeName = mkName $ "WireRequest_" <> interface.name
     rConName :: RequestSpec -> Name
     rConName (RequestSpec request) = mkName $ "WireRequest_" <> interface.name <> "_" <> request.name
-    eT :: Q Type
-    eT = if length interface.events > 0 then conT eTypeName else [t|Void|]
+    wireEventT :: Q Type
+    wireEventT = if length interface.events > 0 then conT eTypeName else [t|Void|]
     eTypeName :: Name
     eTypeName = mkName $ "WireEvent_" <> interface.name
     eConName :: EventSpec -> Name
     eConName (EventSpec event) = mkName $ "WireEvent_" <> interface.name <> "_" <> event.name
-    requestContext :: RequestSpec -> MessageContext
-    requestContext req@(RequestSpec msgSpec) = MessageContext {
+    wireRequestContext :: RequestSpec -> MessageContext
+    wireRequestContext req@(RequestSpec msgSpec) = MessageContext {
       msgInterfaceT = iT,
       msgT = wireRequestT,
       msgConName = rConName req,
       msgInterfaceSpec = interface,
       msgSpec = msgSpec
     }
-    requestContexts = requestContext <$> interface.requests
-    eventContext :: EventSpec -> MessageContext
-    eventContext ev@(EventSpec msgSpec) = MessageContext {
+    wireRequestContexts = wireRequestContext <$> interface.requests
+    wireEventContext :: EventSpec -> MessageContext
+    wireEventContext ev@(EventSpec msgSpec) = MessageContext {
       msgInterfaceT = iT,
-      msgT = eT,
+      msgT = wireEventT,
       msgConName = eConName ev,
       msgInterfaceSpec = interface,
       msgSpec = msgSpec
     }
-    eventContexts = eventContext <$> interface.events
+    wireEventContexts = wireEventContext <$> interface.events
 
-    requestRecordD :: Q Dec
-    requestRecordD = messageRecordD (requestsName interface) requestContexts
+    requestCallbackRecordD :: Q Dec
+    requestCallbackRecordD = messageRecordD (requestsName interface) wireRequestContexts
 
-    eventRecordD :: Q Dec
-    eventRecordD = messageRecordD (eventsName interface) eventContexts
+    requestProxyInstanceDecs :: Q [Dec]
+    requestProxyInstanceDecs = messageProxyInstanceDecs [t|'Client|] wireRequestContexts
+
+    eventCallbackRecordD :: Q Dec
+    eventCallbackRecordD = messageRecordD (eventsName interface) wireEventContexts
+
+    eventProxyInstanceDecs :: Q [Dec]
+    eventProxyInstanceDecs = messageProxyInstanceDecs [t|'Server|] wireEventContexts
 
     objectName = mkName "object"
     objectP = varP objectName
@@ -183,33 +197,12 @@ interfaceDecs interface = do
 
     interfaceSideInstanceDs :: Q [Dec]
     interfaceSideInstanceDs = execWriterT do
-      tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Client $iT|]) [createProxyD Client, handleMessageD Client]
-      tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Server $iT|]) [createProxyD Server, handleMessageD Server]
-
-    createProxyD :: Side -> Q Dec
-    createProxyD Client = funD 'createProxy [clause [objectP] (normalB requestsProxyE) (sendMessageProxy <$> requestContexts)]
-    createProxyD Server = funD 'createProxy [clause [objectP] (normalB eventsProxyE) (sendMessageProxy <$> eventContexts)]
-    requestsProxyE :: Q Exp
-    requestsProxyE
-      | length interface.requests > 0 = recConE (requestsName interface) (sendMessageProxyField <$> requestContexts)
-      | otherwise = [|()|]
-    eventsProxyE :: Q Exp
-    eventsProxyE
-      | length interface.events > 0 = recConE (eventsName interface) (sendMessageProxyField <$> eventContexts)
-      | otherwise = [|()|]
-
-    sendMessageProxyField :: MessageContext -> Q (Name, Exp)
-    sendMessageProxyField msg = (messageFieldName msg, ) <$> varE (sendMessageFunctionName msg)
-
-    sendMessageFunctionName :: MessageContext -> Name
-    sendMessageFunctionName msg = mkName $ "send_" <> messageFieldNameString msg
-
-    sendMessageProxy :: MessageContext -> Q Dec
-    sendMessageProxy msg = funD (sendMessageFunctionName msg) [clause (msgArgPats msg) (normalB [|objectSendMessage object $(msgE msg)|]) []]
+      tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Client $iT|]) [handleMessageD Client]
+      tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Server $iT|]) [handleMessageD Server]
 
     handleMessageD :: Side -> Q Dec
-    handleMessageD Client = funD 'handleMessage (handleMessageClauses eventContexts)
-    handleMessageD Server = funD 'handleMessage (handleMessageClauses requestContexts)
+    handleMessageD Client = funD 'handleMessage (handleMessageClauses wireEventContexts)
+    handleMessageD Server = funD 'handleMessage (handleMessageClauses wireRequestContexts)
 
     handleMessageClauses :: [MessageContext] -> [Q Clause]
     handleMessageClauses [] = [clause [wildP] (normalB [|absurd|]) []]
@@ -224,6 +217,24 @@ interfaceDecs interface = do
         fieldE = [|$(appTypeE [|getField|] fieldNameLitT) (objectMessageHandler $objectE)|]
         bodyE :: Q Exp
         bodyE = applyMsgArgs msg fieldE
+
+messageProxyInstanceDecs :: Q Type -> [MessageContext] -> Q [Dec]
+messageProxyInstanceDecs sideT messageContexts = mapM messageProxyInstanceD messageContexts
+  where
+    messageProxyInstanceD :: MessageContext -> Q Dec
+    messageProxyInstanceD msg = instanceD (pure []) instanceT [
+      funD 'getField [clause ([varP objectName] <> msgArgPats msg) (normalB [|objectSendMessage object $(msgE msg)|]) []]
+      ]
+      where
+        objectName = mkName "object"
+        instanceT :: Q Type
+        instanceT = [t|HasField $(litT (strTyLit msg.msgSpec.name)) $objectT $proxyT|]
+        objectT :: Q Type
+        objectT = [t|Object $sideT $(msg.msgInterfaceT)|]
+        proxyT :: Q Type
+        proxyT = [t|$(applyArgTypes [t|STM ()|])|]
+        applyArgTypes :: Q Type -> Q Type
+        applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType <$> msg.msgSpec.arguments)
 
 
 messageFieldName :: MessageContext -> Name
@@ -241,7 +252,6 @@ messageRecordD name messageContexts = dataD (cxt []) name [plainTV sideTVarName]
       where
         applyArgTypes :: Q Type -> Q Type
         applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType <$> msg.msgSpec.arguments)
-
 
 
 sideTVarName :: Name

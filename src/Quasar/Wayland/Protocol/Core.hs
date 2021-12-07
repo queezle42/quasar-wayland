@@ -201,7 +201,6 @@ interfaceName :: forall i. IsInterface i => String
 interfaceName = symbolVal @(InterfaceName i) Proxy
 
 class IsSide (s :: Side) where
-  type Up s i
   type Down s i
   type WireUp s i
   type WireDown s i
@@ -209,7 +208,6 @@ class IsSide (s :: Side) where
   maximumId :: Word32
 
 instance IsSide 'Client where
-  type Up 'Client i = Requests 'Client i
   type Down 'Client i = Events 'Client i
   type WireUp 'Client i = WireRequest i
   type WireDown 'Client i = WireEvent i
@@ -218,7 +216,6 @@ instance IsSide 'Client where
   maximumId = 0xfeffffff
 
 instance IsSide 'Server where
-  type Up 'Server i = Events 'Server i
   type Down 'Server i = Requests 'Server i
   type WireUp 'Server i = WireEvent i
   type WireDown 'Server i = WireRequest i
@@ -233,7 +230,6 @@ class (
     IsMessage (WireDown s i)
   )
   => IsInterfaceSide (s :: Side) i where
-  createProxy :: Object s i -> Up s i
   handleMessage :: Object s i -> WireDown s i -> STM ()
 
 
@@ -255,7 +251,6 @@ data Side = Client | Server
 data Object s i = IsInterfaceSide s i => Object {
   objectProtocol :: (ProtocolHandle s),
   objectObjectId :: GenericObjectId,
-  objectUp :: (Up s i),
   objectDown :: (Down s i),
   objectWireCallback :: (WireCallback s i)
 }
@@ -472,7 +467,7 @@ initializeProtocol wlDisplayWireCallback initializationAction = do
   }
   writeTVar stateVar (Right state)
 
-  let wlDisplay = Object protocol wlDisplayId (createProxy wlDisplay) undefined wlDisplayWireCallback
+  let wlDisplay = Object protocol wlDisplayId undefined wlDisplayWireCallback
   modifyTVar' objectsVar (HM.insert wlDisplayId (SomeObject wlDisplay))
 
   result <- runReaderT (initializationAction wlDisplay) state
@@ -566,7 +561,7 @@ newObjectFromId (NewId oId) callback = do
   protocol <- askProtocol
   let
     genericObjectId = toGenericObjectId oId
-    object = Object protocol genericObjectId (createProxy object) undefined callback
+    object = Object protocol genericObjectId undefined callback
     someObject = SomeObject object
   modifyProtocolVar (.objectsVar) (HM.insert genericObjectId someObject)
   pure object
@@ -633,7 +628,7 @@ getMessageAction
   => Object s i
   -> Opcode
   -> Get (ProtocolM s ())
-getMessageAction object@(Object _ _ _ _ objectHandler) opcode = do
+getMessageAction object@(Object _ _ _ objectHandler) opcode = do
   verifyMessage <- getWireDown object opcode
   pure do
     message <- verifyMessage
