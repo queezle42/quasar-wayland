@@ -108,8 +108,7 @@ interfaceDecs :: InterfaceSpec -> Q ([Dec], [Dec])
 interfaceDecs interface = do
   public <- execWriterT do
     -- Main interface type
-    let iCtorDec = (normalC iName [], Nothing, [])
-    tellQ $ dataD_doc (pure []) iName [] Nothing [iCtorDec] [] (toWlDoc interface.description)
+    tellQ $ dataD_doc (pure []) iName [] Nothing [] [] (toWlDoc interface.description)
     -- IsInterface instance
     tellQ $ instanceD (pure []) [t|IsInterface $iT|] [
       tySynInstD (tySynEqn Nothing [t|$(conT ''RequestHandler) $iT|] (orUnit (requestsT interface))),
@@ -201,8 +200,8 @@ interfaceDecs interface = do
       tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Server $iT|]) [handleMessageD Server]
 
     handleMessageD :: Side -> Q Dec
-    handleMessageD Client = funD 'handleMessage (handleMessageClauses wireEventContexts)
-    handleMessageD Server = funD 'handleMessage (handleMessageClauses wireRequestContexts)
+    handleMessageD Client = funD 'objectHandleMessage (handleMessageClauses wireEventContexts)
+    handleMessageD Server = funD 'objectHandleMessage (handleMessageClauses wireRequestContexts)
 
     handleMessageClauses :: [MessageContext] -> [Q Clause]
     handleMessageClauses [] = [clause [wildP] (normalB [|absurd|]) []]

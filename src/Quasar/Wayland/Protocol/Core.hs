@@ -228,7 +228,7 @@ class (
     IsMessage (WireDown s i)
   )
   => IsInterfaceSide (s :: Side) i where
-  handleMessage :: Object s i -> WireDown s i -> STM ()
+  objectHandleMessage :: Object s i -> WireDown s i -> STM ()
 
 
 getWireDown :: forall s i. IsInterfaceSide s i => Object s i -> Opcode -> Get (ProtocolM s (WireDown s i))
@@ -336,8 +336,8 @@ internalFnWireCallback :: IsInterfaceSide s i => (Object s i -> WireDown s i -> 
 internalFnWireCallback = WireCallback . FnWireCallback
 
 
--- | The 'traceWireCallback' callback outputs a trace for every received message, before passing the message to the callback
--- argument.
+-- | The 'traceWireCallback' callback outputs a trace for every received message, before passing the message to the
+-- callback argument.
 --
 -- The 'trace' function should /only/ be used for debugging, or for monitoring execution. The function is not
 -- referentially transparent: its type indicates that it is a pure function but it has the side effect of outputting the
@@ -349,7 +349,8 @@ traceWireCallback next = internalFnWireCallback \object message -> do
   traceM $ "<- " <> showObjectMessage object message
   handlerHandleMessage next object message
 
--- | A `WireCallback` that ignores all messages. Intended for development purposes, e.g. together with `traceWireCallback`.
+-- | A `WireCallback` that ignores all messages. Intended for development purposes, e.g. together with
+-- `traceWireCallback`.
 ignoreMessage :: IsInterfaceSide 'Client i => WireCallback 'Client i
 ignoreMessage = internalFnWireCallback \_ _ -> pure ()
 
@@ -505,7 +506,8 @@ runProtocolM protocol action = either throwM (runReaderT action) =<< readTVar pr
 -- | Feed the protocol newly received data.
 feedInput :: (IsSide s, MonadIO m, MonadThrow m) => ProtocolHandle s -> ByteString -> m ()
 feedInput protocol bytes = runProtocolTransaction protocol do
-  -- Exposing MonadIO instead of STM to the outside and using `runProtocolTransaction` here enforces correct exception handling.
+  -- Exposing MonadIO instead of STM to the outside and using `runProtocolTransaction` here enforces correct exception
+  -- handling.
   modifyProtocolVar' (.bytesReceivedVar) (+ fromIntegral (BS.length bytes))
   modifyProtocolVar (.inboxDecoderVar) (`pushChunk` bytes)
   receiveMessages
@@ -616,18 +618,18 @@ handleRawMessage (oId, opcode, body) = do
 
     Just (UnknownObject interface _) -> do
       throwM $ ProtocolException $ "Received message for object without handler: " <> interface <> "@" <> show oId
-
-getMessageAction
-  :: IsInterfaceSide s i
-  => Object s i
-  -> Opcode
-  -> Get (ProtocolM s ())
-getMessageAction object@(Object _ _ _ objectHandler) opcode = do
-  verifyMessage <- getWireDown object opcode
-  pure do
-    message <- verifyMessage
-    traceM $ "<- " <> showObjectMessage object message
-    handlerHandleMessage objectHandler object message
+  where
+    getMessageAction
+      :: IsInterfaceSide s i
+      => Object s i
+      -> Opcode
+      -> Get (ProtocolM s ())
+    getMessageAction object@(Object _ _ _ objectHandler) opcode = do
+      verifyMessage <- getWireDown object opcode
+      pure do
+        message <- verifyMessage
+        traceM $ "<- " <> showObjectMessage object message
+        handlerHandleMessage objectHandler object message
 
 type RawMessage = (GenericObjectId, Opcode, BSL.ByteString)
 
