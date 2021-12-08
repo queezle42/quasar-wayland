@@ -12,6 +12,8 @@ import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as Socket
 import Network.Socket.ByteString.Lazy qualified as SocketL
 import Quasar
+-- TODO remove after updating quasar
+import Quasar.Async.Unmanaged (Async)
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
 
@@ -49,15 +51,18 @@ newWaylandConnection initializeProtocolAction socket = do
       resourceManager
     }
 
-    registerDisposeAction $ closeConnection connection
+    t1 <- connectionThread connection $ sendThread connection
+    t2 <- connectionThread connection $ receiveThread connection
 
-    connectionThread connection $ sendThread connection
-    connectionThread connection $ receiveThread connection
+    registerAsyncDisposeAction do
+      await $ isDisposed t1
+      await $ isDisposed t2
+      closeConnection connection
 
     pure (result, connection)
 
-connectionThread :: MonadResourceManager m => WaylandConnection s -> IO () -> m ()
-connectionThread connection work = asyncWithHandler_ traceAndDisposeConnection $ liftIO $ work
+connectionThread :: MonadResourceManager m => WaylandConnection s -> IO () -> m (Async ())
+connectionThread connection work = asyncWithHandler traceAndDisposeConnection $ liftIO $ work
   where
     traceAndDisposeConnection :: SomeException -> IO ()
     traceAndDisposeConnection ex = traceIO (displayException ex) >> void (dispose connection)
@@ -74,7 +79,7 @@ receiveThread :: IsSide s => WaylandConnection s -> IO ()
 receiveThread connection = forever do
   bytes <- Socket.recv connection.socket 4096
 
-  when (BS.length bytes == 0) do
+  when (BS.null bytes) do
     throwM SocketClosed
 
   traceIO $ "Received " <> show (BS.length bytes) <> " bytes"
