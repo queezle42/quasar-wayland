@@ -15,9 +15,7 @@ data ClientDisplay = ClientDisplay {
   registry :: ClientRegistry
 }
 
-newClientDisplay
-  :: (IsInterfaceSide 'Client Interface_wl_display)
-  => STM (ClientDisplay, ProtocolHandle 'Client)
+newClientDisplay :: STM (ClientDisplay, ProtocolHandle 'Client)
 newClientDisplay =
   initializeProtocol wlDisplayEventHandler \wlDisplay -> do
     registry <- createClientRegistry wlDisplay

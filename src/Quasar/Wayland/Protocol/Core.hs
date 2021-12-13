@@ -16,7 +16,7 @@ module Quasar.Wayland.Protocol.Core (
   interfaceName,
   IsInterfaceSide(..),
   IsInterfaceHandler(..),
-  Object(messageHandler),
+  Object,
   IsObject,
   IsMessage(..),
   ProtocolHandle,
@@ -29,10 +29,10 @@ module Quasar.Wayland.Protocol.Core (
   takeOutbox,
   runProtocolTransaction,
   runProtocolM,
+  enterObject,
 
   -- * Low-level protocol interaction
   sendMessage,
-  objectSendMessage,
   newObject,
   newObjectFromId,
 
@@ -223,7 +223,7 @@ class (
     IsMessage (WireDown s i)
   )
   => IsInterfaceSide (s :: Side) i where
-  objectHandleMessage :: Object s i -> WireDown s i -> STM ()
+  handleMessage :: MessageHandler s i -> WireDown s i -> ProtocolM s ()
 
 
 getWireDown :: forall s i. IsInterfaceSide s i => Object s i -> Opcode -> Get (ProtocolM s (WireDown s i))
@@ -244,7 +244,7 @@ data Side = Client | Server
 data Object s i = IsInterfaceSide s i => Object {
   objectProtocol :: (ProtocolHandle s),
   objectObjectId :: GenericObjectId,
-  messageHandler :: (MessageHandler s i)
+  messageHandler :: TMVar (MessageHandler s i)
 }
 
 instance IsInterface i => Show (Object s i) where
@@ -423,7 +423,8 @@ initializeProtocol wlDisplayMessageHandler initializationAction = do
   }
   writeTVar stateVar (Right state)
 
-  let wlDisplay = Object protocol wlDisplayId wlDisplayMessageHandler
+  messageHandlerVar <- newTMVar wlDisplayMessageHandler
+  let wlDisplay = Object protocol wlDisplayId messageHandlerVar
   modifyTVar' objectsVar (HM.insert wlDisplayId (SomeObject wlDisplay))
 
   result <- runReaderT (initializationAction wlDisplay) state
@@ -522,9 +523,10 @@ newObjectFromId
   -> ProtocolM s (Object s i)
 newObjectFromId (NewId oId) messageHandler = do
   protocol <- askProtocol
+  messageHandlerVar <- lift $ newTMVar messageHandler
   let
     genericObjectId = toGenericObjectId oId
-    object = Object protocol genericObjectId messageHandler
+    object = Object protocol genericObjectId messageHandlerVar
     someObject = SomeObject object
   modifyProtocolVar (.objectsVar) (HM.insert genericObjectId someObject)
   pure object
@@ -554,8 +556,8 @@ sendMessage object message = do
       putWord32host objectIdWord
       putWord32host $ (fromIntegral msgSize `shiftL` 16) .|. fromIntegral opcode
 
-objectSendMessage :: forall s i. IsInterfaceSide s i => Object s i -> WireUp s i -> STM ()
-objectSendMessage object message = runProtocolM object.objectProtocol $ sendMessage object message
+enterObject :: forall s i a. Object s i -> ProtocolM s a -> STM a
+enterObject object action = runProtocolM object.objectProtocol action
 
 
 receiveMessages :: IsSide s => ProtocolM s ()
@@ -583,7 +585,7 @@ handleRawMessage (oId, opcode, body) = do
       throwM $ ProtocolException $ "Received message for object without handler: " <> interface <> "@" <> show oId
   where
     getMessageAction
-      :: IsInterfaceSide s i
+      :: forall s i. IsInterfaceSide s i
       => Object s i
       -> Opcode
       -> Get (ProtocolM s ())
@@ -592,7 +594,8 @@ handleRawMessage (oId, opcode, body) = do
       pure do
         message <- verifyMessage
         traceM $ "<- " <> showObjectMessage object message
-        lift $ objectHandleMessage object message
+        messageHandler <- lift $ readTMVar object.messageHandler
+        handleMessage @s @i messageHandler message
 
 type RawMessage = (GenericObjectId, Opcode, BSL.ByteString)
 

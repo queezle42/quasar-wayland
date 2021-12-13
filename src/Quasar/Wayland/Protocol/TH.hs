@@ -190,9 +190,9 @@ interfaceDecs interface = do
     eventProxyInstanceDecs :: Q [Dec]
     eventProxyInstanceDecs = messageProxyInstanceDecs [t|'Server|] wireEventContexts
 
-    objectName = mkName "object"
-    objectP = varP objectName
-    objectE = varE objectName
+    handlerName = mkName "handler"
+    handlerP = varP handlerName
+    handlerE = varE handlerName
 
     interfaceSideInstanceDs :: Q [Dec]
     interfaceSideInstanceDs = execWriterT do
@@ -200,29 +200,29 @@ interfaceDecs interface = do
       tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Server $iT|]) [handleMessageD Server]
 
     handleMessageD :: Side -> Q Dec
-    handleMessageD Client = funD 'objectHandleMessage (handleMessageClauses wireEventContexts)
-    handleMessageD Server = funD 'objectHandleMessage (handleMessageClauses wireRequestContexts)
+    handleMessageD Client = funD 'handleMessage (handleMessageClauses wireEventContexts)
+    handleMessageD Server = funD 'handleMessage (handleMessageClauses wireRequestContexts)
 
     handleMessageClauses :: [MessageContext] -> [Q Clause]
     handleMessageClauses [] = [clause [wildP] (normalB [|absurd|]) []]
     handleMessageClauses messageContexts = handleMessageClause <$> messageContexts
 
     handleMessageClause :: MessageContext -> Q Clause
-    handleMessageClause msg = clause [objectP, msgConP msg] (normalB bodyE) []
+    handleMessageClause msg = clause [handlerP, msgConP msg] (normalB bodyE) []
       where
         fieldNameLitT :: Q Type
         fieldNameLitT = litT (strTyLit (messageFieldNameString msg))
-        fieldE :: Q Exp
-        fieldE = [|$(appTypeE [|getField|] fieldNameLitT) $objectE.messageHandler|]
+        msgHandlerE :: Q Exp
+        msgHandlerE = [|$(appTypeE [|getField|] fieldNameLitT) $handlerE|]
         bodyE :: Q Exp
-        bodyE = applyMsgArgs msg fieldE
+        bodyE = [|lift $(applyMsgArgs msg msgHandlerE)|]
 
 messageProxyInstanceDecs :: Q Type -> [MessageContext] -> Q [Dec]
 messageProxyInstanceDecs sideT messageContexts = mapM messageProxyInstanceD messageContexts
   where
     messageProxyInstanceD :: MessageContext -> Q Dec
     messageProxyInstanceD msg = instanceD (pure []) instanceT [
-      funD 'getField [clause ([varP objectName] <> msgArgPats msg) (normalB [|objectSendMessage object $(msgE msg)|]) []]
+      funD 'getField [clause ([varP objectName] <> msgArgPats msg) (normalB [|enterObject object (sendMessage object $(msgE msg))|]) []]
       ]
       where
         objectName = mkName "object"
