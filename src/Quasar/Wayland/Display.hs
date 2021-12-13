@@ -19,7 +19,7 @@ newClientDisplay
   :: (IsInterfaceSide 'Client Interface_wl_display)
   => STM (ClientDisplay, ProtocolHandle 'Client)
 newClientDisplay =
-  initializeProtocol clientWlDisplayWireCallback \wlDisplay -> do
+  initializeProtocol wlDisplayEventHandler \wlDisplay -> do
     registry <- createClientRegistry wlDisplay
     pure ClientDisplay {
       wlDisplay,

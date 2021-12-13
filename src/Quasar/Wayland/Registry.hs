@@ -22,7 +22,7 @@ createClientRegistry :: Object 'Client Interface_wl_display -> ProtocolM 'Client
 createClientRegistry wlDisplay = mfix \clientRegistry -> do
   globalsVar <- lift $ newTVar HM.empty
 
-  (wlRegistry, newId) <- newObject @'Client @Interface_wl_registry (callback clientRegistry)
+  (wlRegistry, newId) <- newObject @'Client @Interface_wl_registry (messageHandler clientRegistry)
   sendMessage wlDisplay $ WireRequest_wl_display__get_registry newId
 
   pure ClientRegistry {
@@ -30,15 +30,16 @@ createClientRegistry wlDisplay = mfix \clientRegistry -> do
     globalsVar
   }
   where
-    callback :: ClientRegistry -> IsInterfaceSide 'Client Interface_wl_registry => WireCallback 'Client Interface_wl_registry
-    callback clientRegistry = internalFnWireCallback handler
+    messageHandler :: ClientRegistry -> EventHandler_wl_registry
+    messageHandler clientRegistry = EventHandler_wl_registry { global, global_remove }
       where
-        -- | wl_registry is specified to never change, so manually specifying the callback is safe
-        handler :: Object 'Client Interface_wl_registry -> WireEvent_wl_registry -> ProtocolM 'Client ()
-        handler _ (WireEvent_wl_registry__global name interface version) = do
-          lift $ modifyTVar clientRegistry.globalsVar (HM.insert name (interface, version))
-        handler _ (WireEvent_wl_registry__global_remove name) = do
-          result <- lift $ stateTVar clientRegistry.globalsVar (swap . lookupDelete name)
+        global :: Word32 -> WlString -> Word32 -> STM ()
+        global name interface version = do
+          modifyTVar clientRegistry.globalsVar (HM.insert name (interface, version))
+
+        global_remove :: Word32 -> STM ()
+        global_remove name = do
+          result <- stateTVar clientRegistry.globalsVar (swap . lookupDelete name)
           case result of
             Nothing -> traceM $ "Invalid global removed by server: " <> show name
             Just (interface, version) -> pure ()

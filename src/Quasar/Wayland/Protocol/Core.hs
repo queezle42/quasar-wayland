@@ -34,12 +34,7 @@ module Quasar.Wayland.Protocol.Core (
   sendMessage,
   objectSendMessage,
   newObject,
-
-  -- ** WireCallbacks
-  WireCallback(..),
-  internalFnWireCallback,
-  traceWireCallback,
-  ignoreMessage,
+  newObjectFromId,
 
   -- * Protocol exceptions
   WireCallbackFailed(..),
@@ -249,8 +244,7 @@ data Side = Client | Server
 data Object s i = IsInterfaceSide s i => Object {
   objectProtocol :: (ProtocolHandle s),
   objectObjectId :: GenericObjectId,
-  messageHandler :: (MessageHandler s i),
-  objectWireCallback :: (WireCallback s i)
+  messageHandler :: (MessageHandler s i)
 }
 
 instance IsInterface i => Show (Object s i) where
@@ -320,39 +314,6 @@ showObjectMessage :: (IsObject a, IsMessage b) => a -> b -> String
 showObjectMessage object message =
   showObject object <> "." <> show message
 
-
-data WireCallback s i = forall a. IsInterfaceHandler s i a => WireCallback a
-
-instance IsInterfaceSide s i => IsInterfaceHandler s i (WireCallback s i) where
-  handlerHandleMessage (WireCallback callback) = handlerHandleMessage callback
-
-
-data LowLevelWireCallback s i = IsInterfaceSide s i => FnWireCallback (Object s i -> WireDown s i -> ProtocolM s ())
-
-instance IsInterfaceSide s i => IsInterfaceHandler s i (LowLevelWireCallback s i) where
-  handlerHandleMessage (FnWireCallback fn) object msg = fn object msg
-
-internalFnWireCallback :: IsInterfaceSide s i => (Object s i -> WireDown s i -> ProtocolM s ()) -> WireCallback s i
-internalFnWireCallback = WireCallback . FnWireCallback
-
-
--- | The 'traceWireCallback' callback outputs a trace for every received message, before passing the message to the
--- callback argument.
---
--- The 'trace' function should /only/ be used for debugging, or for monitoring execution. The function is not
--- referentially transparent: its type indicates that it is a pure function but it has the side effect of outputting the
--- trace message.
---
--- Uses `traceM` internally.
-traceWireCallback :: IsInterfaceSide 'Client i => WireCallback 'Client i -> WireCallback 'Client i
-traceWireCallback next = internalFnWireCallback \object message -> do
-  traceM $ "<- " <> showObjectMessage object message
-  handlerHandleMessage next object message
-
--- | A `WireCallback` that ignores all messages. Intended for development purposes, e.g. together with
--- `traceWireCallback`.
-ignoreMessage :: IsInterfaceSide 'Client i => WireCallback 'Client i
-ignoreMessage = internalFnWireCallback \_ _ -> pure ()
 
 -- * Exceptions
 
@@ -431,10 +392,10 @@ stateProtocolVar fn x = do
 
 initializeProtocol
   :: forall s wl_display a. (IsInterfaceSide s wl_display)
-  => WireCallback s wl_display
+  => MessageHandler s wl_display
   -> (Object s wl_display -> ProtocolM s a)
   -> STM (a, ProtocolHandle s)
-initializeProtocol wlDisplayWireCallback initializationAction = do
+initializeProtocol wlDisplayMessageHandler initializationAction = do
   bytesReceivedVar <- newTVar 0
   bytesSentVar <- newTVar 0
   inboxDecoderVar <- newTVar $ runGetIncremental getRawMessage
@@ -462,7 +423,7 @@ initializeProtocol wlDisplayWireCallback initializationAction = do
   }
   writeTVar stateVar (Right state)
 
-  let wlDisplay = Object protocol wlDisplayId undefined wlDisplayWireCallback
+  let wlDisplay = Object protocol wlDisplayId wlDisplayMessageHandler
   modifyTVar' objectsVar (HM.insert wlDisplayId (SomeObject wlDisplay))
 
   result <- runReaderT (initializationAction wlDisplay) state
@@ -528,14 +489,16 @@ takeOutbox protocol = runProtocolTransaction protocol do
 
 -- | Create an object. The caller is responsible for sending the 'NewId' immediately (exactly once; in the same STM
 -- transaction; before using the object).
+--
+-- Exported for use in TH generated code.
 newObject
   :: forall s i. IsInterfaceSide s i
-  => WireCallback s i
+  => MessageHandler s i
   -> ProtocolM s (Object s i, NewId (InterfaceName i))
-newObject callback = do
+newObject messageHandler = do
   oId <- allocateObjectId
   let newId = NewId @(InterfaceName i) oId
-  object <- newObjectFromId newId callback
+  object <- newObjectFromId newId messageHandler
   pure (object, newId)
   where
     allocateObjectId :: ProtocolM s (ObjectId (InterfaceName i))
@@ -548,23 +511,23 @@ newObject callback = do
       writeProtocolVar (.nextIdVar) nextId'
       pure $ ObjectId id'
 
+-- | Create an object from a received id. The caller is responsible for using a 'NewId' exactly once while handling an
+-- incoming message
+--
+-- Exported for use in TH generated code.
 newObjectFromId
   :: forall s i. IsInterfaceSide s i
   => NewId (InterfaceName i)
-  -> WireCallback s i
+  -> MessageHandler s i
   -> ProtocolM s (Object s i)
-newObjectFromId (NewId oId) callback = do
+newObjectFromId (NewId oId) messageHandler = do
   protocol <- askProtocol
   let
     genericObjectId = toGenericObjectId oId
-    object = Object protocol genericObjectId undefined callback
+    object = Object protocol genericObjectId messageHandler
     someObject = SomeObject object
   modifyProtocolVar (.objectsVar) (HM.insert genericObjectId someObject)
   pure object
-
--- TODO
--- createObject :: Callback -> STM (Object, NewId)
--- registerObject :: NewId -> Callback -> STM (Object)
 
 
 -- | Sends a message without checking any ids or creating proxy objects objects. (TODO)
@@ -624,12 +587,12 @@ handleRawMessage (oId, opcode, body) = do
       => Object s i
       -> Opcode
       -> Get (ProtocolM s ())
-    getMessageAction object@(Object _ _ _ objectHandler) opcode = do
+    getMessageAction object opcode = do
       verifyMessage <- getWireDown object opcode
       pure do
         message <- verifyMessage
         traceM $ "<- " <> showObjectMessage object message
-        handlerHandleMessage objectHandler object message
+        lift $ objectHandleMessage object message
 
 type RawMessage = (GenericObjectId, Opcode, BSL.ByteString)
 

@@ -24,18 +24,13 @@ module Quasar.Wayland.Protocol (
   takeOutbox,
   setException,
 
-  -- ** Low-level protocol interaction
+  -- ** Low-level protocol interaction (TODO should no longer be required after cleanup)
   ProtocolM,
   runProtocolTransaction,
   runProtocolM,
   Object,
   newObject,
   sendMessage,
-
-  WireCallback(..),
-  internalFnWireCallback,
-  traceWireCallback,
-  ignoreMessage,
 
   -- * Protocol exceptions
   WireCallbackFailed(..),
