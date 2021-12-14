@@ -17,8 +17,10 @@ module Quasar.Wayland.Protocol.Core (
   IsInterfaceSide(..),
   IsInterfaceHandler(..),
   Object(objectId),
-  getMessageHandler,
+  setEventHandler,
+  setRequestHandler,
   setMessageHandler,
+  getMessageHandler,
   NewObject,
   IsObject,
   IsMessage(..),
@@ -257,6 +259,12 @@ getMessageHandler object = maybe retry pure =<< readTVar object.messageHandler
 
 setMessageHandler :: Object s i -> MessageHandler s i -> STM ()
 setMessageHandler object = writeTVar object.messageHandler . Just
+
+setRequestHandler :: Object 'Server i -> RequestHandler i -> STM ()
+setRequestHandler = setMessageHandler
+
+setEventHandler :: Object 'Client i -> EventHandler i -> STM ()
+setEventHandler = setMessageHandler
 
 -- | Type alias to indicate an object is created with a message.
 type NewObject s i = Object s i

@@ -4,6 +4,8 @@ module Quasar.Wayland.Display (
 ) where
 
 import Control.Concurrent.STM
+import GHC.Records
+import Quasar.Awaitable
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Display
@@ -23,3 +25,12 @@ newClientDisplay =
       wlDisplay,
       registry
     }
+
+instance HasField "sync" ClientDisplay (STM (Awaitable ())) where
+  getField display = do
+    var <- newAsyncVarSTM
+    wlCallback <- display.wlDisplay.sync
+    setEventHandler wlCallback EventHandler_wl_callback {
+      done = const $ putAsyncVarSTM_ var ()
+    }
+    pure $ toAwaitable var

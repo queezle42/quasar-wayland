@@ -4,8 +4,10 @@ module Quasar.Wayland.Protocol (
   -- "Quasar.Wayland.Protocol.TH".
 
   Object,
-  getMessageHandler,
+  setEventHandler,
+  setRequestHandler,
   setMessageHandler,
+  getMessageHandler,
 
   -- ** Wayland types
   Fixed(..),
