@@ -16,7 +16,10 @@ module Quasar.Wayland.Protocol.Core (
   interfaceName,
   IsInterfaceSide(..),
   IsInterfaceHandler(..),
-  Object,
+  Object(objectId),
+  getMessageHandler,
+  setMessageHandler,
+  NewObject,
   IsObject,
   IsMessage(..),
   ProtocolHandle,
@@ -35,6 +38,7 @@ module Quasar.Wayland.Protocol.Core (
   sendMessage,
   newObject,
   newObjectFromId,
+  getObject,
 
   -- * Protocol exceptions
   WireCallbackFailed(..),
@@ -241,36 +245,46 @@ class IsInterfaceSide s i => IsInterfaceHandler s i a where
 data Side = Client | Server
 
 
+-- | An object belonging to a wayland connection.
 data Object s i = IsInterfaceSide s i => Object {
   objectProtocol :: (ProtocolHandle s),
-  objectObjectId :: GenericObjectId,
-  messageHandler :: TMVar (MessageHandler s i)
+  objectId :: ObjectId (InterfaceName i),
+  messageHandler :: TVar (Maybe (MessageHandler s i))
 }
+
+getMessageHandler :: Object s i -> STM (MessageHandler s i)
+getMessageHandler object = maybe retry pure =<< readTVar object.messageHandler
+
+setMessageHandler :: Object s i -> MessageHandler s i -> STM ()
+setMessageHandler object = writeTVar object.messageHandler . Just
+
+-- | Type alias to indicate an object is created with a message.
+type NewObject s i = Object s i
 
 instance IsInterface i => Show (Object s i) where
   show = showObject
 
 class IsObject a where
-  objectId :: a -> GenericObjectId
+  genericObjectId :: a -> GenericObjectId
   objectInterfaceName :: a -> String
   showObject :: a -> String
-  showObject object = objectInterfaceName object <> "@" <> show (objectId object)
+  showObject object = objectInterfaceName object <> "@" <> show (genericObjectId object)
 
 class IsObjectSide a where
   describeUpMessage :: a -> Opcode -> BSL.ByteString -> String
   describeDownMessage :: a -> Opcode -> BSL.ByteString -> String
 
 instance forall s i. IsInterface i => IsObject (Object s i) where
-  objectId = objectObjectId
+  genericObjectId object = toGenericObjectId object.objectId
   objectInterfaceName _ = interfaceName @i
 
 instance forall s i. IsInterfaceSide s i => IsObjectSide (Object s i) where
   describeUpMessage object opcode body =
-    objectInterfaceName object <> "@" <> show (objectId object) <>
+    objectInterfaceName object <> "@" <> show (genericObjectId object) <>
     "." <> fromMaybe "[invalidOpcode]" (opcodeName @(WireUp s i) opcode) <>
     " (" <> show (BSL.length body) <> "B)"
   describeDownMessage object opcode body =
-    objectInterfaceName object <> "@" <> show (objectId object) <>
+    objectInterfaceName object <> "@" <> show (genericObjectId object) <>
     "." <> fromMaybe "[invalidOpcode]" (opcodeName @(WireDown s i) opcode) <>
     " (" <> show (BSL.length body) <> "B)"
 
@@ -280,8 +294,8 @@ data SomeObject s
   | UnknownObject String GenericObjectId
 
 instance IsObject (SomeObject s) where
-  objectId (SomeObject object) = objectId object
-  objectId (UnknownObject _ oId) = oId
+  genericObjectId (SomeObject object) = genericObjectId object
+  genericObjectId (UnknownObject _ oId) = oId
   objectInterfaceName (SomeObject object) = objectInterfaceName object
   objectInterfaceName (UnknownObject interface _) = interface
 
@@ -308,7 +322,7 @@ instance IsMessage Void where
 
 invalidOpcode :: IsInterface i => Object s i -> Opcode -> Get a
 invalidOpcode object opcode =
-  fail $ "Invalid opcode " <> show opcode <> " on " <> objectInterfaceName object <> "@" <> show (objectId object)
+  fail $ "Invalid opcode " <> show opcode <> " on " <> objectInterfaceName object <> "@" <> show (genericObjectId object)
 
 showObjectMessage :: (IsObject a, IsMessage b) => a -> b -> String
 showObjectMessage object message =
@@ -393,7 +407,7 @@ stateProtocolVar fn x = do
 initializeProtocol
   :: forall s wl_display a. (IsInterfaceSide s wl_display)
   => MessageHandler s wl_display
-  -> (Object s wl_display -> ProtocolM s a)
+  -> (Object s wl_display -> STM a)
   -> STM (a, ProtocolHandle s)
 initializeProtocol wlDisplayMessageHandler initializationAction = do
   bytesReceivedVar <- newTVar 0
@@ -423,15 +437,14 @@ initializeProtocol wlDisplayMessageHandler initializationAction = do
   }
   writeTVar stateVar (Right state)
 
-  messageHandlerVar <- newTMVar wlDisplayMessageHandler
-  let wlDisplay = Object protocol wlDisplayId messageHandlerVar
-  modifyTVar' objectsVar (HM.insert wlDisplayId (SomeObject wlDisplay))
+  messageHandlerVar <- newTVar (Just wlDisplayMessageHandler)
+  let wlDisplay = Object protocol (ObjectId wlDisplayId) messageHandlerVar
+  modifyTVar' objectsVar (HM.insert (GenericObjectId wlDisplayId) (SomeObject wlDisplay))
 
-  result <- runReaderT (initializationAction wlDisplay) state
+  result <- initializationAction wlDisplay
   pure (result, protocol)
   where
-    wlDisplayId :: GenericObjectId
-    wlDisplayId = GenericObjectId 1
+    wlDisplayId = 1
 
 -- | Run a protocol action in 'IO'. If an exception occurs, it is stored as a protocol failure and is then
 -- re-thrown.
@@ -494,12 +507,12 @@ takeOutbox protocol = runProtocolTransaction protocol do
 -- Exported for use in TH generated code.
 newObject
   :: forall s i. IsInterfaceSide s i
-  => MessageHandler s i
+  => Maybe (MessageHandler s i)
   -> ProtocolM s (Object s i, NewId (InterfaceName i))
 newObject messageHandler = do
   oId <- allocateObjectId
   let newId = NewId @(InterfaceName i) oId
-  object <- newObjectFromId newId messageHandler
+  object <- newObjectFromId messageHandler newId
   pure (object, newId)
   where
     allocateObjectId :: ProtocolM s (ObjectId (InterfaceName i))
@@ -512,24 +525,33 @@ newObject messageHandler = do
       writeProtocolVar (.nextIdVar) nextId'
       pure $ ObjectId id'
 
+
 -- | Create an object from a received id. The caller is responsible for using a 'NewId' exactly once while handling an
 -- incoming message
 --
 -- Exported for use in TH generated code.
 newObjectFromId
   :: forall s i. IsInterfaceSide s i
-  => NewId (InterfaceName i)
-  -> MessageHandler s i
+  => Maybe (MessageHandler s i)
+  -> NewId (InterfaceName i)
   -> ProtocolM s (Object s i)
-newObjectFromId (NewId oId) messageHandler = do
+newObjectFromId messageHandler (NewId oId) = do
   protocol <- askProtocol
-  messageHandlerVar <- lift $ newTMVar messageHandler
+  messageHandlerVar <- lift $ newTVar messageHandler
   let
     genericObjectId = toGenericObjectId oId
-    object = Object protocol genericObjectId messageHandlerVar
+    object = Object protocol oId messageHandlerVar
     someObject = SomeObject object
   modifyProtocolVar (.objectsVar) (HM.insert genericObjectId someObject)
   pure object
+
+
+getObject
+  :: IsInterfaceSide s i
+  => ObjectId (InterfaceName i)
+  -> ProtocolM s (Object s i)
+getObject = undefined
+
 
 
 -- | Sends a message without checking any ids or creating proxy objects objects. (TODO)
@@ -549,8 +571,8 @@ sendMessage object message = do
   traceM $ "-> " <> showObjectMessage object message
   sendRawMessage $ putHeader opcode bodyLength >> putBody
   where
-    oId = objectId object
-    (GenericObjectId objectIdWord) = objectId object
+    oId = genericObjectId object
+    (GenericObjectId objectIdWord) = genericObjectId object
     putHeader :: Opcode -> Int -> Put
     putHeader opcode msgSize = do
       putWord32host objectIdWord
@@ -594,7 +616,7 @@ handleRawMessage (oId, opcode, body) = do
       pure do
         message <- verifyMessage
         traceM $ "<- " <> showObjectMessage object message
-        messageHandler <- lift $ readTMVar object.messageHandler
+        messageHandler <- lift $ getMessageHandler object
         handleMessage @s @i messageHandler message
 
 type RawMessage = (GenericObjectId, Opcode, BSL.ByteString)

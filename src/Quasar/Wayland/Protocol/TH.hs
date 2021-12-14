@@ -46,6 +46,7 @@ data MessageSpec = MessageSpec {
   description :: Maybe DescriptionSpec,
   opcode :: Opcode,
   arguments :: [ArgumentSpec],
+  isConstructor :: Bool,
   isDestructor :: Bool
 }
   deriving stock Show
@@ -179,16 +180,16 @@ interfaceDecs interface = do
     wireEventContexts = wireEventContext <$> interface.events
 
     requestCallbackRecordD :: Q Dec
-    requestCallbackRecordD = messageRecordD (requestsName interface) wireRequestContexts
+    requestCallbackRecordD = messageHandlerRecordD Server (requestsName interface) wireRequestContexts
 
     requestProxyInstanceDecs :: Q [Dec]
-    requestProxyInstanceDecs = messageProxyInstanceDecs [t|'Client|] wireRequestContexts
+    requestProxyInstanceDecs = messageProxyInstanceDecs Client wireRequestContexts
 
     eventCallbackRecordD :: Q Dec
-    eventCallbackRecordD = messageRecordD (eventsName interface) wireEventContexts
+    eventCallbackRecordD = messageHandlerRecordD Client (eventsName interface) wireEventContexts
 
     eventProxyInstanceDecs :: Q [Dec]
-    eventProxyInstanceDecs = messageProxyInstanceDecs [t|'Server|] wireEventContexts
+    eventProxyInstanceDecs = messageProxyInstanceDecs Server wireEventContexts
 
     handlerName = mkName "handler"
     handlerP = varP handlerName
@@ -215,25 +216,77 @@ interfaceDecs interface = do
         msgHandlerE :: Q Exp
         msgHandlerE = [|$(appTypeE [|getField|] fieldNameLitT) $handlerE|]
         bodyE :: Q Exp
-        bodyE = [|lift $(applyMsgArgs msg msgHandlerE)|]
+        bodyE = [|lift =<< $(applyMsgArgs msg msgHandlerE)|]
 
-messageProxyInstanceDecs :: Q Type -> [MessageContext] -> Q [Dec]
-messageProxyInstanceDecs sideT messageContexts = mapM messageProxyInstanceD messageContexts
+        applyMsgArgs :: MessageContext -> Q Exp -> Q Exp
+        applyMsgArgs msg base = applyA base (argE <$> msg.msgSpec.arguments)
+
+        argE :: ArgumentSpec -> Q Exp
+        argE arg = fromWireArgument arg.argType (msgArgE msg arg)
+
+        fromWireArgument :: ArgumentType -> Q Exp -> Q Exp
+        fromWireArgument (ObjectArgument iName) objIdE = [|getObject $objIdE|]
+        fromWireArgument (NewIdArgument iName) objIdE = [|newObjectFromId Nothing $objIdE|]
+        fromWireArgument _ x = [|pure $x|]
+
+messageProxyInstanceDecs :: Side -> [MessageContext] -> Q [Dec]
+messageProxyInstanceDecs side messageContexts = mapM messageProxyInstanceD messageContexts
   where
     messageProxyInstanceD :: MessageContext -> Q Dec
     messageProxyInstanceD msg = instanceD (pure []) instanceT [
-      funD 'getField [clause ([varP objectName] <> msgArgPats msg) (normalB [|enterObject object (sendMessage object $(msgE msg))|]) []]
+      funD 'getField [clause ([varP objectName] <> msgProxyArgPats msg) (normalB [|enterObject object $actionE|]) []]
       ]
       where
         objectName = mkName "object"
         instanceT :: Q Type
         instanceT = [t|HasField $(litT (strTyLit msg.msgSpec.name)) $objectT $proxyT|]
         objectT :: Q Type
-        objectT = [t|Object $sideT $(msg.msgInterfaceT)|]
+        objectT = [t|Object $(sideT side) $(msg.msgInterfaceT)|]
         proxyT :: Q Type
-        proxyT = [t|$(applyArgTypes [t|STM ()|])|]
+        proxyT = [t|$(applyArgTypes [t|STM $returnT|])|]
+        returnT :: Q Type
+        returnT = maybe [t|()|] (argumentType side) (proxyReturnArgument msg.msgSpec)
         applyArgTypes :: Q Type -> Q Type
-        applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType <$> msg.msgSpec.arguments)
+        applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType side <$> args)
+
+        args :: [ArgumentSpec]
+        args = proxyArguments msg.msgSpec
+
+        actionE :: Q Exp
+        actionE = if msg.msgSpec.isConstructor then ctorE else normalE
+
+        -- Constructor: the first argument becomes the return value
+        ctorE :: Q Exp
+        ctorE = [|newObject Nothing >>= \(newObject, newId) -> newObject <$ (sendMessage object =<< $(msgE [|pure newId|]))|]
+          where
+            msgE :: Q Exp -> Q Exp
+            msgE idArgE = mkWireMsgE (idArgE : (wireArgE <$> args))
+
+        -- Body for a normal (i.e. non-constructor) proxy
+        normalE :: Q Exp
+        normalE = [|sendMessage object =<< $(msgE)|]
+          where
+            msgE :: Q Exp
+            msgE = mkWireMsgE (wireArgE <$> args)
+
+        mkWireMsgE :: [Q Exp] -> Q Exp
+        mkWireMsgE mkWireArgEs = applyA (conE msg.msgConName) mkWireArgEs
+
+        wireArgE :: ArgumentSpec -> Q Exp
+        wireArgE arg = toWireArgument arg.argType (msgArgE msg arg)
+
+        toWireArgument :: ArgumentType -> Q Exp -> Q Exp
+        -- TODO verify object validity
+        toWireArgument (ObjectArgument iName) objectE = [|pure $objectE.objectId|]
+        toWireArgument (NewIdArgument _) _ = impossibleCodePath -- The specification parser has a check to prevent this
+        toWireArgument _ x = [|pure $x|]
+
+proxyArguments :: MessageSpec -> [ArgumentSpec]
+proxyArguments msg = (if msg.isConstructor then drop 1 else id) msg.arguments
+
+proxyReturnArgument :: MessageSpec -> Maybe ArgumentSpec
+proxyReturnArgument msg@MessageSpec{arguments=(firstArg:_)} = if msg.isConstructor then Just firstArg else Nothing
+proxyReturnArgument _ = Nothing
 
 
 messageFieldName :: MessageContext -> Name
@@ -242,21 +295,25 @@ messageFieldName msg = mkName $ messageFieldNameString msg
 messageFieldNameString :: MessageContext -> String
 messageFieldNameString msg = msg.msgSpec.name
 
-messageRecordD :: Name -> [MessageContext] -> Q Dec
-messageRecordD name messageContexts = dataD (cxt []) name [] Nothing [con] []
+messageHandlerRecordD :: Side -> Name -> [MessageContext] -> Q Dec
+messageHandlerRecordD side name messageContexts = dataD (cxt []) name [] Nothing [con] []
   where
     con = recC name (recField <$> messageContexts)
     recField :: MessageContext -> Q VarBangType
     recField msg = varDefaultBangType (messageFieldName msg) [t|$(applyArgTypes [t|STM ()|])|]
       where
         applyArgTypes :: Q Type -> Q Type
-        applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType <$> msg.msgSpec.arguments)
+        applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType side <$> msg.msgSpec.arguments)
 
 
 sideTVarName :: Name
 sideTVarName = mkName "s"
 sideTVar :: Q Type
 sideTVar = varT sideTVarName
+
+sideT :: Side -> Q Type
+sideT Client = [t|'Client|]
+sideT Server = [t|'Server|]
 
 interfaceN :: InterfaceSpec -> Name
 interfaceN interface = mkName $ "Interface_" <> interface.name
@@ -295,13 +352,17 @@ data MessageContext = MessageContext {
   msgSpec :: MessageSpec
 }
 
--- | Pattern to match a message. Arguments can then be accessed by using 'msgArgE'.
+-- | Pattern to match a wire message. Arguments can then be accessed by using 'msgArgE'.
 msgConP :: MessageContext -> Q Pat
 msgConP msg = conP msg.msgConName (msgArgPats msg)
 
--- | Pattern to match all arguments of a message. Arguments can then be accessed by using e.g. 'msgArgE'.
+-- | Pattern to match all arguments of a message (wire/handler). Arguments can then be accessed by using e.g. 'msgArgE'.
 msgArgPats :: MessageContext -> [Q Pat]
 msgArgPats msg = varP . msgArgTempName <$> msg.msgSpec.arguments
+
+-- | Pattern to match all arguments of a message (for a proxy). Arguments can then be accessed by using e.g. 'msgArgE'.
+msgProxyArgPats :: MessageContext -> [Q Pat]
+msgProxyArgPats msg = varP . msgArgTempName <$> proxyArguments msg.msgSpec
 
 -- | Expression for accessing a message argument which has been matched from a request/event using 'msgArgConP'.
 msgArgE :: MessageContext -> ArgumentSpec -> Q Exp
@@ -309,15 +370,16 @@ msgArgE _msg arg = varE (msgArgTempName arg)
 
 -- | Helper for 'msgConP' and 'msgArgE'.
 msgArgTempName :: ArgumentSpec -> Name
--- Add a prefix to prevent name conflicts with exports from the Prelude
+-- Adds a prefix to prevent name conflicts with exports from the Prelude; would be better to use `newName` instead.
 msgArgTempName arg = mkName $ "arg_" <> arg.name
 
-applyMsgArgs :: MessageContext -> Q Exp -> Q Exp
-applyMsgArgs msg base = foldl appE base (msgArgE msg <$> msg.msgSpec.arguments)
+applyWireMsgArgs :: MessageContext -> Q Exp -> Q Exp
+applyWireMsgArgs msg base = foldl appE base (msgArgE msg <$> msg.msgSpec.arguments)
 
 -- | Expression to construct a wire message with arguments which have been matched using 'msgConP'/'msgArgPats'.
-msgE :: MessageContext -> Q Exp
-msgE msg = applyMsgArgs msg (conE msg.msgConName)
+-- TODO Unused?
+wireMsgE :: MessageContext -> Q Exp
+wireMsgE msg = applyWireMsgArgs msg (conE msg.msgConName)
 
 
 messageTypeDecs :: Name -> [MessageContext] -> Q [Dec]
@@ -340,12 +402,10 @@ messageTypeDecs name msgs = execWriterT do
     showD :: Q Dec
     showD = funD 'show (showClause <$> msgs)
     showClause :: MessageContext -> Q Clause
-    showClause msg =
-      clause
-        [msgConP msg]
-        (normalB [|mconcat $(listE ([stringE (msg.msgSpec.name ++ "(")] <> mconcat (intersperse [stringE ", "] (showArgE <$> msg.msgSpec.arguments) <> [[stringE ")"]])))|])
-        []
+    showClause msg = clause [msgConP msg] (normalB bodyE) []
       where
+        bodyE :: Q Exp
+        bodyE = [|mconcat $(listE ([stringE (msg.msgSpec.name ++ "(")] <> mconcat (intersperse [stringE ", "] (showArgE <$> msg.msgSpec.arguments) <> [[stringE ")"]])))|]
         showArgE :: ArgumentSpec -> [Q Exp]
         showArgE arg = [stringE (arg.name ++ "="), [|showArgument @($(argumentWireType arg)) $(msgArgE msg arg)|]]
 
@@ -389,12 +449,13 @@ derivingShow :: Q DerivClause
 derivingShow = derivClause (Just StockStrategy) [[t|Show|]]
 
 -- | Map an argument to its high-level api type
-argumentType :: ArgumentSpec -> Q Type
-argumentType argSpec = liftArgumentType argSpec.argType
+argumentType :: Side -> ArgumentSpec -> Q Type
+argumentType side argSpec = liftArgumentType side argSpec.argType
 
-liftArgumentType :: ArgumentType -> Q Type
---liftArgumentType (ObjectArgument iName) = [t|Object $sideTVar $(interfaceTFromName iName)|]
-liftArgumentType x = liftArgumentWireType x
+liftArgumentType :: Side -> ArgumentType -> Q Type
+liftArgumentType side (ObjectArgument iName) = [t|Object $(sideT side) $(interfaceTFromName iName)|]
+liftArgumentType side (NewIdArgument iName) = [t|NewObject $(sideT side) $(interfaceTFromName iName)|]
+liftArgumentType _ x = liftArgumentWireType x
 
 
 -- | Map an argument to its wire representation type
@@ -528,10 +589,6 @@ parseMessage isRequest interface (opcode, element) = do
     do isEvent && isDestructor
     do fail $ "Event cannot be a destructor: " <> location
 
-  when
-    do (foldr (\arg -> if isNewId arg.argType then (+ 1) else id) 0 arguments) > (1 :: Int)
-    do fail $ "Message creates multiple objects: " <> location
-
   forM_ arguments \arg -> do
     when
       do arg.argType == GenericNewIdArgument && (interface /= "wl_registry" || name /= "bind")
@@ -540,12 +597,21 @@ parseMessage isRequest interface (opcode, element) = do
       do arg.argType == GenericObjectArgument && (interface /= "wl_display" || name /= "error")
       do fail $ "Invalid \"object\" argument without \"interface\" attribute encountered on " <> location <> " (only valid on wl_display.error)"
 
+  isConstructor <- case arguments of
+    [] -> pure False
+    (firstArg:otherArgs) -> do
+      when
+        do any (isNewId . (.argType)) otherArgs && not (interface == "wl_registry" && name == "bind")
+        do fail $ "Message uses NewId in unexpected position on: " <> location <> " (NewId must be the first argument, unless it is on wl_registry.bind)"
+      pure (isNewId firstArg.argType)
+
   pure MessageSpec  {
     name,
     since,
     description,
     opcode,
     arguments,
+    isConstructor,
     isDestructor
   }
 

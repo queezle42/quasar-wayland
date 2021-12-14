@@ -4,19 +4,12 @@ module Quasar.Wayland.Protocol (
   -- "Quasar.Wayland.Protocol.TH".
 
   Object,
+  getMessageHandler,
+  setMessageHandler,
 
-  -- ** Wire types
-  ObjectId,
-  GenericObjectId,
-  NewId,
+  -- ** Wayland types
   Fixed(..),
   WlString(..),
-
-  -- ** Classes for generated interfaces
-  IsInterface(InterfaceName),
-  interfaceName,
-  Side(..),
-  IsSide,
 
   -- ** Protocol execution
   ProtocolHandle,
@@ -25,19 +18,18 @@ module Quasar.Wayland.Protocol (
   takeOutbox,
   setException,
 
-  -- ** Low-level protocol interaction (TODO should no longer be required after cleanup)
-  ProtocolM,
-  runProtocolTransaction,
-  runProtocolM,
-  newObject,
-  sendMessage,
-
   -- * Protocol exceptions
   WireCallbackFailed(..),
   ParserFailed(..),
   ProtocolException(..),
   MaximumIdReached(..),
   ServerError(..),
+
+  -- ** Classes for generated interfaces
+  IsInterface(InterfaceName),
+  interfaceName,
+  Side(..),
+  IsSide,
 ) where
 
 import Quasar.Wayland.Protocol.Core

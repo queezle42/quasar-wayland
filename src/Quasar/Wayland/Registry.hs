@@ -18,12 +18,12 @@ data ClientRegistry = ClientRegistry {
   globalsVar :: TVar (HM.HashMap Word32 (WlString, Word32))
 }
 
-createClientRegistry :: Object 'Client Interface_wl_display -> ProtocolM 'Client ClientRegistry
+createClientRegistry :: Object 'Client Interface_wl_display -> STM ClientRegistry
 createClientRegistry wlDisplay = mfix \clientRegistry -> do
-  globalsVar <- lift $ newTVar HM.empty
+  globalsVar <- newTVar HM.empty
 
-  (wlRegistry, newId) <- newObject @'Client @Interface_wl_registry (messageHandler clientRegistry)
-  sendMessage wlDisplay $ WireRequest_wl_display__get_registry newId
+  wlRegistry <- wlDisplay.get_registry
+  setMessageHandler wlRegistry (messageHandler clientRegistry)
 
   pure ClientRegistry {
     wlRegistry,
