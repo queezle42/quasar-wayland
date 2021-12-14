@@ -3,19 +3,29 @@ module Quasar.Wayland.Client (
   connectWaylandClient,
   newWaylandClient,
   connectWaylandSocket,
+
+  -- * wl_display
+  ClientDisplay,
+  newClientDisplay,
+
+  -- * wl_registry
+  ClientRegistry,
+  createClientRegistry,
 ) where
 
+import Control.Concurrent.STM
 import Control.Monad.Catch
+import Data.HashMap.Strict qualified as HM
+import Data.Tuple (swap)
+import GHC.Records
 import Network.Socket (Socket)
-import Network.Socket qualified as Socket
 import Quasar
 import Quasar.Prelude
+import Quasar.Wayland.Client.Socket
 import Quasar.Wayland.Connection
-import Quasar.Wayland.Display
 import Quasar.Wayland.Protocol
-import System.Environment (getEnv, lookupEnv)
-import System.FilePath ((</>), isRelative)
-import Text.Read (readEither)
+import Quasar.Wayland.Protocol.Display
+import Quasar.Wayland.Protocol.Generated
 
 
 data WaylandClient = WaylandClient {
@@ -42,33 +52,64 @@ connectWaylandClient = mask_ do
   socket <- liftIO connectWaylandSocket
   newWaylandClient socket
 
-connectWaylandSocket :: IO Socket
-connectWaylandSocket = do
-  lookupEnv "WAYLAND_SOCKET" >>= \case
-    -- Parent process already established connection
-    Just waylandSocketEnv -> do
-      case readEither waylandSocketEnv of
-        Left err -> fail $ "Failed to parse WAYLAND_SOCKET: " <> err
-        Right fd -> Socket.mkSocket fd
-    Nothing -> do
-      path <- getWaylandSocketPath
-      newUnixSocket path
 
+
+-- * wl_display
+
+data ClientDisplay = ClientDisplay {
+  wlDisplay :: Object 'Client Interface_wl_display,
+  registry :: ClientRegistry
+}
+
+newClientDisplay :: STM (ClientDisplay, ProtocolHandle 'Client)
+newClientDisplay =
+  initializeProtocol wlDisplayEventHandler \wlDisplay -> do
+    registry <- createClientRegistry wlDisplay
+    pure ClientDisplay {
+      wlDisplay,
+      registry
+    }
+
+instance HasField "sync" ClientDisplay (STM (Awaitable ())) where
+  getField display = do
+    var <- newAsyncVarSTM
+    wlCallback <- display.wlDisplay.sync
+    setEventHandler wlCallback EventHandler_wl_callback {
+      done = const $ putAsyncVarSTM_ var ()
+    }
+    pure $ toAwaitable var
+
+
+
+-- * wl_registry
+
+data ClientRegistry = ClientRegistry {
+  wlRegistry :: Object 'Client Interface_wl_registry,
+  globalsVar :: TVar (HM.HashMap Word32 (WlString, Word32))
+}
+
+createClientRegistry :: Object 'Client Interface_wl_display -> STM ClientRegistry
+createClientRegistry wlDisplay = mfix \clientRegistry -> do
+  globalsVar <- newTVar HM.empty
+
+  wlRegistry <- wlDisplay.get_registry
+  setMessageHandler wlRegistry (messageHandler clientRegistry)
+
+  pure ClientRegistry {
+    wlRegistry,
+    globalsVar
+  }
   where
-    getWaylandSocketPath :: IO FilePath
-    getWaylandSocketPath = do
-      waylandDisplayEnv <- lookupEnv "WAYLAND_DISPLAY"
-      let waylandDisplay = fromMaybe "wayland-0" waylandDisplayEnv
-      if isRelative waylandDisplay
-        then do
-          xdgRuntimeDir <- getEnv "XDG_RUNTIME_DIR"
-          pure (xdgRuntimeDir </> waylandDisplay)
-        else
-          pure waylandDisplay
+    messageHandler :: ClientRegistry -> EventHandler_wl_registry
+    messageHandler clientRegistry = EventHandler_wl_registry { global, global_remove }
+      where
+        global :: Word32 -> WlString -> Word32 -> STM ()
+        global name interface version = do
+          modifyTVar clientRegistry.globalsVar (HM.insert name (interface, version))
 
-    newUnixSocket :: FilePath -> IO Socket
-    newUnixSocket socketPath =
-      bracketOnError (Socket.socket Socket.AF_UNIX Socket.Stream Socket.defaultProtocol) Socket.close $ \sock -> do
-        Socket.withFdSocket sock Socket.setCloseOnExecIfNeeded
-        Socket.connect sock $ Socket.SockAddrUnix socketPath
-        pure sock
+        global_remove :: Word32 -> STM ()
+        global_remove name = do
+          result <- stateTVar clientRegistry.globalsVar (swap . lookupDelete name)
+          case result of
+            Nothing -> traceM $ "Invalid global removed by server: " <> show name
+            Just (interface, version) -> pure ()

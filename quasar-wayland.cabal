@@ -75,13 +75,12 @@ library
   import: shared-properties
   exposed-modules:
     Quasar.Wayland.Client
+    Quasar.Wayland.Client.Socket
     Quasar.Wayland.Connection
-    Quasar.Wayland.Display
     Quasar.Wayland.Protocol
     Quasar.Wayland.Protocol.Display
     Quasar.Wayland.Protocol.Generated
     Quasar.Wayland.Protocol.TH
-    Quasar.Wayland.Registry
   other-modules:
     Quasar.Wayland.Protocol.Core
   build-depends:
