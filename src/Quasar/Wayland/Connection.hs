@@ -12,8 +12,6 @@ import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as Socket
 import Network.Socket.ByteString.Lazy qualified as SocketL
 import Quasar
--- TODO remove after updating quasar
-import Quasar.Async.Unmanaged (Async)
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
 

@@ -23,11 +23,11 @@
       },
       "locked": {
         "host": "git.c3pb.de",
-        "lastModified": 1638315058,
-        "narHash": "sha256-SA99IShGlTc3IkcqG5YP/lnSyTWWHFIdvci5pWR8BrI=",
+        "lastModified": 1639255442,
+        "narHash": "sha256-zlkViCgmxGlouprrc6RNquXYI3IOCvAUn36IdIAfKek=",
         "owner": "jens",
         "repo": "quasar",
-        "rev": "7f163062fd2dc98041b5149c5ab23fd8cedde7e6",
+        "rev": "b3a13dd9cf2841811f89812d27a5639f8e60821b",
         "type": "gitlab"
       },
       "original": {
@@ -46,11 +46,11 @@
       },
       "locked": {
         "host": "git.c3pb.de",
-        "lastModified": 1638330205,
-        "narHash": "sha256-vVdNLDtS7mmj5FLJ7/lL0mJ9r05ZLhJQoRAlmDa7OC4=",
+        "lastModified": 1639499264,
+        "narHash": "sha256-G6RJ097E31qDEuNDOZle+sOJaMLXA7Xs8vP3gXZmg0g=",
         "owner": "jens",
         "repo": "quasar-network",
-        "rev": "12c98e410f4a6d96b9ea2390da1edc6d026ad7ae",
+        "rev": "ba958e241cf3286c9a271a08e95fdcadbaeb49bb",
         "type": "gitlab"
       },
       "original": {
