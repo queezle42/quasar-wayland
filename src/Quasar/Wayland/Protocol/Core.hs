@@ -16,7 +16,7 @@ module Quasar.Wayland.Protocol.Core (
   interfaceName,
   IsInterfaceSide(..),
   IsInterfaceHandler(..),
-  Object(objectId),
+  Object(objectProtocol),
   setEventHandler,
   setRequestHandler,
   setMessageHandler,
@@ -53,6 +53,7 @@ module Quasar.Wayland.Protocol.Core (
   WireCallbackFailed(..),
   ParserFailed(..),
   ProtocolException(..),
+  ProtocolUsageError(..),
   MaximumIdReached(..),
   ServerError(..),
 
@@ -512,10 +513,10 @@ takeOutbox protocol = runProtocolTransaction protocol do
   pure sendData
 
 
--- | Create an object. The caller is responsible for sending the 'NewId' immediately (exactly once; in the same STM
--- transaction; before using the object).
+-- | Create an object. The caller is responsible for sending the 'NewId' immediately (exactly once and before using the
+-- object).
 --
--- Exported for use in TH generated code.
+-- For use in generated code.
 newObject
   :: forall s i. IsInterfaceSide s i
   => Maybe (MessageHandler s i)
@@ -540,7 +541,7 @@ newObject messageHandler = do
 -- | Create an object from a received id. The caller is responsible for using a 'NewId' exactly once while handling an
 -- incoming message
 --
--- Exported for use in TH generated code.
+-- For use in generated code.
 newObjectFromId
   :: forall s i. IsInterfaceSide s i
   => Maybe (MessageHandler s i)
