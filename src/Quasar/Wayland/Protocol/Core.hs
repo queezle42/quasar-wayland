@@ -56,11 +56,8 @@ module Quasar.Wayland.Protocol.Core (
 ) where
 
 import Control.Concurrent.STM
-import Control.Monad (replicateM_)
 import Control.Monad.Catch
-import Control.Monad.Fix (mfix)
 import Control.Monad.Reader (ReaderT, runReaderT, ask, lift)
-import Data.Bifunctor qualified as Bifunctor
 import Data.Binary
 import Data.Binary.Get
 import Data.Binary.Put
@@ -73,7 +70,6 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Proxy
 import Data.String (IsString(..))
-import Data.Kind (Type)
 import Data.Void (absurd)
 import GHC.Conc (unsafeIOToSTM)
 import GHC.TypeLits
@@ -427,7 +423,7 @@ initializeProtocol wlDisplayMessageHandler initializationAction = do
   nextIdVar <- newTVar (initialId @s)
 
   -- Create uninitialized to avoid use of a diverging 'mfix'
-  stateVar <- newTVar (Left impossibleCodePath)
+  stateVar <- newTVar (Left unreachableCodePath)
 
   let protocol = ProtocolHandle {
     stateVar
@@ -446,20 +442,21 @@ initializeProtocol wlDisplayMessageHandler initializationAction = do
   writeTVar stateVar (Right state)
 
   messageHandlerVar <- newTVar (Just wlDisplayMessageHandler)
-  let wlDisplay = Object protocol (ObjectId wlDisplayId) messageHandlerVar
-  modifyTVar' objectsVar (HM.insert (GenericObjectId wlDisplayId) (SomeObject wlDisplay))
+  let wlDisplay = Object protocol wlDisplayId messageHandlerVar
+  modifyTVar' objectsVar (HM.insert (toGenericObjectId wlDisplayId) (SomeObject wlDisplay))
 
   result <- initializationAction wlDisplay
   pure (result, protocol)
   where
-    wlDisplayId = 1
+    wlDisplayId :: ObjectId (InterfaceName wl_display)
+    wlDisplayId = ObjectId 1
 
 -- | Run a protocol action in 'IO'. If an exception occurs, it is stored as a protocol failure and is then
 -- re-thrown.
 --
 -- Throws an exception, if the protocol is already in a failed state.
 runProtocolTransaction :: MonadIO m => ProtocolHandle s -> ProtocolM s a -> m a
-runProtocolTransaction (protocol@ProtocolHandle{stateVar}) action = do
+runProtocolTransaction ProtocolHandle{stateVar} action = do
   result <- liftIO $ atomically do
     readTVar stateVar >>= \case
       -- Protocol is already in a failed state
@@ -487,7 +484,7 @@ runProtocolM protocol action = either throwM (runReaderT action) =<< readTVar pr
 
 
 -- | Feed the protocol newly received data.
-feedInput :: (IsSide s, MonadIO m, MonadThrow m) => ProtocolHandle s -> ByteString -> m ()
+feedInput :: (IsSide s, MonadIO m) => ProtocolHandle s -> ByteString -> m ()
 feedInput protocol bytes = runProtocolTransaction protocol do
   -- Exposing MonadIO instead of STM to the outside and using `runProtocolTransaction` here enforces correct exception
   -- handling.
@@ -496,11 +493,11 @@ feedInput protocol bytes = runProtocolTransaction protocol do
   receiveMessages
 
 -- | Set the protocol to a failed state, e.g. when the socket closed unexpectedly.
-setException :: (Exception e, MonadIO m, MonadThrow m) => ProtocolHandle s -> e -> m ()
+setException :: (Exception e, MonadIO m) => ProtocolHandle s -> e -> m ()
 setException protocol ex = runProtocolTransaction protocol $ throwM ex
 
 -- | Take data that has to be sent. Blocks until data is available.
-takeOutbox :: (MonadIO m, MonadThrow m) => ProtocolHandle s -> m (BSL.ByteString)
+takeOutbox :: MonadIO m => ProtocolHandle s -> m (BSL.ByteString)
 takeOutbox protocol = runProtocolTransaction protocol do
   mOutboxData <- stateProtocolVar (.outboxVar) (\mOutboxData -> (mOutboxData, Nothing))
   outboxData <- maybe (lift retry) pure mOutboxData
@@ -547,10 +544,9 @@ newObjectFromId messageHandler (NewId oId) = do
   protocol <- askProtocol
   messageHandlerVar <- lift $ newTVar messageHandler
   let
-    genericObjectId = toGenericObjectId oId
     object = Object protocol oId messageHandlerVar
     someObject = SomeObject object
-  modifyProtocolVar (.objectsVar) (HM.insert genericObjectId someObject)
+  modifyProtocolVar (.objectsVar) (HM.insert (genericObjectId object) someObject)
   pure object
 
 
@@ -604,7 +600,7 @@ handleRawMessage (oId, opcode, body) = do
     Nothing -> throwM $ ProtocolException $ "Received message with invalid object id " <> show oId
 
     Just (SomeObject object) ->
-      case runGetOrFail (getMessageAction object opcode) body of
+      case runGetOrFail (getMessageAction object) body of
         Left (_, _, message) ->
           throwM $ ParserFailed (describeDownMessage object opcode body) message
         Right ("", _, result) -> result
@@ -615,11 +611,10 @@ handleRawMessage (oId, opcode, body) = do
       throwM $ ProtocolException $ "Received message for object without handler: " <> interface <> "@" <> show oId
   where
     getMessageAction
-      :: forall s i. IsInterfaceSide s i
+      :: forall i. IsInterfaceSide s i
       => Object s i
-      -> Opcode
       -> Get (ProtocolM s ())
-    getMessageAction object opcode = do
+    getMessageAction object = do
       verifyMessage <- getWireDown object opcode
       pure do
         message <- verifyMessage
@@ -682,9 +677,6 @@ skipPadding :: Get ()
 skipPadding = do
   bytes <- bytesRead
   skip $ fromIntegral (padding bytes)
-
-paddedSize :: Integral a => a -> a
-paddedSize size = size + padding size
 
 padding :: Integral a => a -> a
 padding size = ((4 - (size `mod` 4)) `mod` 4)

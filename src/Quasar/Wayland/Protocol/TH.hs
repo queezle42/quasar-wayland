@@ -9,7 +9,7 @@ import Data.List (intersperse, singleton)
 import Data.Void (absurd)
 import GHC.Records
 import Language.Haskell.TH
-import Language.Haskell.TH.Syntax (BangType, VarBangType, addDependentFile)
+import Language.Haskell.TH.Syntax (addDependentFile)
 import Prelude qualified
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
@@ -147,7 +147,6 @@ interfaceDecs interface = do
   where
     iName = interfaceN interface
     iT = interfaceT interface
-    sT = sideTVar
     wireRequestT :: Q Type
     wireRequestT = if length interface.requests > 0 then conT rTypeName else [t|Void|]
     rTypeName :: Name
@@ -192,7 +191,9 @@ interfaceDecs interface = do
     eventProxyInstanceDecs = messageProxyInstanceDecs Server wireEventContexts
 
     handlerName = mkName "handler"
+    handlerP :: Q Pat
     handlerP = varP handlerName
+    handlerE :: Q Exp
     handlerE = varE handlerName
 
     interfaceSideInstanceDs :: Q [Dec]
@@ -216,17 +217,17 @@ interfaceDecs interface = do
         msgHandlerE :: Q Exp
         msgHandlerE = [|$(appTypeE [|getField|] fieldNameLitT) $handlerE|]
         bodyE :: Q Exp
-        bodyE = [|lift =<< $(applyMsgArgs msg msgHandlerE)|]
+        bodyE = [|lift =<< $(applyMsgArgs msgHandlerE)|]
 
-        applyMsgArgs :: MessageContext -> Q Exp -> Q Exp
-        applyMsgArgs msg base = applyA base (argE <$> msg.msgSpec.arguments)
+        applyMsgArgs :: Q Exp -> Q Exp
+        applyMsgArgs base = applyA base (argE <$> msg.msgSpec.arguments)
 
         argE :: ArgumentSpec -> Q Exp
         argE arg = fromWireArgument arg.argType (msgArgE msg arg)
 
         fromWireArgument :: ArgumentType -> Q Exp -> Q Exp
-        fromWireArgument (ObjectArgument iName) objIdE = [|getObject $objIdE|]
-        fromWireArgument (NewIdArgument iName) objIdE = [|newObjectFromId Nothing $objIdE|]
+        fromWireArgument (ObjectArgument _) objIdE = [|getObject $objIdE|]
+        fromWireArgument (NewIdArgument _) objIdE = [|newObjectFromId Nothing $objIdE|]
         fromWireArgument _ x = [|pure $x|]
 
 messageProxyInstanceDecs :: Side -> [MessageContext] -> Q [Dec]
@@ -257,7 +258,7 @@ messageProxyInstanceDecs side messageContexts = mapM messageProxyInstanceD messa
 
         -- Constructor: the first argument becomes the return value
         ctorE :: Q Exp
-        ctorE = [|newObject Nothing >>= \(newObject, newId) -> newObject <$ (sendMessage object =<< $(msgE [|pure newId|]))|]
+        ctorE = [|newObject Nothing >>= \(newObj, newId) -> newObj <$ (sendMessage object =<< $(msgE [|pure newId|]))|]
           where
             msgE :: Q Exp -> Q Exp
             msgE idArgE = mkWireMsgE (idArgE : (wireArgE <$> args))
@@ -277,8 +278,8 @@ messageProxyInstanceDecs side messageContexts = mapM messageProxyInstanceD messa
 
         toWireArgument :: ArgumentType -> Q Exp -> Q Exp
         -- TODO verify object validity
-        toWireArgument (ObjectArgument iName) objectE = [|pure $objectE.objectId|]
-        toWireArgument (NewIdArgument _) _ = impossibleCodePath -- The specification parser has a check to prevent this
+        toWireArgument (ObjectArgument _) objectE = [|pure $objectE.objectId|]
+        toWireArgument (NewIdArgument _) _ = unreachableCodePath -- The specification parser has a check to prevent this
         toWireArgument _ x = [|pure $x|]
 
 proxyArguments :: MessageSpec -> [ArgumentSpec]
@@ -306,11 +307,6 @@ messageHandlerRecordD side name messageContexts = dataD (cxt []) name [] Nothing
         applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType side <$> msg.msgSpec.arguments)
 
 
-sideTVarName :: Name
-sideTVarName = mkName "s"
-sideTVar :: Q Type
-sideTVar = varT sideTVarName
-
 sideT :: Side -> Q Type
 sideT Client = [t|'Client|]
 sideT Server = [t|'Server|]
@@ -335,9 +331,6 @@ eventsName interface = mkName $ "EventHandler_" <> interface.name
 
 eventsT :: InterfaceSpec -> Maybe (Q Type)
 eventsT interface = if (length interface.events) > 0 then Just [t|$(conT (eventsName interface))|] else Nothing
-
-orVoid :: Maybe (Q Type) -> Q Type
-orVoid = fromMaybe [t|Void|]
 
 orUnit :: Maybe (Q Type) -> Q Type
 orUnit = fromMaybe [t|()|]
@@ -372,14 +365,6 @@ msgArgE _msg arg = varE (msgArgTempName arg)
 msgArgTempName :: ArgumentSpec -> Name
 -- Adds a prefix to prevent name conflicts with exports from the Prelude; would be better to use `newName` instead.
 msgArgTempName arg = mkName $ "arg_" <> arg.name
-
-applyWireMsgArgs :: MessageContext -> Q Exp -> Q Exp
-applyWireMsgArgs msg base = foldl appE base (msgArgE msg <$> msg.msgSpec.arguments)
-
--- | Expression to construct a wire message with arguments which have been matched using 'msgConP'/'msgArgPats'.
--- TODO Unused?
-wireMsgE :: MessageContext -> Q Exp
-wireMsgE msg = applyWireMsgArgs msg (conE msg.msgConName)
 
 
 messageTypeDecs :: Name -> [MessageContext] -> Q [Dec]
@@ -444,9 +429,6 @@ isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, 
 
 derivingEq :: Q DerivClause
 derivingEq = derivClause (Just StockStrategy) [[t|Eq|]]
-
-derivingShow :: Q DerivClause
-derivingShow = derivClause (Just StockStrategy) [[t|Show|]]
 
 -- | Map an argument to its high-level api type
 argumentType :: Side -> ArgumentSpec -> Q Type
@@ -530,7 +512,7 @@ parseDescription element = do
   content <- case element.elContent of
     [Text CData{cdVerbatim=CDataText, cdData=content}] -> pure $ Just content
     [] -> pure Nothing
-    x -> fail $ "Cannot parse description xml: " <> show element
+    _ -> fail $ "Cannot parse description xml: " <> show element
   pure DescriptionSpec {
     summary,
     content
@@ -572,12 +554,12 @@ parseMessage isRequest interface (opcode, element) = do
 
   name <- getAttr "name" element
 
-  let location = interface <> "." <> name
+  let loc = interface <> "." <> name
 
   mtype <- peekAttr "type" element
   since <- Prelude.read <<$>> peekAttr "since" element
   description <- findDescription element
-  arguments <- mapM (parseArgument location) $ zip [0..] $ findChildren (qname "arg") element
+  arguments <- mapM (parseArgument loc) $ zip [0..] $ findChildren (qname "arg") element
 
   isDestructor <-
     case mtype of
@@ -587,22 +569,22 @@ parseMessage isRequest interface (opcode, element) = do
 
   when
     do isEvent && isDestructor
-    do fail $ "Event cannot be a destructor: " <> location
+    do fail $ "Event cannot be a destructor: " <> loc
 
   forM_ arguments \arg -> do
     when
       do arg.argType == GenericNewIdArgument && (interface /= "wl_registry" || name /= "bind")
-      do fail $ "Invalid \"new_id\" argument without \"interface\" attribute encountered on " <> location <> " (only valid on wl_registry.bind)"
+      do fail $ "Invalid \"new_id\" argument without \"interface\" attribute encountered on " <> loc <> " (only valid on wl_registry.bind)"
     when
       do arg.argType == GenericObjectArgument && (interface /= "wl_display" || name /= "error")
-      do fail $ "Invalid \"object\" argument without \"interface\" attribute encountered on " <> location <> " (only valid on wl_display.error)"
+      do fail $ "Invalid \"object\" argument without \"interface\" attribute encountered on " <> loc <> " (only valid on wl_display.error)"
 
   isConstructor <- case arguments of
     [] -> pure False
     (firstArg:otherArgs) -> do
       when
         do any (isNewId . (.argType)) otherArgs && not (interface == "wl_registry" && name == "bind")
-        do fail $ "Message uses NewId in unexpected position on: " <> location <> " (NewId must be the first argument, unless it is on wl_registry.bind)"
+        do fail $ "Message uses NewId in unexpected position on: " <> loc <> " (NewId must be the first argument, unless it is on wl_registry.bind)"
       pure (isNewId firstArg.argType)
 
   pure MessageSpec  {
@@ -624,12 +606,12 @@ parseArgument messageDescription (index, element) = do
   interface <- peekAttr "interface" element
   argType <- parseArgumentType argTypeStr interface
 
-  let location = messageDescription <> "." <> name
+  let loc = messageDescription <> "." <> name
 
   nullable <- peekAttr "allow-null" element >>= \case
     Just "true" -> pure True
     Just "false" -> pure False
-    Just x -> fail $ "Invalid value for attribute \"allow-null\" on " <> location <> ": " <> x
+    Just x -> fail $ "Invalid value for attribute \"allow-null\" on " <> loc <> ": " <> x
     Nothing -> pure False
   pure ArgumentSpec {
     name,
