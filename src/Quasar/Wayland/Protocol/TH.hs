@@ -277,8 +277,7 @@ messageProxyInstanceDecs side messageContexts = mapM messageProxyInstanceD messa
         wireArgE arg = toWireArgument arg.argType (msgArgE msg arg)
 
         toWireArgument :: ArgumentType -> Q Exp -> Q Exp
-        -- TODO verify object validity
-        toWireArgument (ObjectArgument _) objectE = [|pure $objectE.objectId|]
+        toWireArgument (ObjectArgument _) objectE = [|objectWireArgument $objectE|]
         toWireArgument (NewIdArgument _) _ = unreachableCodePath -- The specification parser has a check to prevent this
         toWireArgument _ x = [|pure $x|]
 

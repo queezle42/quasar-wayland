@@ -37,6 +37,8 @@ module Quasar.Wayland.Protocol.Core (
   enterObject,
 
   -- * Low-level protocol interaction
+  objectWireArgument,
+  checkObject,
   sendMessage,
   newObject,
   newObjectFromId,
@@ -605,15 +607,33 @@ handleWlDisplayError _protocol oId code message = throwM $ ServerError code (toS
 handleWlDisplayDeleteId :: ProtocolHandle 'Client -> Word32 -> STM ()
 handleWlDisplayDeleteId protocol oId = runProtocolM protocol do
   modifyProtocolVar (.objectsVar) $ HM.delete (GenericObjectId oId)
-  traceM $ mconcat ["Deleted object id ", show oId]
 
 
 
--- | Sends a message without checking any ids or creating proxy objects objects. (TODO)
+checkObject :: IsInterface i => Object s i -> ProtocolM s (Either String ())
+checkObject object = do
+  -- TODO check if object belongs to current connection
+  isActiveObject <- HM.member (genericObjectId object) <$> readProtocolVar (.objectsVar)
+  pure
+    if isActiveObject
+      then pure ()
+      else Left $ mconcat ["Object ", show object, " has been deleted"]
+
+
+-- | Verify that an object can be used as an argument (throws otherwise) and return its id.
+objectWireArgument :: IsInterface i => Object s i -> ProtocolM s (ObjectId (InterfaceName i))
+objectWireArgument object = do
+  checkObject object >>= \case
+    Left msg -> throwM $ ProtocolUsageError $ "Tried to send a reference to an invalid object: " <> msg
+    Right () -> pure object.objectId
+
+
+-- | Sends a message, for use in generated code.
 sendMessage :: forall s i. IsInterfaceSide s i => Object s i -> WireUp s i -> ProtocolM s ()
 sendMessage object message = do
-  isActiveObject <- HM.member oId <$> readProtocolVar (.objectsVar)
-  unless isActiveObject $ throwM $ ProtocolUsageError $ "Tried to send message on an invalid object: " <> show object
+  checkObject object >>= \case
+    Left msg -> throwM $ ProtocolUsageError $ "Tried to send message to an invalid object: " <> msg
+    Right () -> pure ()
 
   (opcode, pairs) <- putWireUp object message
   let (putBodyParts, partLengths) = unzip pairs
