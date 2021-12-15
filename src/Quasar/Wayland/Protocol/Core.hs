@@ -43,6 +43,10 @@ module Quasar.Wayland.Protocol.Core (
   getObject,
   lookupObject,
 
+  -- * wl_display interface
+  handleWlDisplayError,
+  handleWlDisplayDeleteId,
+
   -- * Protocol exceptions
   WireCallbackFailed(..),
   ParserFailed(..),
@@ -420,7 +424,7 @@ stateProtocolVar fn x = do
 
 initializeProtocol
   :: forall s wl_display a. (IsInterfaceSide s wl_display)
-  => MessageHandler s wl_display
+  => (ProtocolHandle s -> MessageHandler s wl_display)
   -> (Object s wl_display -> STM a)
   -> STM (a, ProtocolHandle s)
 initializeProtocol wlDisplayMessageHandler initializationAction = do
@@ -451,7 +455,7 @@ initializeProtocol wlDisplayMessageHandler initializationAction = do
   }
   writeTVar stateVar (Right state)
 
-  messageHandlerVar <- newTVar (Just wlDisplayMessageHandler)
+  messageHandlerVar <- newTVar (Just (wlDisplayMessageHandler protocol))
   let wlDisplay = Object protocol wlDisplayId messageHandlerVar
   modifyTVar' objectsVar (HM.insert (toGenericObjectId wlDisplayId) (SomeObject wlDisplay))
 
@@ -589,6 +593,20 @@ getObject
   => ObjectId (InterfaceName i)
   -> ProtocolM s (Object s i)
 getObject oId = either (throwM . InvalidObject) pure =<< lookupObject oId
+
+
+
+-- | Handle a wl_display.error message. Because this is part of the core protocol but generated from the xml it has to
+-- be called from the client module.
+handleWlDisplayError :: ProtocolHandle 'Client -> GenericObjectId -> Word32 -> WlString -> STM ()
+handleWlDisplayError _protocol oId code message = throwM $ ServerError code (toString message)
+
+-- | Handle a wl_display.delete_id message. Because this is part of the core protocol but generated from the xml it has
+-- to be called from the client module.
+handleWlDisplayDeleteId :: ProtocolHandle 'Client -> Word32 -> STM ()
+handleWlDisplayDeleteId protocol oId = runProtocolM protocol do
+  modifyProtocolVar (.objectsVar) $ HM.delete (GenericObjectId oId)
+  traceM $ mconcat ["Deleted object id ", show oId]
 
 
 

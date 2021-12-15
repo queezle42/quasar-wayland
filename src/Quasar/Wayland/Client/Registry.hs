@@ -8,8 +8,8 @@ import Data.HashMap.Strict qualified as HM
 import Data.Tuple (swap)
 import Quasar
 import Quasar.Prelude
+import Quasar.Wayland.Client.Sync
 import Quasar.Wayland.Protocol
-import Quasar.Wayland.Protocol.Display
 import Quasar.Wayland.Protocol.Generated
 
 -- * wl_registry

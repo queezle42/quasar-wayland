@@ -77,9 +77,9 @@ library
     Quasar.Wayland.Client
     Quasar.Wayland.Client.Registry
     Quasar.Wayland.Client.Socket
+    Quasar.Wayland.Client.Sync
     Quasar.Wayland.Connection
     Quasar.Wayland.Protocol
-    Quasar.Wayland.Protocol.Display
     Quasar.Wayland.Protocol.Generated
     Quasar.Wayland.Protocol.TH
   other-modules:

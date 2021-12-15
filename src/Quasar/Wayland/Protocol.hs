@@ -32,6 +32,10 @@ module Quasar.Wayland.Protocol (
   interfaceName,
   Side(..),
   IsSide,
+
+  -- * wl_display interface
+  handleWlDisplayError,
+  handleWlDisplayDeleteId,
 ) where
 
 import Quasar.Wayland.Protocol.Core
