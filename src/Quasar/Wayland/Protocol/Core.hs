@@ -41,6 +41,7 @@ module Quasar.Wayland.Protocol.Core (
   newObject,
   newObjectFromId,
   getObject,
+  lookupObject,
 
   -- * Protocol exceptions
   WireCallbackFailed(..),
@@ -70,6 +71,7 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Proxy
 import Data.String (IsString(..))
+import Data.Typeable (Typeable, cast)
 import Data.Void (absurd)
 import GHC.Conc (unsafeIOToSTM)
 import GHC.TypeLits
@@ -183,7 +185,8 @@ instance WireFormat Void where
 class (
     IsMessage (WireRequest i),
     IsMessage (WireEvent i),
-    KnownSymbol (InterfaceName i)
+    KnownSymbol (InterfaceName i),
+    Typeable i
   )
   => IsInterface i where
   type RequestHandler i
@@ -195,7 +198,7 @@ class (
 interfaceName :: forall i. IsInterface i => String
 interfaceName = symbolVal @(InterfaceName i) Proxy
 
-class IsSide (s :: Side) where
+class Typeable s => IsSide (s :: Side) where
   type MessageHandler s i
   type WireUp s i
   type WireDown s i
@@ -241,6 +244,7 @@ class IsInterfaceSide s i => IsInterfaceHandler s i a where
 
 -- | Data kind
 data Side = Client | Server
+  deriving stock (Eq, Show, Typeable)
 
 
 -- | An object belonging to a wayland connection.
@@ -249,6 +253,8 @@ data Object s i = IsInterfaceSide s i => Object {
   objectId :: ObjectId (InterfaceName i),
   messageHandler :: TVar (Maybe (MessageHandler s i))
 }
+  deriving stock Typeable
+
 
 getMessageHandler :: Object s i -> STM (MessageHandler s i)
 getMessageHandler object = maybe retry pure =<< readTVar object.messageHandler
@@ -356,6 +362,10 @@ data MaximumIdReached = MaximumIdReached
   deriving anyclass Exception
 
 data ServerError = ServerError Word32 String
+  deriving stock Show
+  deriving anyclass Exception
+
+data InvalidObject = InvalidObject String
   deriving stock Show
   deriving anyclass Exception
 
@@ -550,11 +560,35 @@ newObjectFromId messageHandler (NewId oId) = do
   pure object
 
 
+fromSomeObject
+  :: forall s i m. IsInterfaceSide s i
+  => SomeObject s -> Either String (Object s i)
+fromSomeObject (UnknownObject interface _) =
+  Left $ mconcat ["Object is of unknown interface ", interface]
+fromSomeObject (SomeObject someObject) =
+  case cast someObject of
+    Nothing -> Left $ mconcat ["Expected object for interface ", interfaceName @i, ", but object is ", objectInterfaceName someObject]
+    Just object -> pure object
+
+
+lookupObject
+  :: forall s i. IsInterfaceSide s i
+  => ObjectId (InterfaceName i)
+  -> ProtocolM s (Either String (Object s i))
+lookupObject oId = do
+  objects <- readProtocolVar (.objectsVar)
+  pure case HM.lookup (toGenericObjectId oId) objects of
+    Nothing -> Left $ mconcat ["No object with id ", show oId, " is registered"]
+    Just someObject ->
+      case fromSomeObject someObject of
+        Left err -> Left err
+        Right object -> pure object
+
 getObject
-  :: IsInterfaceSide s i
+  :: forall s i. IsInterfaceSide s i
   => ObjectId (InterfaceName i)
   -> ProtocolM s (Object s i)
-getObject = undefined
+getObject oId = either (throwM . InvalidObject) pure =<< lookupObject oId
 
 
 
