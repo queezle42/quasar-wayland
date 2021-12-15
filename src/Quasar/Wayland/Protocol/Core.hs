@@ -569,10 +569,11 @@ fromSomeObject
   :: forall s i m. IsInterfaceSide s i
   => SomeObject s -> Either String (Object s i)
 fromSomeObject (UnknownObject interface _) =
-  Left $ mconcat ["Object is of unknown interface ", interface]
+  Left $ mconcat ["Expected object with type ", interfaceName @i, ", but object has unknown type ", interface]
 fromSomeObject (SomeObject someObject) =
   case cast someObject of
-    Nothing -> Left $ mconcat ["Expected object for interface ", interfaceName @i, ", but object is ", objectInterfaceName someObject]
+    Nothing -> Left $
+      mconcat ["Expected object with type ", interfaceName @i, ", but object has type ", objectInterfaceName someObject]
     Just object -> pure object
 
 
@@ -589,11 +590,13 @@ lookupObject oId = do
         Left err -> Left err
         Right object -> pure object
 
+-- | Lookup an object for an id or throw a `ProtocolException`. To be used from generated code when receiving an object
+-- id.
 getObject
   :: forall s i. IsInterfaceSide s i
   => ObjectId (InterfaceName i)
   -> ProtocolM s (Object s i)
-getObject oId = either (throwM . InvalidObject) pure =<< lookupObject oId
+getObject oId = either (throwM . ProtocolException . ("Received invalid object id: " <>)) pure =<< lookupObject oId
 
 
 
