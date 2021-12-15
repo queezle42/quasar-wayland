@@ -248,7 +248,7 @@ class IsInterfaceSide s i => IsInterfaceHandler s i a where
 
 -- | Data kind
 data Side = Client | Server
-  deriving stock (Eq, Show, Typeable)
+  deriving stock (Eq, Show)
 
 
 -- | An object belonging to a wayland connection.
@@ -257,7 +257,6 @@ data Object s i = IsInterfaceSide s i => Object {
   objectId :: ObjectId (InterfaceName i),
   messageHandler :: TVar (Maybe (MessageHandler s i))
 }
-  deriving stock Typeable
 
 
 getMessageHandler :: Object s i -> STM (MessageHandler s i)
