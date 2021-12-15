@@ -201,8 +201,8 @@ class (
   type WireEvent i
   type InterfaceName i :: Symbol
 
-interfaceName :: forall i. IsInterface i => String
-interfaceName = symbolVal @(InterfaceName i) Proxy
+interfaceName :: forall i. IsInterface i => WlString
+interfaceName = fromString $ symbolVal @(InterfaceName i) Proxy
 
 class Typeable s => IsSide (s :: Side) where
   type MessageHandler s i
@@ -281,9 +281,9 @@ instance IsInterface i => Show (Object s i) where
 
 class IsObject a where
   genericObjectId :: a -> GenericObjectId
-  objectInterfaceName :: a -> String
+  objectInterfaceName :: a -> WlString
   showObject :: a -> String
-  showObject object = objectInterfaceName object <> "@" <> show (genericObjectId object)
+  showObject object = toString (objectInterfaceName object) <> "@" <> show (genericObjectId object)
 
 class IsObjectSide a where
   describeUpMessage :: a -> Opcode -> BSL.ByteString -> String
@@ -294,35 +294,25 @@ instance forall s i. IsInterface i => IsObject (Object s i) where
   objectInterfaceName _ = interfaceName @i
 
 instance forall s i. IsInterfaceSide s i => IsObjectSide (Object s i) where
-  describeUpMessage object opcode body =
-    objectInterfaceName object <> "@" <> show (genericObjectId object) <>
-    "." <> fromMaybe "[invalidOpcode]" (opcodeName @(WireUp s i) opcode) <>
-    " (" <> show (BSL.length body) <> "B)"
-  describeDownMessage object opcode body =
-    objectInterfaceName object <> "@" <> show (genericObjectId object) <>
-    "." <> fromMaybe "[invalidOpcode]" (opcodeName @(WireDown s i) opcode) <>
-    " (" <> show (BSL.length body) <> "B)"
+  describeUpMessage object opcode body = mconcat [
+    toString (objectInterfaceName object), "@", show (genericObjectId object),
+    ".", fromMaybe "[invalidOpcode]" (opcodeName @(WireUp s i) opcode),
+    " (", show (BSL.length body), "B)"]
+  describeDownMessage object opcode body = mconcat [
+    toString (objectInterfaceName object), "@", show (genericObjectId object),
+    ".", fromMaybe "[invalidOpcode]" (opcodeName @(WireDown s i) opcode),
+    " (", show (BSL.length body), "B)"]
 
 -- | Wayland object quantification wrapper
-data SomeObject s
-  = forall i. IsInterfaceSide s i => SomeObject (Object s i)
-  | UnknownObject String GenericObjectId
+data SomeObject s = forall i. IsInterfaceSide s i => SomeObject (Object s i)
 
 instance IsObject (SomeObject s) where
   genericObjectId (SomeObject object) = genericObjectId object
-  genericObjectId (UnknownObject _ oId) = oId
   objectInterfaceName (SomeObject object) = objectInterfaceName object
-  objectInterfaceName (UnknownObject interface _) = interface
 
 instance IsObjectSide (SomeObject s) where
   describeUpMessage (SomeObject object) = describeUpMessage object
-  describeUpMessage (UnknownObject interface oId) =
-    \opcode body -> interface <> "@" <> show oId <> ".#" <> show opcode <>
-      " (" <> show (BSL.length body) <> "B, unknown)"
   describeDownMessage (SomeObject object) = describeDownMessage object
-  describeDownMessage (UnknownObject interface oId) =
-    \opcode body -> interface <> "@" <> show oId <> ".#" <> show opcode <>
-      " (" <> show (BSL.length body) <> "B, unknown)"
 
 
 class (Eq a, Show a) => IsMessage a where
@@ -336,8 +326,9 @@ instance IsMessage Void where
   putMessage = absurd
 
 invalidOpcode :: IsInterface i => Object s i -> Opcode -> Get a
-invalidOpcode object opcode =
-  fail $ "Invalid opcode " <> show opcode <> " on " <> objectInterfaceName object <> "@" <> show (genericObjectId object)
+invalidOpcode object opcode = fail $ mconcat [
+  "Invalid opcode ", show opcode, " on ", toString (objectInterfaceName object),
+  "@", show (genericObjectId object)]
 
 showObjectMessage :: (IsObject a, IsMessage b) => a -> b -> String
 showObjectMessage object message =
@@ -568,12 +559,11 @@ newObjectFromId messageHandler (NewId oId) = do
 fromSomeObject
   :: forall s i m. IsInterfaceSide s i
   => SomeObject s -> Either String (Object s i)
-fromSomeObject (UnknownObject interface _) =
-  Left $ mconcat ["Expected object with type ", interfaceName @i, ", but object has unknown type ", interface]
 fromSomeObject (SomeObject someObject) =
   case cast someObject of
-    Nothing -> Left $
-      mconcat ["Expected object with type ", interfaceName @i, ", but object has type ", objectInterfaceName someObject]
+    Nothing -> Left $ mconcat ["Expected object with type ",
+      toString (interfaceName @i), ", but object has type ",
+      toString (objectInterfaceName someObject)]
     Just object -> pure object
 
 
@@ -672,7 +662,6 @@ handleRawMessage (oId, opcode, body) = do
   objects <- readProtocolVar (.objectsVar)
   case HM.lookup oId objects of
     Nothing -> throwM $ ProtocolException $ "Received message with invalid object id " <> show oId
-
     Just (SomeObject object) ->
       case runGetOrFail (getMessageAction object) body of
         Left (_, _, message) ->
@@ -680,9 +669,6 @@ handleRawMessage (oId, opcode, body) = do
         Right ("", _, result) -> result
         Right (leftovers, _, _) ->
           throwM $ ParserFailed (describeDownMessage object opcode body) (show (BSL.length leftovers) <> "B not parsed")
-
-    Just (UnknownObject interface _) -> do
-      throwM $ ProtocolException $ "Received message for object without handler: " <> interface <> "@" <> show oId
   where
     getMessageAction
       :: forall i. IsInterfaceSide s i
