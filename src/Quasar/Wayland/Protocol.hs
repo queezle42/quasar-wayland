@@ -32,13 +32,19 @@ module Quasar.Wayland.Protocol (
   -- ** Classes for generated interfaces
   IsInterface(InterfaceName),
   interfaceName,
+  Version,
+  interfaceVersion,
   Side(..),
   IsSide,
   IsInterfaceSide,
 
-  -- * wl_display interface
+  -- * For wl_display
   handleWlDisplayError,
   handleWlDisplayDeleteId,
+
+  -- * For wl_registry
+  GenericNewId,
+  bindNewObject,
 ) where
 
 import Quasar.Wayland.Protocol.Core

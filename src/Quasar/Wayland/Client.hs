@@ -5,6 +5,8 @@ module Quasar.Wayland.Client (
 
   -- * wl_registry
   Registry,
+  bindSingleton,
+  tryBindSingleton,
 ) where
 
 import Control.Concurrent.STM

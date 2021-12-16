@@ -42,7 +42,7 @@ newtype EventSpec = EventSpec {messageSpec :: MessageSpec}
 
 data MessageSpec = MessageSpec {
   name :: String,
-  since :: Maybe Integer,
+  since :: Maybe Version,
   description :: Maybe DescriptionSpec,
   opcode :: Opcode,
   arguments :: [ArgumentSpec],

@@ -14,6 +14,8 @@ module Quasar.Wayland.Protocol.Core (
   Side(..),
   IsInterface(..),
   interfaceName,
+  Version,
+  interfaceVersion,
   IsInterfaceSide(..),
   IsInterfaceHandler(..),
   Object(objectProtocol),
@@ -42,6 +44,7 @@ module Quasar.Wayland.Protocol.Core (
   sendMessage,
   newObject,
   newObjectFromId,
+  bindNewObject,
   getObject,
   lookupObject,
 
@@ -59,7 +62,6 @@ module Quasar.Wayland.Protocol.Core (
 
   -- * Message decoder operations
   WireFormat(..),
-  dropRemaining,
   invalidOpcode,
 ) where
 
@@ -96,12 +98,14 @@ toGenericObjectId (ObjectId oId) = GenericObjectId oId
 
 type Opcode = Word16
 
+type Version = Word32
+
 
 newtype NewId (j :: Symbol) = NewId (ObjectId j)
   deriving newtype (Eq, Show)
 
-newtype GenericNewId = GenericNewId GenericObjectId
-  deriving newtype (Eq, Show)
+data GenericNewId = GenericNewId WlString Version Word32
+  deriving stock (Eq, Show)
 
 
 -- | Signed 24.8 decimal numbers.
@@ -127,9 +131,6 @@ instance IsString WlString where
 toString :: WlString -> String
 toString (WlString bs) = BSUTF8.toString bs
 
-
-dropRemaining :: Get ()
-dropRemaining = void getRemainingLazyByteString
 
 
 class (Eq a, Show a) => WireFormat a where
@@ -178,9 +179,13 @@ instance KnownSymbol j => WireFormat (NewId (j :: Symbol)) where
   showArgument (NewId newId) = "new " <> symbolVal @j Proxy <> "@" <> show newId
 
 instance WireFormat GenericNewId where
-  putArgument (GenericNewId newId) = putArgument newId
-  getArgument = GenericNewId <<$>> getArgument
-  showArgument newId = "new [unknown]@" <> show newId
+  putArgument (GenericNewId interface version newId) = do
+    (put1, s1) <- putArgument interface
+    (put2, s2) <- putArgument version
+    (put3, s3) <- putArgument newId
+    pure (put1 >> put2 >> put3, s1 + s2 + s3)
+  getArgument = GenericNewId <<$>> getArgument <<*>> getArgument <<*>> getArgument
+  showArgument (GenericNewId interface version newId) = mconcat ["new ", toString interface, "[v", show version, "]@", show newId]
 
 instance WireFormat Void where
   putArgument = absurd
@@ -193,6 +198,7 @@ class (
     IsMessage (WireRequest i),
     IsMessage (WireEvent i),
     KnownSymbol (InterfaceName i),
+    KnownNat (InterfaceVersion i),
     Typeable i
   )
   => IsInterface i where
@@ -201,9 +207,13 @@ class (
   type WireRequest i
   type WireEvent i
   type InterfaceName i :: Symbol
+  type InterfaceVersion i :: Nat
 
 interfaceName :: forall i. IsInterface i => WlString
 interfaceName = fromString $ symbolVal @(InterfaceName i) Proxy
+
+interfaceVersion :: forall i. IsInterface i => Word32
+interfaceVersion = fromIntegral $ natVal @(InterfaceVersion i) Proxy
 
 class Typeable s => IsSide (s :: Side) where
   type MessageHandler s i
@@ -555,6 +565,21 @@ newObjectFromId messageHandler (NewId oId) = do
     someObject = SomeObject object
   modifyProtocolVar (.objectsVar) (HM.insert (genericObjectId object) someObject)
   pure object
+
+
+-- | Create an object. The caller is responsible for sending the 'NewId' immediately (exactly once and before using the
+-- object).
+--
+-- For implementing wl_registry.bind (which is low-level protocol functionality, but which depends on generated code).
+bindNewObject
+  :: forall i. IsInterfaceSide 'Client i
+  => ProtocolHandle 'Client
+  -> Version
+  -> Maybe (MessageHandler 'Client i)
+  -> STM (Object 'Client i, GenericNewId)
+bindNewObject protocol version messageHandler = runProtocolM protocol do
+  (object, NewId (ObjectId newId)) <- newObject messageHandler
+  pure (object, GenericNewId (interfaceName @i) version newId)
 
 
 fromSomeObject
