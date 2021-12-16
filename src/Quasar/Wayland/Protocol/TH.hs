@@ -10,9 +10,9 @@ import Data.Void (absurd)
 import GHC.Records
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addDependentFile)
-import Prelude qualified
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
+import Text.Read (readEither)
 import Text.XML.Light
 
 
@@ -30,7 +30,8 @@ data InterfaceSpec = InterfaceSpec {
   version :: Integer,
   description :: Maybe DescriptionSpec,
   requests :: [RequestSpec],
-  events :: [EventSpec]
+  events :: [EventSpec],
+  enums :: [EnumSpec]
 }
   deriving stock Show
 
@@ -57,6 +58,21 @@ data ArgumentSpec = ArgumentSpec {
   summary :: Maybe String,
   argType :: ArgumentType,
   nullable :: Bool
+}
+  deriving stock Show
+
+data EnumSpec = EnumSpec {
+  name :: String,
+  description :: Maybe DescriptionSpec,
+  entries :: [EnumEntrySpec]
+}
+  deriving stock Show
+
+data EnumEntrySpec = EnumEntrySpec {
+  name :: String,
+  value :: Word32,
+  summary :: Maybe String,
+  since :: Maybe Version
 }
   deriving stock Show
 
@@ -116,7 +132,8 @@ interfaceDecs interface = do
       tySynInstD (tySynEqn Nothing [t|$(conT ''EventHandler) $iT|] (orUnit (eventsT interface))),
       tySynInstD (tySynEqn Nothing (appT (conT ''WireRequest) iT) wireRequestT),
       tySynInstD (tySynEqn Nothing (appT (conT ''WireEvent) iT) wireEventT),
-      tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceName) iT) (litT (strTyLit interface.name)))
+      tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceName) iT) (litT (strTyLit interface.name))),
+      tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceVersion) iT) (litT (numTyLit interface.version)))
       ]
     -- | IsInterfaceSide instance
     tellQs interfaceSideInstanceDs
@@ -529,16 +546,18 @@ findDescription element = do
 parseInterface :: MonadFail m => Element -> m InterfaceSpec
 parseInterface element = do
   name <- getAttr "name" element
-  version <- Prelude.read <$> getAttr "version" element
+  version <- either fail pure . readEither =<< getAttr "version" element
   description <- findDescription element
   requests <- mapM (parseRequest name) $ zip [0..] $ findChildren (qname "request") element
   events <- mapM (parseEvent name) $ zip [0..] $ findChildren (qname "event") element
+  enums <- mapM parseEnum $ findChildren (qname "enum") element
   pure InterfaceSpec {
     name,
     version,
     description,
     requests,
-    events
+    events,
+    enums
   }
 
 parseRequest :: MonadFail m => String -> (Opcode, Element) -> m RequestSpec
@@ -556,7 +575,7 @@ parseMessage isRequest interface (opcode, element) = do
   let loc = interface <> "." <> name
 
   mtype <- peekAttr "type" element
-  since <- Prelude.read <<$>> peekAttr "since" element
+  since <- mapM (either fail pure . readEither) =<< peekAttr "since" element
   description <- findDescription element
   arguments <- mapM (parseArgument loc) $ zip [0..] $ findChildren (qname "arg") element
 
@@ -633,6 +652,31 @@ parseArgument messageDescription (index, element) = do
     parseArgumentType "fd" Nothing = pure FdArgument
     parseArgumentType x Nothing = fail $ "Unknown argument type \"" <> x <> "\" encountered"
     parseArgumentType x _ = fail $ "Argument type \"" <> x <> "\" should not have \"interface\" attribute"
+
+
+parseEnum :: MonadFail m => Element -> m EnumSpec
+parseEnum element = do
+  name <- getAttr "name" element
+  description <- findDescription element
+  entries <- mapM parseEnumEntry $ findChildren (qname "entry") element
+  pure EnumSpec {
+    name,
+    description,
+    entries
+  }
+
+parseEnumEntry :: MonadFail m => Element -> m EnumEntrySpec
+parseEnumEntry element = do
+  name <- getAttr "name" element
+  value <- (either fail pure . readEither) =<< getAttr "value" element
+  summary <- peekAttr "summary" element
+  since <- mapM (either fail pure . readEither) =<< peekAttr "since" element
+  pure EnumEntrySpec {
+    name,
+    value,
+    summary,
+    since
+  }
 
 
 qname :: String -> QName
