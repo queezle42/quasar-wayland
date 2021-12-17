@@ -84,12 +84,16 @@ library
     Quasar.Wayland.Protocol.TH
   other-modules:
     Quasar.Wayland.Protocol.Core
+    Quasar.Wayland.Utils.InlineC
+    Quasar.Wayland.Utils.SharedMemory
   build-depends:
     base >=4.7 && <5,
     binary,
     bytestring,
+    containers,
     exceptions,
     filepath,
+    inline-c,
     mtl,
     network,
     quasar,
