@@ -12,6 +12,7 @@ import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addDependentFile)
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
+import System.Posix.Types (Fd(Fd))
 import Text.Read (readEither)
 import Text.XML.Light
 
@@ -437,10 +438,9 @@ isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, 
     putMessageClauseD msg = clause [msgConP msg] (normalB (putMessageE msg.msgSpec.arguments)) []
       where
         putMessageE :: [ArgumentSpec] -> Q Exp
-        putMessageE args = [|($(litE $ integerL $ fromIntegral msg.msgSpec.opcode), ) <$> $(putMessageBodyE args)|]
+        putMessageE args = [|buildMessage $(litE $ integerL $ fromIntegral msg.msgSpec.opcode) $(putMessageBodyE args)|]
         putMessageBodyE :: [ArgumentSpec] -> Q Exp
-        putMessageBodyE [] = [|pure []|]
-        putMessageBodyE args = [|sequence $(listE ((\arg -> [|putArgument @($(argumentWireType arg)) $(msgArgE msg arg)|]) <$> args))|]
+        putMessageBodyE args = [|$(listE ((\arg -> [|putArgument @($(argumentWireType arg)) $(msgArgE msg arg)|]) <$> args))|]
 
 
 derivingEq :: Q DerivClause
@@ -470,7 +470,7 @@ liftArgumentWireType (ObjectArgument iName) = [t|ObjectId $(litT (strTyLit iName
 liftArgumentWireType GenericObjectArgument = [t|GenericObjectId|]
 liftArgumentWireType (NewIdArgument iName) = [t|NewId $(litT (strTyLit iName))|]
 liftArgumentWireType GenericNewIdArgument = [t|GenericNewId|]
-liftArgumentWireType FdArgument = [t|Void|] -- TODO
+liftArgumentWireType FdArgument = [t|Fd|]
 
 
 -- * Generic TH utilities

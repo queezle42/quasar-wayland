@@ -1,3 +1,6 @@
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
+
 module Quasar.Wayland.Connection (
   WaylandConnection,
   newWaylandConnection,
@@ -5,8 +8,13 @@ module Quasar.Wayland.Connection (
 
 import Control.Concurrent.STM
 import Control.Monad.Catch
+import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
+import Data.ByteString.Internal (createUptoN)
 import Data.ByteString.Lazy qualified as BSL
+import Foreign.Storable (sizeOf)
+import Language.C.Inline qualified as C
+import Language.C.Inline.Unsafe qualified as CU
 import Network.Socket (Socket)
 import Network.Socket qualified as Socket
 import Network.Socket.ByteString qualified as Socket
@@ -14,6 +22,18 @@ import Network.Socket.ByteString.Lazy qualified as SocketL
 import Quasar
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
+import Quasar.Wayland.Utils.Socket
+import System.Posix.Types (Fd)
+
+
+C.include "<sys/socket.h>"
+
+maxFds :: C.CInt
+maxFds = 28 -- from wayland (connection.c)
+
+cmsgBufferSize :: Int
+cmsgBufferSize = fromIntegral [CU.pure|int { CMSG_LEN($(int maxFds) * sizeof(int32_t)) }|]
+
 
 
 data WaylandConnection s = WaylandConnection {
@@ -67,22 +87,54 @@ connectionThread connection work = asyncWithHandler traceAndDisposeConnection $ 
 
 sendThread :: WaylandConnection s -> IO ()
 sendThread connection = forever do
-  bytes <- takeOutbox connection.protocolHandle
+  (msg, fds) <- takeOutbox connection.protocolHandle
 
-  traceIO $ "Sending " <> show (BSL.length bytes) <> " bytes"
-  SocketL.sendAll connection.socket bytes
+  let msgLength = fromIntegral (BSL.length msg)
+
+  traceIO $ "Sending " <> show msgLength <> " bytes"
+
+  -- TODO limit max fds
+  send msgLength (BSL.toChunks msg) fds
+
+  where
+    send :: Int -> [BS.ByteString] -> [Fd] -> IO ()
+    send remaining chunks fds = do
+      -- TODO add MSG_NOSIGNAL (not exposed by `network`)
+      sent <- sendMsg connection.socket chunks (Socket.encodeCmsg <$> fds) mempty
+      let nowRemaining = remaining - sent
+      when (nowRemaining > 0) do
+        send nowRemaining (drop sent chunks) []
+
+    drop :: Int -> [BS.ByteString] -> [BS.ByteString]
+    drop _ [] = []
+    drop amount (chunk:chunks) =
+      if (amount < BS.length chunk)
+        then (BS.drop amount chunk : chunks)
+        else drop (amount - BS.length chunk) chunks
 
 
 receiveThread :: IsSide s => WaylandConnection s -> IO ()
 receiveThread connection = forever do
-  bytes <- Socket.recv connection.socket 4096
+  -- TODO add MSG_CMSG_CLOEXEC (not exposed by `network`)
+  (chunk, cmsgs, flags) <- recvMsg connection.socket 4096 cmsgBufferSize mempty
 
-  when (BS.null bytes) do
+  let fds = catMaybes (Socket.decodeCmsg @Fd <$> cmsgs)
+
+  when (flags .&. Socket.MSG_CTRUNC > 0) do
+    -- TODO close fds
+    fail "Wayland connection: Ancillary data was truncated"
+
+  when (length fds /= length cmsgs) do
+    -- TODO close fds
+    fail "Wayland connection: Received unexpected ancillary message (only SCM_RIGHTS is supported)"
+
+  when (BS.null chunk) do
     throwM SocketClosed
 
-  traceIO $ "Received " <> show (BS.length bytes) <> " bytes"
+  traceIO $ "Received " <> show (BS.length chunk) <> " bytes"
 
-  feedInput connection.protocolHandle bytes
+  feedInput connection.protocolHandle chunk fds
+
 
 closeConnection :: WaylandConnection s -> IO ()
 closeConnection connection = Socket.close connection.socket

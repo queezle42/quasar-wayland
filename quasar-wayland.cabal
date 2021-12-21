@@ -86,6 +86,7 @@ library
     Quasar.Wayland.Protocol.Core
     Quasar.Wayland.Utils.InlineC
     Quasar.Wayland.Utils.SharedMemory
+    Quasar.Wayland.Utils.Socket
   build-depends:
     base >=4.7 && <5,
     binary,
