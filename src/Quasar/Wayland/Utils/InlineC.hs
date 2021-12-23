@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Quasar.Wayland.Utils.InlineC (
   ctx
 ) where

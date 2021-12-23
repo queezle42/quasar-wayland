@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Quasar.Wayland.Protocol.TH (
   generateWaylandProcol,
   generateWaylandProcols,
