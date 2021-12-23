@@ -779,7 +779,7 @@ putWaylandBlob blob = do
     -- Padding length
     pad = padding len
     putBlob = do
-      putWord32host (fromIntegral (len + 1))
+      putWord32host (fromIntegral len)
       putByteString blob
       putWord8 0
       replicateM_ pad (putWord8 0)
