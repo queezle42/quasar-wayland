@@ -23,6 +23,7 @@ import Quasar
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Utils.Socket
+import System.Posix.IO (closeFd)
 import System.Posix.Types (Fd)
 
 
@@ -86,16 +87,17 @@ connectionThread connection work = asyncWithHandler traceAndDisposeConnection $ 
     traceAndDisposeConnection ex = traceIO (displayException ex) >> void (dispose connection)
 
 sendThread :: WaylandConnection s -> IO ()
-sendThread connection = forever do
+sendThread connection = mask_ $ forever do
   (msg, fds) <- takeOutbox connection.protocolHandle
+  finally
+    do
+      traceIO $ "Sending " <> show (BSL.length msg) <> " bytes"
 
-  let msgLength = fromIntegral (BSL.length msg)
+      -- TODO limit max fds
+      send (fromIntegral (BSL.length msg)) (BSL.toChunks msg) fds
 
-  traceIO $ "Sending " <> show msgLength <> " bytes"
-
-  -- TODO limit max fds
-  send msgLength (BSL.toChunks msg) fds
-
+    do
+      mapM closeFd fds
   where
     send :: Int -> [BS.ByteString] -> [Fd] -> IO ()
     send remaining chunks fds = do
