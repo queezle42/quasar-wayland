@@ -1,5 +1,6 @@
 module Quasar.Wayland.Protocol.TH (
-  generateWaylandProcol
+  generateWaylandProcol,
+  generateWaylandProcols,
 ) where
 
 import Control.Monad.STM
@@ -17,8 +18,9 @@ import Text.Read (readEither)
 import Text.XML.Light
 
 
-data ProtocolSpec = ProtocolSpec {interfaces :: [InterfaceSpec]}
+newtype ProtocolSpec = ProtocolSpec {interfaces :: [InterfaceSpec]}
   deriving stock Show
+  deriving newtype (Semigroup, Monoid)
 
 data DescriptionSpec = DescriptionSpec {
   summary :: Maybe String,
@@ -111,6 +113,14 @@ generateWaylandProcol protocolFile = do
   addDependentFile protocolFile
   xml <- liftIO (BS.readFile protocolFile)
   protocol <- parseProtocol xml
+  (public, internals) <- unzip <$> mapM interfaceDecs protocol.interfaces
+  pure $ mconcat public <> mconcat internals
+
+generateWaylandProcols :: [FilePath] -> Q [Dec]
+generateWaylandProcols protocolFiles = do
+  mapM addDependentFile protocolFiles
+  xmls <- mapM (liftIO . BS.readFile) protocolFiles
+  protocol <- mconcat <$> mapM parseProtocol xmls
   (public, internals) <- unzip <$> mapM interfaceDecs protocol.interfaces
   pure $ mconcat public <> mconcat internals
 
@@ -585,10 +595,6 @@ parseMessage isRequest interface (opcode, element) = do
       Just "destructor" -> pure True
       Just messageType -> fail $ "Unknown message type: " <> messageType
 
-  when
-    do isEvent && isDestructor
-    do fail $ "Event cannot be a destructor: " <> loc
-
   forM_ arguments \arg -> do
     when
       do arg.argType == GenericNewIdArgument && (interface /= "wl_registry" || name /= "bind")
@@ -602,7 +608,8 @@ parseMessage isRequest interface (opcode, element) = do
     (firstArg:otherArgs) -> do
       when
         do any (isNewId . (.argType)) otherArgs && not (interface == "wl_registry" && name == "bind")
-        do fail $ "Message uses NewId in unexpected position on: " <> loc <> " (NewId must be the first argument, unless it is on wl_registry.bind)"
+        -- TODO incorrect assumption, needs to be supported for wp_presentation
+        do fail $ "Message uses NewId in unsupported position on: " <> loc <> " (NewId currently has to be the first argument, which is a parser bug)"
       pure (isNewId firstArg.argType)
 
   pure MessageSpec  {
