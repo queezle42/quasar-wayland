@@ -99,6 +99,7 @@ library
     network,
     quasar,
     template-haskell,
+    unix,
     unordered-containers,
     utf8-string,
     stm,
