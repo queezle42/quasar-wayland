@@ -167,13 +167,13 @@ instance WireFormat Fixed where
   showArgument = show
 
 instance WireFormat WlString where
-  putArgument (WlString x) = putWaylandBlob x
-  getArgument = pure . WlString <$> getWaylandBlob
+  putArgument (WlString x) = putWaylandString x
+  getArgument = pure . WlString <$> getWaylandString
   showArgument = show
 
 instance WireFormat BS.ByteString where
-  putArgument x = putWaylandBlob x
-  getArgument = pure <$> getWaylandBlob
+  putArgument x = putWaylandArray x
+  getArgument = pure <$> getWaylandArray
   showArgument array = "[array " <> show (BS.length array) <> "B]"
 
 instance KnownSymbol j => WireFormat (ObjectId (j :: Symbol)) where
@@ -760,17 +760,22 @@ getRawMessage = do
   body <- getLazyByteString size
   pure (oId, opcode, body)
 
-getWaylandBlob :: Get BS.ByteString
-getWaylandBlob = do
-  size <- getWord32host
-  Just (string, 0) <- BS.unsnoc <$> getByteString (fromIntegral size)
-  skipPadding
+getWaylandString :: Get BS.ByteString
+getWaylandString = do
+  Just (string, 0) <- BS.unsnoc <$> getWaylandArray
   pure string
 
-putWaylandBlob :: MonadThrow m => BS.ByteString -> m MessagePart
-putWaylandBlob blob = do
+getWaylandArray :: Get BS.ByteString
+getWaylandArray = do
+  size <- getWord32host
+  array <- getByteString (fromIntegral size)
+  skipPadding
+  pure array
+
+putWaylandString :: MonadThrow m => BS.ByteString -> m MessagePart
+putWaylandString blob = do
   when (len > fromIntegral (maxBound :: Word16)) $
-    throwM $ ProtocolUsageError $ "Tried to send string or array larger than 2^16 bytes"
+    throwM $ ProtocolUsageError $ "Tried to send string larger than 2^16 bytes"
 
   pure $ MessagePart putBlob (4 + len + pad) mempty
   where
@@ -782,6 +787,22 @@ putWaylandBlob blob = do
       putWord32host (fromIntegral len)
       putByteString blob
       putWord8 0
+      replicateM_ pad (putWord8 0)
+
+putWaylandArray :: MonadThrow m => BS.ByteString -> m MessagePart
+putWaylandArray blob = do
+  when (len > fromIntegral (maxBound :: Word16)) $
+    throwM $ ProtocolUsageError $ "Tried to send array larger than 2^16 bytes"
+
+  pure $ MessagePart putBlob (4 + len + pad) mempty
+  where
+    -- Total data length without padding
+    len = BS.length blob
+    -- Padding length
+    pad = padding len
+    putBlob = do
+      putWord32host (fromIntegral len)
+      putByteString blob
       replicateM_ pad (putWord8 0)
 
 
