@@ -44,7 +44,7 @@ createRegistry wlDisplay = mfix \clientRegistry -> do
   wlRegistry <- wlDisplay.get_registry
   setMessageHandler wlRegistry (messageHandler clientRegistry)
 
-  -- Manual sync (without high-level wrapper) to prevent a dependency loop to the client
+  -- Manual sync (without high-level wrapper) to prevent a dependency loop to the Client module
   var <- newAsyncVarSTM
   lowLevelSync wlDisplay \_ -> putAsyncVarSTM_ var ()
   let initialSyncComplete = toAwaitable var

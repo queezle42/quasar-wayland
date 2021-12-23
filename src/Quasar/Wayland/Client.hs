@@ -43,6 +43,7 @@ connectWaylandClient = mask_ do
 newWaylandClient :: MonadResourceManager m => Socket -> m WaylandClient
 newWaylandClient socket = do
   ((wlDisplay, registry), connection) <- newWaylandConnection newClientDisplay socket
+
   pure WaylandClient {
     connection,
     wlDisplay,
@@ -71,4 +72,3 @@ instance HasField "sync" WaylandClient (STM (Awaitable ())) where
     var <- newAsyncVarSTM
     lowLevelSync client.wlDisplay \_ -> putAsyncVarSTM_ var ()
     pure $ toAwaitable var
-
