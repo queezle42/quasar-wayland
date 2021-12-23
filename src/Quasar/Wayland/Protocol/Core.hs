@@ -40,12 +40,14 @@ module Quasar.Wayland.Protocol.Core (
 
   -- * Low-level protocol interaction
   objectWireArgument,
+  nullableObjectWireArgument,
   checkObject,
   sendMessage,
   newObject,
   newObjectFromId,
   bindNewObject,
   getObject,
+  getNullableObject,
   lookupObject,
   buildMessage,
 
@@ -643,6 +645,15 @@ getObject
   -> ProtocolM s (Object s i)
 getObject oId = either (throwM . ProtocolException . ("Received invalid object id: " <>)) pure =<< lookupObject oId
 
+-- | Lookup an object for an id or throw a `ProtocolException`. To be used from generated code when receiving an object
+-- id.
+getNullableObject
+  :: forall s i. IsInterfaceSide s i
+  => ObjectId (InterfaceName i)
+  -> ProtocolM s (Maybe (Object s i))
+getNullableObject (ObjectId 0) = pure Nothing
+getNullableObject oId = Just <$> getObject oId
+
 
 
 -- | Handle a wl_display.error message. Because this is part of the core protocol but generated from the xml it has to
@@ -674,6 +685,11 @@ objectWireArgument object = do
   checkObject object >>= \case
     Left msg -> throwM $ ProtocolUsageError $ "Tried to send a reference to an invalid object: " <> msg
     Right () -> pure object.objectId
+
+-- | Verify that an object can be used as an argument (throws otherwise) and return its id.
+nullableObjectWireArgument :: IsInterface i => Maybe (Object s i) -> ProtocolM s (ObjectId (InterfaceName i))
+nullableObjectWireArgument Nothing = pure (ObjectId 0)
+nullableObjectWireArgument (Just object) = objectWireArgument object
 
 
 -- | Sends a message, for use in generated code.

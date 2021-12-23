@@ -88,6 +88,7 @@ data ArgumentType
   | StringArgument
   | ArrayArgument
   | ObjectArgument String
+  | NullableObjectArgument String
   | GenericObjectArgument
   | NewIdArgument String
   | GenericNewIdArgument
@@ -257,6 +258,7 @@ interfaceDecs interface = do
 
         fromWireArgument :: ArgumentType -> Q Exp -> Q Exp
         fromWireArgument (ObjectArgument _) objIdE = [|getObject $objIdE|]
+        fromWireArgument (NullableObjectArgument _) objIdE = [|getNullableObject $objIdE|]
         fromWireArgument (NewIdArgument _) objIdE = [|newObjectFromId Nothing $objIdE|]
         fromWireArgument _ x = [|pure $x|]
 
@@ -308,6 +310,7 @@ messageProxyInstanceDecs side messageContexts = mapM messageProxyInstanceD messa
 
         toWireArgument :: ArgumentType -> Q Exp -> Q Exp
         toWireArgument (ObjectArgument _) objectE = [|objectWireArgument $objectE|]
+        toWireArgument (NullableObjectArgument _) objectE = [|nullableObjectWireArgument $objectE|]
         toWireArgument (NewIdArgument _) _ = unreachableCodePath -- The specification parser has a check to prevent this
         toWireArgument _ x = [|pure $x|]
 
@@ -464,6 +467,7 @@ argumentType side argSpec = liftArgumentType side argSpec.argType
 
 liftArgumentType :: Side -> ArgumentType -> Q Type
 liftArgumentType side (ObjectArgument iName) = [t|Object $(sideT side) $(interfaceTFromName iName)|]
+liftArgumentType side (NullableObjectArgument iName) = [t|Maybe (Object $(sideT side) $(interfaceTFromName iName))|]
 liftArgumentType side (NewIdArgument iName) = [t|NewObject $(sideT side) $(interfaceTFromName iName)|]
 liftArgumentType _ x = liftArgumentWireType x
 
@@ -479,6 +483,7 @@ liftArgumentWireType FixedArgument = [t|Fixed|]
 liftArgumentWireType StringArgument = [t|WlString|]
 liftArgumentWireType ArrayArgument = [t|BS.ByteString|]
 liftArgumentWireType (ObjectArgument iName) = [t|ObjectId $(litT (strTyLit iName))|]
+liftArgumentWireType (NullableObjectArgument iName) = [t|ObjectId $(litT (strTyLit iName))|]
 liftArgumentWireType GenericObjectArgument = [t|GenericObjectId|]
 liftArgumentWireType (NewIdArgument iName) = [t|NewId $(litT (strTyLit iName))|]
 liftArgumentWireType GenericNewIdArgument = [t|GenericNewId|]
@@ -631,7 +636,6 @@ parseArgument messageDescription (index, element) = do
   summary <- peekAttr "summary" element
   argTypeStr <- getAttr "type" element
   interface <- peekAttr "interface" element
-  argType <- parseArgumentType argTypeStr interface
 
   let loc = messageDescription <> "." <> name
 
@@ -640,6 +644,9 @@ parseArgument messageDescription (index, element) = do
     Just "false" -> pure False
     Just x -> fail $ "Invalid value for attribute \"allow-null\" on " <> loc <> ": " <> x
     Nothing -> pure False
+
+  argType <- parseArgumentType argTypeStr interface nullable
+
   pure ArgumentSpec {
     name,
     index,
@@ -648,19 +655,20 @@ parseArgument messageDescription (index, element) = do
     nullable
   }
   where
-    parseArgumentType :: String -> Maybe String -> m ArgumentType
-    parseArgumentType "int" Nothing = pure IntArgument
-    parseArgumentType "uint" Nothing = pure UIntArgument
-    parseArgumentType "fixed" Nothing = pure FixedArgument
-    parseArgumentType "string" Nothing = pure StringArgument
-    parseArgumentType "array" Nothing = pure ArrayArgument
-    parseArgumentType "object" (Just interface) = pure (ObjectArgument interface)
-    parseArgumentType "object" Nothing = pure GenericObjectArgument
-    parseArgumentType "new_id" (Just interface) = pure (NewIdArgument interface)
-    parseArgumentType "new_id" Nothing = pure GenericNewIdArgument
-    parseArgumentType "fd" Nothing = pure FdArgument
-    parseArgumentType x Nothing = fail $ "Unknown argument type \"" <> x <> "\" encountered"
-    parseArgumentType x _ = fail $ "Argument type \"" <> x <> "\" should not have \"interface\" attribute"
+    parseArgumentType :: String -> Maybe String -> Bool -> m ArgumentType
+    parseArgumentType "int" Nothing _ = pure IntArgument
+    parseArgumentType "uint" Nothing _ = pure UIntArgument
+    parseArgumentType "fixed" Nothing _ = pure FixedArgument
+    parseArgumentType "string" Nothing _ = pure StringArgument
+    parseArgumentType "array" Nothing _ = pure ArrayArgument
+    parseArgumentType "object" (Just interface) False = pure (ObjectArgument interface)
+    parseArgumentType "object" (Just interface) True = pure (NullableObjectArgument interface)
+    parseArgumentType "object" Nothing _ = pure GenericObjectArgument
+    parseArgumentType "new_id" (Just interface) _ = pure (NewIdArgument interface)
+    parseArgumentType "new_id" Nothing _ = pure GenericNewIdArgument
+    parseArgumentType "fd" Nothing _ = pure FdArgument
+    parseArgumentType x Nothing _ = fail $ "Unknown argument type \"" <> x <> "\" encountered"
+    parseArgumentType x _ _ = fail $ "Argument type \"" <> x <> "\" should not have \"interface\" attribute"
 
 
 parseEnum :: MonadFail m => Element -> m EnumSpec
