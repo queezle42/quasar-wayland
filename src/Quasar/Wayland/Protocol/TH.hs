@@ -69,7 +69,8 @@ data ArgumentSpec = ArgumentSpec {
 data EnumSpec = EnumSpec {
   name :: String,
   description :: Maybe DescriptionSpec,
-  entries :: [EnumEntrySpec]
+  entries :: [EnumEntrySpec],
+  isBitfield :: Bool
 }
   deriving stock Show
 
@@ -567,7 +568,7 @@ parseInterface element = do
   description <- findDescription element
   requests <- mapM (parseRequest name) $ zip [0..] $ findChildren (qname "request") element
   events <- mapM (parseEvent name) $ zip [0..] $ findChildren (qname "event") element
-  enums <- mapM parseEnum $ findChildren (qname "enum") element
+  enums <- mapM (parseEnum name) $ findChildren (qname "enum") element
   pure InterfaceSpec {
     name,
     version,
@@ -671,15 +672,25 @@ parseArgument messageDescription (index, element) = do
     parseArgumentType x _ _ = fail $ "Argument type \"" <> x <> "\" should not have \"interface\" attribute"
 
 
-parseEnum :: MonadFail m => Element -> m EnumSpec
-parseEnum element = do
+parseEnum :: MonadFail m => String -> Element -> m EnumSpec
+parseEnum interface element = do
   name <- getAttr "name" element
   description <- findDescription element
   entries <- mapM parseEnumEntry $ findChildren (qname "entry") element
+
+  let loc = interface <> "." <> name
+
+  isBitfield <- peekAttr "bitfield" element >>= \case
+    Just "true" -> pure True
+    Just "false" -> pure False
+    Just x -> fail $ "Invalid value for attribute \"bitfield\" on " <> loc <> ": " <> x
+    Nothing -> pure False
+
   pure EnumSpec {
     name,
     description,
-    entries
+    entries,
+    isBitfield
   }
 
 parseEnumEntry :: MonadFail m => Element -> m EnumEntrySpec
