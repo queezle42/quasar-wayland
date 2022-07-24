@@ -17,7 +17,6 @@ module Quasar.Wayland.Protocol.Core (
   Version,
   interfaceVersion,
   IsInterfaceSide(..),
-  IsInterfaceHandler(..),
   Object(objectProtocol),
   setEventHandler,
   setRequestHandler,
@@ -41,6 +40,7 @@ module Quasar.Wayland.Protocol.Core (
   -- * Low-level protocol interaction
   objectWireArgument,
   nullableObjectWireArgument,
+  handleDestructor,
   checkObject,
   sendMessage,
   newObject,
@@ -260,7 +260,7 @@ class (
     IsMessage (WireDown s i)
   )
   => IsInterfaceSide (s :: Side) i where
-  handleMessage :: MessageHandler s i -> WireDown s i -> ProtocolM s ()
+  handleMessage :: Object s i -> MessageHandler s i -> WireDown s i -> ProtocolM s ()
 
 
 getWireDown :: forall s i. IsInterfaceSide s i => Object s i -> Opcode -> Get (ProtocolM s (WireDown s i))
@@ -268,10 +268,6 @@ getWireDown = getMessage @(WireDown s i)
 
 putWireUp :: forall s i. IsInterfaceSide s i => Object s i -> WireUp s i -> Either SomeException (Opcode, MessagePart)
 putWireUp _ = putMessage @(WireUp s i)
-
-
-class IsInterfaceSide s i => IsInterfaceHandler s i a where
-  handlerHandleMessage :: a -> Object s i -> WireDown s i -> ProtocolM s ()
 
 
 -- | Data kind
@@ -283,7 +279,8 @@ data Side = Client | Server
 data Object s i = IsInterfaceSide s i => Object {
   objectProtocol :: (ProtocolHandle s),
   objectId :: ObjectId (InterfaceName i),
-  messageHandler :: TVar (Maybe (MessageHandler s i))
+  messageHandler :: TVar (Maybe (MessageHandler s i)),
+  destroyed :: TVar Bool
 }
 
 
@@ -488,7 +485,8 @@ initializeProtocol wlDisplayMessageHandler initializationAction = do
   writeTVar stateVar (Right state)
 
   messageHandlerVar <- newTVar (Just (wlDisplayMessageHandler protocol))
-  let wlDisplay = Object protocol wlDisplayId messageHandlerVar
+  destroyed <- newTVar False
+  let wlDisplay = Object protocol wlDisplayId messageHandlerVar destroyed
   modifyTVar' objectsVar (HM.insert (toGenericObjectId wlDisplayId) (SomeObject wlDisplay))
 
   result <- initializationAction wlDisplay
@@ -591,8 +589,9 @@ newObjectFromId
 newObjectFromId messageHandler (NewId oId) = do
   protocol <- askProtocol
   messageHandlerVar <- lift $ newTVar messageHandler
+  destroyed <- lift $ newTVar False
   let
-    object = Object protocol oId messageHandlerVar
+    object = Object protocol oId messageHandlerVar destroyed
     someObject = SomeObject object
   modifyProtocolVar (.objectsVar) (HM.insert (genericObjectId object) someObject)
   pure object
@@ -665,8 +664,14 @@ handleWlDisplayError _protocol oId code message = throwM $ ServerError code (toS
 -- to be called from the client module.
 handleWlDisplayDeleteId :: ProtocolHandle 'Client -> Word32 -> STM ()
 handleWlDisplayDeleteId protocol oId = runProtocolM protocol do
+  -- TODO call destructor
   modifyProtocolVar (.objectsVar) $ HM.delete (GenericObjectId oId)
 
+
+handleDestructor :: IsInterfaceSide s i => Object s i -> ProtocolM s ()
+handleDestructor object = do
+  traceM $ "Handling destructor for " <> showObject object
+  lift $ writeTVar object.destroyed True
 
 
 checkObject :: IsInterface i => Object s i -> ProtocolM s (Either String ())
@@ -748,7 +753,7 @@ handleRawMessage (oId, opcode, body) = do
         message <- verifyMessage
         traceM $ "<- " <> showObjectMessage object message
         messageHandler <- lift $ getMessageHandler object
-        handleMessage @s @i messageHandler message
+        handleMessage @s @i object messageHandler message
 
 type RawMessage = (GenericObjectId, Opcode, BSL.ByteString)
 

@@ -15,7 +15,7 @@ import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addDependentFile)
 import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
-import System.Posix.Types (Fd(Fd))
+import System.Posix.Types (Fd)
 import Text.Read (readEither)
 import Text.XML.Light
 
@@ -150,27 +150,27 @@ interfaceDecs interface = do
       tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceName) iT) (litT (strTyLit interface.name))),
       tySynInstD (tySynEqn Nothing (appT (conT ''InterfaceVersion) iT) (litT (numTyLit interface.version)))
       ]
-    -- | IsInterfaceSide instance
+    -- IsInterfaceSide instance
     tellQs interfaceSideInstanceDs
 
     when (length interface.requests > 0) do
-      -- | Requests record
+      -- Requests record
       tellQ requestCallbackRecordD
-      -- | Request proxies
+      -- Request proxies
       tellQs requestProxyInstanceDecs
 
     when (length interface.events > 0) do
-      -- | Events record
+      -- Events record
       tellQ eventCallbackRecordD
-      -- | Event proxies
+      -- Event proxies
       tellQs eventProxyInstanceDecs
 
   internals <- execWriterT do
-    -- | Request wire type
+    -- Request wire type
     when (length interface.requests > 0) do
       tellQs $ messageTypeDecs rTypeName wireRequestContexts
 
-    -- | Event wire type
+    -- Event wire type
     when (length interface.events > 0) do
       tellQs $ messageTypeDecs eTypeName wireEventContexts
 
@@ -222,6 +222,12 @@ interfaceDecs interface = do
     eventProxyInstanceDecs :: Q [Dec]
     eventProxyInstanceDecs = messageProxyInstanceDecs Server wireEventContexts
 
+    objectName = mkName "object"
+    objectP :: Q Pat
+    objectP = varP objectName
+    objectE :: Q Exp
+    objectE = varE objectName
+
     handlerName = mkName "handler"
     handlerP :: Q Pat
     handlerP = varP handlerName
@@ -238,18 +244,24 @@ interfaceDecs interface = do
     handleMessageD Server = funD 'handleMessage (handleMessageClauses wireRequestContexts)
 
     handleMessageClauses :: [MessageContext] -> [Q Clause]
-    handleMessageClauses [] = [clause [wildP] (normalB [|absurd|]) []]
+    handleMessageClauses [] = [clause [wildP, wildP] (normalB [|absurd|]) []]
     handleMessageClauses messageContexts = handleMessageClause <$> messageContexts
 
     handleMessageClause :: MessageContext -> Q Clause
-    handleMessageClause msg = clause [handlerP, msgConP msg] (normalB bodyE) []
+    handleMessageClause msg = clause [objectIfRequiredP, handlerP, msgConP msg] (normalB bodyE) []
       where
+        objectIfRequiredP :: Q Pat
+        objectIfRequiredP = if msg.msgSpec.isDestructor then objectP else wildP
         fieldNameLitT :: Q Type
         fieldNameLitT = litT (strTyLit (messageFieldNameString msg))
         msgHandlerE :: Q Exp
         msgHandlerE = [|$(appTypeE [|getField|] fieldNameLitT) $handlerE|]
         bodyE :: Q Exp
-        bodyE = [|lift =<< $(applyMsgArgs msgHandlerE)|]
+        bodyE
+          | msg.msgSpec.isDestructor = [|handleDestructor $objectE >> $msgE|]
+          | otherwise = msgE
+        msgE :: Q Exp
+        msgE = [|$(applyMsgArgs msgHandlerE) >>= lift|]
 
         applyMsgArgs :: Q Exp -> Q Exp
         applyMsgArgs base = applyA base (argE <$> msg.msgSpec.arguments)
@@ -287,7 +299,10 @@ messageProxyInstanceDecs side messageContexts = mapM messageProxyInstanceD messa
         args = proxyArguments msg.msgSpec
 
         actionE :: Q Exp
-        actionE = if msg.msgSpec.isConstructor then ctorE else normalE
+        actionE
+          | msg.msgSpec.isConstructor = ctorE
+          | msg.msgSpec.isDestructor = dtorE
+          | otherwise = normalE
 
         -- Constructor: the first argument becomes the return value
         ctorE :: Q Exp
@@ -295,6 +310,9 @@ messageProxyInstanceDecs side messageContexts = mapM messageProxyInstanceD messa
           where
             msgE :: Q Exp -> Q Exp
             msgE idArgE = mkWireMsgE (idArgE : (wireArgE <$> args))
+
+        dtorE :: Q Exp
+        dtorE = [|handleDestructor object >> $normalE|]
 
         -- Body for a normal (i.e. non-constructor) proxy
         normalE :: Q Exp
@@ -602,6 +620,8 @@ parseMessage isRequest interface (opcode, element) = do
       Nothing -> pure False
       Just "destructor" -> pure True
       Just messageType -> fail $ "Unknown message type: " <> messageType
+
+  when (isDestructor && not (null arguments)) $ fail $ "Destructor must not have arguments: " <> loc
 
   forM_ arguments \arg -> do
     when
