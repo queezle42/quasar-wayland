@@ -621,8 +621,6 @@ parseMessage isRequest interface (opcode, element) = do
       Just "destructor" -> pure True
       Just messageType -> fail $ "Unknown message type: " <> messageType
 
-  when (isDestructor && not (null arguments)) $ fail $ "Destructor must not have arguments: " <> loc
-
   forM_ arguments \arg -> do
     when
       do arg.argType == GenericNewIdArgument && (interface /= "wl_registry" || name /= "bind")
