@@ -2,12 +2,25 @@
   "nodes": {
     "nixpkgs": {
       "locked": {
-        "lastModified": 1638110343,
-        "narHash": "sha256-hQaow8sGPyUrXgrqgDRsfA+73uR0vms2goTQNxIAaRQ=",
+        "lastModified": 1649225869,
+        "narHash": "sha256-u1zLtPmQzhT9mNXyM8Ey9pk7orDrIKdwooeGDEXm5xM=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "942eb9a335b4cd22fa6a7be31c494e53e76f5637",
+        "rev": "b6966d911da89e5a7301aaef8b4f0a44c77e103c",
         "type": "github"
+      },
+      "original": {
+        "id": "nixpkgs",
+        "type": "indirect"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1640408860,
+        "narHash": "sha256-h2uF3+a8bVfM8SjcS4hLbsOzOuG3qsxuImC0BucWs1Q=",
+        "path": "/nix/store/m6p4m1rs0xi67kaa25bm1rqkm4633qjr-source",
+        "rev": "cb372c3b8880e504b06946e8fb2ca9777c685505",
+        "type": "path"
       },
       "original": {
         "id": "nixpkgs",
@@ -16,10 +29,7 @@
     },
     "quasar": {
       "inputs": {
-        "nixpkgs": [
-          "quasar-network",
-          "nixpkgs"
-        ]
+        "nixpkgs": "nixpkgs_2"
       },
       "locked": {
         "host": "git.c3pb.de",
