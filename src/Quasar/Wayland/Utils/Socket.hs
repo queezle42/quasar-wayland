@@ -15,7 +15,7 @@ import Quasar.Prelude
 instance SA.SocketAddress () where
   sizeOfSocketAddress _ = 0
   peekSocketAddress _ptr = pure ()
-  pokeSocketAddress _prt () = pure ()
+  pokeSocketAddress _ptr () = pure ()
 
 
 
