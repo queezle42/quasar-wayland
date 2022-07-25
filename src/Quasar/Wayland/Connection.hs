@@ -6,7 +6,6 @@ module Quasar.Wayland.Connection (
   newWaylandConnection,
 ) where
 
-import Control.Concurrent.STM
 import Control.Monad.Catch
 import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
@@ -30,7 +29,7 @@ import System.Posix.Types (Fd)
 C.include "<sys/socket.h>"
 
 maxFds :: C.CInt
-maxFds = 28 -- from wayland (connection.c)
+maxFds = 28 -- from libwayland (connection.c)
 
 cmsgBufferSize :: Int
 cmsgBufferSize = fromIntegral [CU.pure|int { CMSG_LEN($(int maxFds) * sizeof(int32_t)) }|]
@@ -40,51 +39,49 @@ cmsgBufferSize = fromIntegral [CU.pure|int { CMSG_LEN($(int maxFds) * sizeof(int
 data WaylandConnection s = WaylandConnection {
   protocolHandle :: ProtocolHandle s,
   socket :: Socket,
-  resourceManager :: ResourceManager
+  quasar :: Quasar
 }
 
-instance IsResourceManager (WaylandConnection s) where
-  toResourceManager connection = connection.resourceManager
-
-instance IsDisposable (WaylandConnection s) where
-  toDisposable connection = toDisposable connection.resourceManager
+instance Resource (WaylandConnection s) where
+  toDisposer connection = toDisposer connection.quasar
 
 data SocketClosed = SocketClosed
   deriving stock Show
   deriving anyclass Exception
 
 newWaylandConnection
-  :: forall s m a. (IsSide s, MonadResourceManager m)
+  :: forall s m a. (IsSide s, MonadIO m, MonadQuasar m)
   => STM (a, ProtocolHandle s)
   -> Socket
   -> m (a, WaylandConnection s)
 newWaylandConnection initializeProtocolAction socket = do
-  (result, protocolHandle) <- liftIO $ atomically $ initializeProtocolAction
+  (result, protocolHandle) <- atomically initializeProtocolAction
 
-  resourceManager <- newResourceManager
+  quasar <- newResourceScopeIO
 
-  onResourceManager resourceManager do
+  runQuasarIO quasar do
     let connection = WaylandConnection {
       protocolHandle,
       socket,
-      resourceManager
+      quasar
     }
 
     t1 <- connectionThread connection $ sendThread connection
     t2 <- connectionThread connection $ receiveThread connection
 
-    registerAsyncDisposeAction do
+    registerDisposeActionIO do
       await $ isDisposed t1
       await $ isDisposed t2
       closeConnection connection
 
     pure (result, connection)
 
-connectionThread :: MonadResourceManager m => WaylandConnection s -> IO () -> m (Async ())
-connectionThread connection work = asyncWithHandler traceAndDisposeConnection $ liftIO $ work
+connectionThread :: (MonadIO m, MonadQuasar m) => WaylandConnection s -> IO () -> m (Async ())
+connectionThread connection work = asyncWithUnmask' \unmask -> work `catch` traceAndDisposeConnection
   where
     traceAndDisposeConnection :: SomeException -> IO ()
-    traceAndDisposeConnection ex = traceIO (displayException ex) >> void (dispose connection)
+    traceAndDisposeConnection (isCancelAsync -> True) = pure ()
+    traceAndDisposeConnection ex = traceIO (displayException ex) >> disposeEventuallyIO_ connection
 
 sendThread :: WaylandConnection s -> IO ()
 sendThread connection = mask_ $ forever do

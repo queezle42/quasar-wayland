@@ -68,7 +68,6 @@ module Quasar.Wayland.Protocol.Core (
   invalidOpcode,
 ) where
 
-import Control.Concurrent.STM
 import Control.Monad.Catch
 import Control.Monad.Reader (ReaderT, runReaderT, ask, lift)
 import Data.Binary

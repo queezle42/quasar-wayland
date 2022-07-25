@@ -29,18 +29,15 @@ data WaylandClient = WaylandClient {
   registry :: Registry
 }
 
-instance IsResourceManager WaylandClient where
-  toResourceManager client = toResourceManager client.connection
+instance Resource WaylandClient where
+  toDisposer client = toDisposer client.connection
 
-instance IsDisposable WaylandClient where
-  toDisposable client = toDisposable client.connection
-
-connectWaylandClient :: MonadResourceManager m => m WaylandClient
-connectWaylandClient = mask_ do
+connectWaylandClient :: (MonadIO m, MonadQuasar m) => m WaylandClient
+connectWaylandClient = liftQuasarIO $ mask_ do
   socket <- liftIO connectWaylandSocket
   newWaylandClient socket
 
-newWaylandClient :: MonadResourceManager m => Socket -> m WaylandClient
+newWaylandClient :: (MonadIO m, MonadQuasar m) => Socket -> m WaylandClient
 newWaylandClient socket = do
   ((wlDisplay, registry), connection) <- newWaylandConnection newClientDisplay socket
 
@@ -66,9 +63,8 @@ newWaylandClient socket = do
       }
 
 
-
-instance HasField "sync" WaylandClient (STM (Awaitable ())) where
+instance HasField "sync" WaylandClient (STM (Future ())) where
   getField client = do
-    var <- newAsyncVarSTM
-    lowLevelSync client.wlDisplay \_ -> putAsyncVarSTM_ var ()
-    pure $ toAwaitable var
+    var <- newPromiseSTM
+    lowLevelSync client.wlDisplay \_ -> fulfillPromiseSTM var ()
+    pure $ toFuture var

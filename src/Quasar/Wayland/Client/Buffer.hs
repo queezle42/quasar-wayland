@@ -6,12 +6,10 @@ module Quasar.Wayland.Client.Buffer (
   newShmBuffer,
 ) where
 
-import Control.Concurrent.STM
 import Control.Monad.Catch
 import Data.Set qualified as Set
 import Foreign
 import Quasar
-import Quasar.Awaitable
 import Quasar.Prelude
 import Quasar.Wayland.Client
 import Quasar.Wayland.Protocol
@@ -29,7 +27,7 @@ data Buffer = Buffer {
 
 data ShmBufferManager = ShmBufferManager {
   wlShm :: Object 'Client Interface_wl_shm,
-  formats :: Awaitable (Set.Set Word32)
+  formats :: Future (Set.Set Word32)
 }
 
 newShmBufferManager :: WaylandClient -> STM ShmBufferManager

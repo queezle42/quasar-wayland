@@ -1,12 +1,12 @@
 {
   inputs = {
-    quasar-network = {
-      url = gitlab:jens/quasar-network?host=git.c3pb.de;
+    quasar = {
+      url = gitlab:jens/quasar?host=git.c3pb.de;
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, quasar-network }:
+  outputs = { self, nixpkgs, quasar }:
   let
     lib = nixpkgs.lib;
     systems = lib.platforms.unix;
@@ -15,8 +15,7 @@
     packages = forAllSystems (system:
     let pkgs = import nixpkgs { inherit system; overlays = [
         self.overlay
-        quasar-network.overlay
-        quasar-network.overlays.quasar
+        quasar.overlay
       ]; };
     in {
       inherit (pkgs.haskellPackages) quasar-wayland;
@@ -32,8 +31,7 @@
     };
 
     overlays = {
-      quasar = quasar-network.overlays.quasar;
-      quasar-network = quasar-network.overlay;
+      quasar = quasar.overlay;
     };
 
     defaultPackage = forAllSystems (system: self.packages.${system}.quasar-wayland);

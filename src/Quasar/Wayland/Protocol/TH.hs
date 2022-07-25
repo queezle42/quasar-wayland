@@ -13,7 +13,7 @@ import Data.Void (absurd)
 import GHC.Records
 import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addDependentFile)
-import Quasar.Prelude
+import Quasar.Prelude hiding (Type)
 import Quasar.Wayland.Protocol.Core
 import System.Posix.Types (Fd)
 import Text.Read (readEither)

@@ -5,7 +5,6 @@ module Quasar.Wayland.Client.Registry (
   tryBindSingleton,
 ) where
 
-import Control.Concurrent.STM
 import Control.Monad.Catch
 import Data.HashMap.Strict qualified as HM
 import Data.Tuple (swap)
@@ -20,7 +19,7 @@ import Quasar.Wayland.Protocol.Generated
 data Registry = Registry {
   wlRegistry :: Object 'Client Interface_wl_registry,
   globalsVar :: TVar (HM.HashMap Word32 Global),
-  initialSyncComplete :: Awaitable ()
+  initialSyncComplete :: Future ()
 }
 
 data Global = Global {
@@ -45,9 +44,9 @@ createRegistry wlDisplay = mfix \clientRegistry -> do
   setMessageHandler wlRegistry (messageHandler clientRegistry)
 
   -- Manual sync (without high-level wrapper) to prevent a dependency loop to the Client module
-  var <- newAsyncVarSTM
-  lowLevelSync wlDisplay \_ -> putAsyncVarSTM_ var ()
-  let initialSyncComplete = toAwaitable var
+  var <- newPromiseSTM
+  lowLevelSync wlDisplay \_ -> fulfillPromiseSTM var ()
+  let initialSyncComplete = toFuture var
 
   pure Registry {
     wlRegistry,
@@ -64,7 +63,7 @@ createRegistry wlDisplay = mfix \clientRegistry -> do
 
         global_remove :: Word32 -> STM ()
         global_remove name = do
-          result <- stateTVar clientRegistry.globalsVar (swap . lookupDelete name)
+          result <- stateTVar clientRegistry.globalsVar (lookupDelete name)
           case result of
             Nothing -> traceM $ "Invalid global removed by server: " <> show name
             Just _ -> pure ()
@@ -78,10 +77,10 @@ bindSingleton registry = either (throwM . ProtocolUsageError) pure =<< tryBindSi
 
 -- | Try to bind a new client object to a compositor singleton.
 --
--- Will block until the the registry has sent the initial list of globals.
+-- Will retry until the the registry has sent the initial list of globals.
 tryBindSingleton :: forall i. IsInterfaceSide 'Client i => Registry -> STM (Either String (Object 'Client i))
 tryBindSingleton registry = do
-  await registry.initialSyncComplete
+  awaitSTM registry.initialSyncComplete
 
   globals <- filterInterface . HM.elems <$> readTVar registry.globalsVar
 
