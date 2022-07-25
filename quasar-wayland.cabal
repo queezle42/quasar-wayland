@@ -89,7 +89,7 @@ library
     Quasar.Wayland.Utils.SharedMemory
     Quasar.Wayland.Utils.Socket
   build-depends:
-    base >=4.7 && <5,
+    base,
     binary,
     bytestring,
     containers,
@@ -122,7 +122,7 @@ test-suite quasar-wayland-test
   import: shared-executable-properties
   type: exitcode-stdio-1.0
   build-depends:
-    base >=4.7 && <5,
+    base,
     --QuickCheck,
     hspec,
     --quasar-wayland,
