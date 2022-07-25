@@ -112,8 +112,11 @@ library
 executable quasar-wayland-example
   import: shared-executable-properties
   build-depends:
+    base,
+    JuicyPixels,
     quasar,
     quasar-wayland,
+    stm,
   main-is: Main.hs
   hs-source-dirs:
     example
