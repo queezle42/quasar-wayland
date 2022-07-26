@@ -7,7 +7,6 @@ module Quasar.Wayland.Client.Registry (
 
 import Control.Monad.Catch
 import Data.HashMap.Strict qualified as HM
-import Data.Tuple (swap)
 import Quasar
 import Quasar.Prelude
 import Quasar.Wayland.Client.Sync
@@ -44,9 +43,7 @@ createRegistry wlDisplay = mfix \clientRegistry -> do
   setMessageHandler wlRegistry (messageHandler clientRegistry)
 
   -- Manual sync (without high-level wrapper) to prevent a dependency loop to the Client module
-  var <- newPromiseSTM
-  lowLevelSync wlDisplay \_ -> fulfillPromiseSTM var ()
-  let initialSyncComplete = toFuture var
+  initialSyncComplete <- lowLevelSyncFuture wlDisplay
 
   pure Registry {
     wlRegistry,
@@ -71,7 +68,7 @@ createRegistry wlDisplay = mfix \clientRegistry -> do
 
 -- | Bind a new client object to a compositor singleton. Throws an exception if the global is not available.
 --
--- Blocks until the the registry has sent the initial list of globals.
+-- Will retry until the the registry has sent the initial list of globals.
 bindSingleton :: IsInterfaceSide 'Client i => Registry -> STM (Object 'Client i)
 bindSingleton registry = either (throwM . ProtocolUsageError) pure =<< tryBindSingleton registry
 

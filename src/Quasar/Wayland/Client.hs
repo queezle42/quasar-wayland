@@ -48,10 +48,10 @@ newWaylandClient socket = do
   }
   where
     newClientDisplay :: STM ((Object 'Client Interface_wl_display, Registry), ProtocolHandle 'Client)
-    newClientDisplay = initializeProtocol wlDisplayEventHandler init
+    newClientDisplay = initializeProtocol wlDisplayEventHandler initalize
 
-    init :: Object 'Client Interface_wl_display -> STM (Object 'Client Interface_wl_display, Registry)
-    init wlDisplay = do
+    initalize :: Object 'Client Interface_wl_display -> STM (Object 'Client Interface_wl_display, Registry)
+    initalize wlDisplay = do
       registry <- createRegistry wlDisplay
       pure (wlDisplay, registry)
 
@@ -64,7 +64,4 @@ newWaylandClient socket = do
 
 
 instance HasField "sync" WaylandClient (STM (Future ())) where
-  getField client = do
-    var <- newPromiseSTM
-    lowLevelSync client.wlDisplay \_ -> fulfillPromiseSTM var ()
-    pure $ toFuture var
+  getField client = lowLevelSyncFuture client.wlDisplay
