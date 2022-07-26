@@ -9,15 +9,11 @@ module Quasar.Wayland.Connection (
 import Control.Monad.Catch
 import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
-import Data.ByteString.Internal (createUptoN)
 import Data.ByteString.Lazy qualified as BSL
-import Foreign.Storable (sizeOf)
 import Language.C.Inline qualified as C
 import Language.C.Inline.Unsafe qualified as CU
 import Network.Socket (Socket)
 import Network.Socket qualified as Socket
-import Network.Socket.ByteString qualified as Socket
-import Network.Socket.ByteString.Lazy qualified as SocketL
 import Quasar
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
@@ -69,7 +65,7 @@ newWaylandConnection initializeProtocolAction socket = do
     t1 <- connectionThread connection $ sendThread connection
     t2 <- connectionThread connection $ receiveThread connection
 
-    registerDisposeActionIO do
+    registerDisposeActionIO_ do
       await $ isDisposed t1
       await $ isDisposed t2
       closeConnection connection
@@ -77,10 +73,11 @@ newWaylandConnection initializeProtocolAction socket = do
     pure (result, connection)
 
 connectionThread :: (MonadIO m, MonadQuasar m) => WaylandConnection s -> IO () -> m (Async ())
-connectionThread connection work = asyncWithUnmask' \unmask -> work `catch` traceAndDisposeConnection
+connectionThread connection work = asyncWithUnmask' \unmask -> unmask work `catch` traceAndDisposeConnection
   where
     traceAndDisposeConnection :: SomeException -> IO ()
     traceAndDisposeConnection (isCancelAsync -> True) = pure ()
+    -- TODO this logs- and then discard exceptions. Ensure this is the desired behavior?
     traceAndDisposeConnection ex = traceIO (displayException ex) >> disposeEventuallyIO_ connection
 
 sendThread :: WaylandConnection s -> IO ()
@@ -102,14 +99,14 @@ sendThread connection = mask_ $ forever do
       sent <- sendMsg connection.socket chunks (Socket.encodeCmsg <$> fds) mempty
       let nowRemaining = remaining - sent
       when (nowRemaining > 0) do
-        send nowRemaining (drop sent chunks) []
+        send nowRemaining (dropL sent chunks) []
 
-    drop :: Int -> [BS.ByteString] -> [BS.ByteString]
-    drop _ [] = []
-    drop amount (chunk:chunks) =
+    dropL :: Int -> [BS.ByteString] -> [BS.ByteString]
+    dropL _ [] = []
+    dropL amount (chunk:chunks) =
       if (amount < BS.length chunk)
         then (BS.drop amount chunk : chunks)
-        else drop (amount - BS.length chunk) chunks
+        else dropL (amount - BS.length chunk) chunks
 
 
 receiveThread :: IsSide s => WaylandConnection s -> IO ()

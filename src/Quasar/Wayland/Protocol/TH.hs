@@ -122,7 +122,7 @@ generateWaylandProcol protocolFile = do
 
 generateWaylandProcols :: [FilePath] -> Q [Dec]
 generateWaylandProcols protocolFiles = do
-  mapM addDependentFile protocolFiles
+  mapM_ addDependentFile protocolFiles
   xmls <- mapM (liftIO . BS.readFile) protocolFiles
   protocol <- mconcat <$> mapM parseProtocol xmls
   (public, internals) <- unzip <$> mapM interfaceDecs protocol.interfaces
@@ -603,8 +603,8 @@ parseEvent :: MonadFail m => String -> (Opcode, Element) -> m EventSpec
 parseEvent x y = EventSpec <$> parseMessage False x y
 
 parseMessage :: MonadFail m => Bool -> String -> (Opcode, Element) -> m MessageSpec
-parseMessage isRequest interface (opcode, element) = do
-  let isEvent = not isRequest
+parseMessage _isRequest interface (opcode, element) = do
+  -- let isEvent = not isRequest
 
   name <- getAttr "name" element
 

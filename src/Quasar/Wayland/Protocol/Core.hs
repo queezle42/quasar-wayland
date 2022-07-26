@@ -612,7 +612,7 @@ bindNewObject protocol version messageHandler = runProtocolM protocol do
 
 
 fromSomeObject
-  :: forall s i m. IsInterfaceSide s i
+  :: forall s i. IsInterfaceSide s i
   => SomeObject s -> Either String (Object s i)
 fromSomeObject (SomeObject someObject) =
   case cast someObject of
@@ -657,13 +657,13 @@ getNullableObject oId = Just <$> getObject oId
 -- | Handle a wl_display.error message. Because this is part of the core protocol but generated from the xml it has to
 -- be called from the client module.
 handleWlDisplayError :: ProtocolHandle 'Client -> GenericObjectId -> Word32 -> WlString -> STM ()
-handleWlDisplayError _protocol oId code message = throwM $ ServerError code (toString message)
+handleWlDisplayError _protocol _oId code message = throwM $ ServerError code (toString message)
 
 -- | Handle a wl_display.delete_id message. Because this is part of the core protocol but generated from the xml it has
 -- to be called from the client module.
 handleWlDisplayDeleteId :: ProtocolHandle 'Client -> Word32 -> STM ()
 handleWlDisplayDeleteId protocol oId = runProtocolM protocol do
-  -- TODO call destructor
+  -- TODO mark as deleted
   modifyProtocolVar (.objectsVar) $ HM.delete (GenericObjectId oId)
 
 
@@ -711,7 +711,6 @@ sendMessage object message = do
   traceM $ "-> " <> showObjectMessage object message
   sendRawMessage (putHeader opcode (8 + bodyLength) >> putBody) fds
   where
-    oId = genericObjectId object
     (GenericObjectId objectIdWord) = genericObjectId object
     putHeader :: Opcode -> Int -> Put
     putHeader opcode msgSize = do
