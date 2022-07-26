@@ -10,7 +10,7 @@ module Quasar.Wayland.Protocol (
   getMessageHandler,
 
   -- ** Wayland types
-  Fixed(..),
+  WlFixed(..),
   WlString(..),
   toString,
 

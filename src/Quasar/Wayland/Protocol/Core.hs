@@ -6,7 +6,7 @@ module Quasar.Wayland.Protocol.Core (
   NewId,
   GenericNewId,
   Opcode,
-  Fixed(..),
+  WlFixed(..),
   WlString(..),
   toString,
   fromString,
@@ -115,10 +115,10 @@ data GenericNewId = GenericNewId WlString Version Word32
 
 
 -- | Signed 24.8 decimal numbers.
-newtype Fixed = Fixed Word32
+newtype WlFixed = WlFixed Word32
   deriving newtype Eq
 
-instance Show Fixed where
+instance Show WlFixed where
   show x = "[fixed " <> show x <> "]"
 
 
@@ -162,9 +162,9 @@ instance WireFormat Word32 where
   getArgument = pure <$> getWord32host
   showArgument = show
 
-instance WireFormat Fixed where
-  putArgument (Fixed repr) = pure $ MessagePart (putWord32host repr) 4 mempty
-  getArgument = pure . Fixed <$> getWord32host
+instance WireFormat WlFixed where
+  putArgument (WlFixed repr) = pure $ MessagePart (putWord32host repr) 4 mempty
+  getArgument = pure . WlFixed <$> getWord32host
   showArgument = show
 
 instance WireFormat WlString where

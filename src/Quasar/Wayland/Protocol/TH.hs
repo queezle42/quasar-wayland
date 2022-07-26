@@ -498,7 +498,7 @@ argumentWireType argSpec = liftArgumentWireType argSpec.argType
 liftArgumentWireType :: ArgumentType -> Q Type
 liftArgumentWireType IntArgument = [t|Int32|]
 liftArgumentWireType UIntArgument = [t|Word32|]
-liftArgumentWireType FixedArgument = [t|Fixed|]
+liftArgumentWireType FixedArgument = [t|WlFixed|]
 liftArgumentWireType StringArgument = [t|WlString|]
 liftArgumentWireType ArrayArgument = [t|BS.ByteString|]
 liftArgumentWireType (ObjectArgument iName) = [t|ObjectId $(litT (strTyLit iName))|]
