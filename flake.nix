@@ -4,6 +4,8 @@
       url = gitlab:jens/quasar?host=git.c3pb.de;
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    nixpkgs.url = github:NixOS/nixpkgs/nixos-unstable;
   };
 
   outputs = { self, nixpkgs, quasar }:
@@ -17,15 +19,16 @@
         self.overlay
         quasar.overlay
       ]; };
-    in {
-      inherit (pkgs.haskellPackages) quasar-wayland;
+    in rec {
+      default = quasar-wayland;
+      quasar-wayland = pkgs.haskell.packages.ghc923.quasar-wayland;
     }
     );
 
-    overlay = self: super: {
-      haskell = super.haskell // {
-        packageOverrides = hself: hsuper: super.haskell.packageOverrides hself hsuper // {
-          quasar-wayland = import ./. { pkgs = self; haskellPackages = hself; };
+    overlay = final: prev: {
+      haskell = prev.haskell // {
+        packageOverrides = hfinal: hprev: prev.haskell.packageOverrides hfinal hprev // {
+          quasar-wayland = hfinal.callCabal2nix "quasar-wayland" ./. {};
         };
       };
     };
@@ -33,8 +36,6 @@
     overlays = {
       quasar = quasar.overlay;
     };
-
-    defaultPackage = forAllSystems (system: self.packages.${system}.quasar-wayland);
 
     devShell = forAllSystems (system:
       let
