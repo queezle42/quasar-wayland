@@ -126,11 +126,13 @@ test-suite quasar-wayland-test
   type: exitcode-stdio-1.0
   build-depends:
     base,
-    --QuickCheck,
     hspec,
-    --quasar-wayland,
+    inline-c,
+    quasar,
+    quasar-wayland,
+    QuickCheck,
   main-is: Spec.hs
   other-modules:
-    --Quasar.TemplateSpec
+    Quasar.Wayland.WlFixedSpec
   hs-source-dirs:
     test

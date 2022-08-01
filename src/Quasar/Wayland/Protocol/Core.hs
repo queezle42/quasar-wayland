@@ -7,6 +7,8 @@ module Quasar.Wayland.Protocol.Core (
   GenericNewId,
   Opcode,
   WlFixed(..),
+  fixedToDouble,
+  doubleToFixed,
   WlString(..),
   toString,
   fromString,
@@ -115,11 +117,17 @@ data GenericNewId = GenericNewId WlString Version Word32
 
 
 -- | Signed 24.8 decimal numbers.
-newtype WlFixed = WlFixed Word32
+newtype WlFixed = WlFixed Int32
   deriving newtype Eq
 
 instance Show WlFixed where
-  show x = "[fixed " <> show x <> "]"
+  show (WlFixed x) = "[fixed " <> show x <> "]"
+
+fixedToDouble :: WlFixed -> Double
+fixedToDouble (WlFixed f) = fromIntegral f / 256
+
+doubleToFixed :: Double -> WlFixed
+doubleToFixed d = WlFixed (round (d * 256))
 
 
 -- | A string. The encoding is not officially specified, but in practice UTF-8 is used.
@@ -163,8 +171,8 @@ instance WireFormat Word32 where
   showArgument = show
 
 instance WireFormat WlFixed where
-  putArgument (WlFixed repr) = pure $ MessagePart (putWord32host repr) 4 mempty
-  getArgument = pure . WlFixed <$> getWord32host
+  putArgument (WlFixed repr) = pure $ MessagePart (putInt32host repr) 4 mempty
+  getArgument = pure . WlFixed <$> getInt32host
   showArgument = show
 
 instance WireFormat WlString where

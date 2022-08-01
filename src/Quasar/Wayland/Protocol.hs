@@ -11,6 +11,8 @@ module Quasar.Wayland.Protocol (
 
   -- ** Wayland types
   WlFixed(..),
+  fixedToDouble,
+  doubleToFixed,
   WlString(..),
   toString,
 
