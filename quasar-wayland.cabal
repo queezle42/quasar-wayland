@@ -109,7 +109,7 @@ library
   hs-source-dirs:
     src
 
-executable quasar-wayland-example
+executable quasar-wayland-example-client
   import: shared-executable-properties
   build-depends:
     base,
@@ -117,9 +117,9 @@ executable quasar-wayland-example
     quasar,
     quasar-wayland,
     stm,
-  main-is: Main.hs
+  main-is: Client.hs
   hs-source-dirs:
-    example
+    examples
 
 test-suite quasar-wayland-test
   import: shared-executable-properties
