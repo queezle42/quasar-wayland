@@ -77,7 +77,7 @@ connectionThread connection work = asyncWithUnmask' \unmask -> unmask work `catc
   where
     traceAndDisposeConnection :: SomeException -> IO ()
     traceAndDisposeConnection (isCancelAsync -> True) = pure ()
-    -- TODO this logs- and then discard exceptions. Ensure this is the desired behavior?
+    -- NOTE this logs- and then discards exceptions (might need to be reworked later)
     traceAndDisposeConnection ex = traceIO (displayException ex) >> disposeEventuallyIO_ connection
 
 sendThread :: WaylandConnection s -> IO ()

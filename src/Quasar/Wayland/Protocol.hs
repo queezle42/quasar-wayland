@@ -37,7 +37,7 @@ module Quasar.Wayland.Protocol (
   Version,
   interfaceVersion,
   Side(..),
-  IsSide,
+  IsSide(MessageHandler),
   IsInterfaceSide,
 
   -- * For wl_display
