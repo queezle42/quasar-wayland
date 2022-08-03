@@ -83,6 +83,9 @@ library
     Quasar.Wayland.Protocol
     Quasar.Wayland.Protocol.Generated
     Quasar.Wayland.Protocol.TH
+    Quasar.Wayland.Server
+    Quasar.Wayland.Server.Registry
+    Quasar.Wayland.Server.Socket
   other-modules:
     Quasar.Wayland.Protocol.Core
     Quasar.Wayland.Utils.InlineC
@@ -93,6 +96,7 @@ library
     binary,
     bytestring,
     containers,
+    directory,
     exceptions,
     filepath,
     inline-c,
