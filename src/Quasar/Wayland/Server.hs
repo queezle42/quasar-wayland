@@ -41,7 +41,7 @@ newWaylandServerConnection server socket = do
   }
   where
     newServerDisplay :: STM (Object 'Server Interface_wl_display, ProtocolHandle 'Server)
-    newServerDisplay = initializeProtocol wlDisplayRequestHandler pure
+    newServerDisplay = initializeProtocol wlDisplayRequestHandler (.delete_id) pure
 
     wlDisplayRequestHandler :: ProtocolHandle 'Server -> RequestHandler_wl_display
     wlDisplayRequestHandler _protocol =

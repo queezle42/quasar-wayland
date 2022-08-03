@@ -42,7 +42,6 @@ module Quasar.Wayland.Protocol.Core (
   -- * Low-level protocol interaction
   objectWireArgument,
   nullableObjectWireArgument,
-  handleDestructor,
   checkObject,
   sendMessage,
   newObject,
@@ -71,7 +70,7 @@ module Quasar.Wayland.Protocol.Core (
 ) where
 
 import Control.Monad.Catch
-import Control.Monad.Reader (ReaderT, runReaderT, ask, lift)
+import Control.Monad.Reader (ReaderT, runReaderT, ask, asks, lift)
 import Data.Binary
 import Data.Binary.Get
 import Data.Binary.Put
@@ -103,6 +102,9 @@ newtype GenericObjectId = GenericObjectId Word32
 
 toGenericObjectId :: ObjectId j -> GenericObjectId
 toGenericObjectId (ObjectId oId) = GenericObjectId oId
+
+objectIdValue :: ObjectId j -> Word32
+objectIdValue (ObjectId value) = value
 
 type Opcode = Word16
 
@@ -243,6 +245,8 @@ class Typeable s => IsSide (s :: Side) where
   type WireDown s i
   initialId :: Word32
   maximumId :: Word32
+  -- | Should be called by generated code _after_ calling a destructor.
+  handleDestructor :: IsInterfaceSide s i => Object s i -> ProtocolM s () -> ProtocolM s ()
 
 instance IsSide 'Client where
   type MessageHandler 'Client i = EventHandler i
@@ -251,6 +255,7 @@ instance IsSide 'Client where
   -- Id #1 is reserved for wl_display
   initialId = 2
   maximumId = 0xfeffffff
+  handleDestructor object msgFn = handleDestructorPre object >> msgFn
 
 instance IsSide 'Server where
   type MessageHandler 'Server i = RequestHandler i
@@ -258,6 +263,21 @@ instance IsSide 'Server where
   type WireDown 'Server i = WireRequest i
   initialId = 0xff000000
   maximumId = 0xffffffff
+  handleDestructor object msgFn = do
+    handleDestructorPre object
+    msgFn
+    when (oid <= maximumId @'Client) do
+      sendWlDisplayDeleteId :: Word32 -> STM () <- asks (.sendWlDisplayDeleteId)
+      liftSTM $ sendWlDisplayDeleteId oid
+    where
+      oid :: Word32
+      oid = objectIdValue object.objectId
+
+-- Shared destructor code for client and server
+handleDestructorPre :: IsInterfaceSide s i => Object s i -> ProtocolM s ()
+handleDestructorPre object = do
+  traceM $ "Destroying " <> showObject object
+  lift $ writeTVar object.destroyed True
 
 
 class (
@@ -416,13 +436,14 @@ data ProtocolState (s :: Side) = ProtocolState {
   outboxVar :: TVar (Maybe Put),
   outboxFdsVar :: TVar (Seq Fd),
   objectsVar :: TVar (HashMap GenericObjectId (SomeObject s)),
-  nextIdVar :: TVar Word32
+  nextIdVar :: TVar Word32,
+  sendWlDisplayDeleteId :: Word32 -> STM ()
 }
 
 type ProtocolM s a = ReaderT (ProtocolState s) STM a
 
 askProtocol :: ProtocolM s (ProtocolHandle s)
-askProtocol = (.protocolHandle) <$> ask
+askProtocol = asks (.protocolHandle)
 
 readProtocolVar :: (ProtocolState s -> TVar a) -> ProtocolM s a
 readProtocolVar fn = do
@@ -457,9 +478,13 @@ swapProtocolVar fn x = do
 initializeProtocol
   :: forall s wl_display a. (IsInterfaceSide s wl_display)
   => (ProtocolHandle s -> MessageHandler s wl_display)
+  -- FIXME only required for server code
+  -> (Object s wl_display -> Word32 -> STM ())
+  -- ^ Send a wl_display.delete_id message. Because this is part of the core protocol but generated from the xml it has
+  -- to be provided by the main server module.
   -> (Object s wl_display -> STM a)
   -> STM (a, ProtocolHandle s)
-initializeProtocol wlDisplayMessageHandler initializationAction = do
+initializeProtocol wlDisplayMessageHandler sendWlDisplayDeleteId initializationAction = do
   bytesReceivedVar <- newTVar 0
   bytesSentVar <- newTVar 0
   inboxDecoderVar <- newTVar $ runGetIncremental getRawMessage
@@ -477,6 +502,10 @@ initializeProtocol wlDisplayMessageHandler initializationAction = do
     stateVar
   }
 
+  messageHandlerVar <- newTVar (Just (wlDisplayMessageHandler protocol))
+  destroyed <- newTVar False
+  let wlDisplay = Object protocol wlDisplayId messageHandlerVar destroyed
+
   let state = ProtocolState {
     protocolHandle = protocol,
     protocolKey,
@@ -487,13 +516,11 @@ initializeProtocol wlDisplayMessageHandler initializationAction = do
     outboxVar,
     outboxFdsVar,
     objectsVar,
-    nextIdVar
+    nextIdVar,
+    sendWlDisplayDeleteId = (sendWlDisplayDeleteId wlDisplay)
   }
   writeTVar stateVar (Right state)
 
-  messageHandlerVar <- newTVar (Just (wlDisplayMessageHandler protocol))
-  destroyed <- newTVar False
-  let wlDisplay = Object protocol wlDisplayId messageHandlerVar destroyed
   modifyTVar' objectsVar (HM.insert (toGenericObjectId wlDisplayId) (SomeObject wlDisplay))
 
   result <- initializationAction wlDisplay
@@ -673,12 +700,6 @@ handleWlDisplayDeleteId :: ProtocolHandle 'Client -> Word32 -> STM ()
 handleWlDisplayDeleteId protocol oId = runProtocolM protocol do
   -- TODO mark as deleted
   modifyProtocolVar (.objectsVar) $ HM.delete (GenericObjectId oId)
-
-
-handleDestructor :: IsInterfaceSide s i => Object s i -> ProtocolM s ()
-handleDestructor object = do
-  traceM $ "Handling destructor for " <> showObject object
-  lift $ writeTVar object.destroyed True
 
 
 checkObject :: IsInterface i => Object s i -> ProtocolM s (Either String ())

@@ -48,7 +48,7 @@ newWaylandClient socket = do
   }
   where
     newClientDisplay :: STM ((Object 'Client Interface_wl_display, Registry), ProtocolHandle 'Client)
-    newClientDisplay = initializeProtocol wlDisplayEventHandler initalize
+    newClientDisplay = initializeProtocol wlDisplayEventHandler (\_ _ -> unreachableCodePathM) initalize
 
     initalize :: Object 'Client Interface_wl_display -> STM (Object 'Client Interface_wl_display, Registry)
     initalize wlDisplay = do

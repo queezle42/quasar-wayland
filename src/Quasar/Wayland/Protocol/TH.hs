@@ -258,7 +258,7 @@ interfaceDecs interface = do
         msgHandlerE = [|$(appTypeE [|getField|] fieldNameLitT) $handlerE|]
         bodyE :: Q Exp
         bodyE
-          | msg.msgSpec.isDestructor = [|handleDestructor $objectE >> $msgE|]
+          | msg.msgSpec.isDestructor = [|handleDestructor $objectE $msgE|]
           | otherwise = msgE
         msgE :: Q Exp
         msgE = [|$(applyMsgArgs msgHandlerE) >>= lift|]
@@ -312,7 +312,7 @@ messageProxyInstanceDecs side messageContexts = mapM messageProxyInstanceD messa
             msgE idArgE = mkWireMsgE (idArgE : (wireArgE <$> args))
 
         dtorE :: Q Exp
-        dtorE = [|handleDestructor object >> $normalE|]
+        dtorE = [|handleDestructor object $normalE|]
 
         -- Body for a normal (i.e. non-constructor) proxy
         normalE :: Q Exp
