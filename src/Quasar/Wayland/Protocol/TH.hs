@@ -617,7 +617,9 @@ parseMessage _isRequest interface (opcode, element) = do
 
   isDestructor <-
     case mtype of
-      Nothing -> pure False
+      -- Patch `wl_callback.done` to be a destructor.
+      -- This ensures `done` is called only once, releases the id, and prevents a memory leak.
+      Nothing -> pure (interface == "wl_callback" && name == "done")
       Just "destructor" -> pure True
       Just messageType -> fail $ "Unknown message type: " <> messageType
 
