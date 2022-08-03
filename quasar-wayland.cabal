@@ -120,8 +120,17 @@ executable quasar-wayland-example-client
     JuicyPixels,
     quasar,
     quasar-wayland,
-    stm,
   main-is: Client.hs
+  hs-source-dirs:
+    examples
+
+executable quasar-wayland-example-server
+  import: shared-executable-properties
+  build-depends:
+    base,
+    quasar,
+    quasar-wayland,
+  main-is: Server.hs
   hs-source-dirs:
     examples
 
