@@ -1,46 +1,81 @@
 module Quasar.Wayland.Server.Registry (
   Registry,
+  Global,
   newRegistry,
   addRegistryConnection,
+  createGlobal,
+  maxVersion,
 ) where
 
+import Data.Foldable (toList)
 import Data.HashMap.Strict qualified as HM
+import Data.Sequence (Seq)
+import Data.Sequence qualified as Seq
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
+import Quasar.Wayland.Protocol.Core
 import Quasar.Wayland.Protocol.Generated
 
 -- TODO: send registry messages
--- TODO: remove connection when registry is destroyed
+-- TODO: remove RegistryConnection when registry protocol connection is destroyed
 
 data Registry = Registry {
   connections :: TVar [RegistryConnection],
+  singletons :: Seq Global,
   globalsVar :: TVar (HM.HashMap Word32 Global)
 }
 
-newRegistry :: MonadIO m => m Registry
-newRegistry = do
+newRegistry :: MonadIO m => [Global] -> m Registry
+newRegistry singletons = do
   connections <- newTVarIO mempty
   globalsVar <- newTVarIO mempty
-  pure Registry { connections, globalsVar }
+  pure Registry { connections, singletons = Seq.fromList singletons, globalsVar }
 
 data RegistryConnection = RegistryConnection {
   registry :: Registry,
   wlRegistry :: Object 'Server Interface_wl_registry
 }
 
+createGlobal :: forall i. IsInterfaceSide 'Server i => Version -> (Object 'Server i -> STM ()) -> Global
+createGlobal supportedVersion bindFn =
+  Global {
+    interface = interfaceName @i,
+    version = min supportedVersion (interfaceVersion @i),
+    bindObject
+  }
+  where
+    bindObject :: GenericNewId -> ProtocolM 'Server ()
+    bindObject newId = do
+      object <- bindObjectFromId Nothing newId
+      liftSTM $ bindFn object
+
 addRegistryConnection :: Registry -> Object 'Server Interface_wl_registry -> STM ()
 addRegistryConnection registry wlRegistry = do
   setMessageHandler wlRegistry messageHandler
   modifyTVar registry.connections (connection:)
+  forM_ (zip [0..] (toList registry.singletons)) (sendGlobal wlRegistry)
   where
     connection = RegistryConnection { registry, wlRegistry }
     messageHandler :: RequestHandler_wl_registry
     messageHandler = RequestHandler_wl_registry {
-      bind = \name id -> traceM "wl_registry.bind not implemented"
+      bind = bindHandler registry (objectProtocol wlRegistry)
     }
 
+sendGlobal :: Object 'Server Interface_wl_registry -> (Word32, Global) -> STM ()
+sendGlobal wlRegistry (name, global) = wlRegistry.global name global.interface global.version
+
+bindHandler :: Registry -> ProtocolHandle 'Server -> Word32 -> GenericNewId -> STM ()
+bindHandler registry protocolHandle name newId = do
+  case Seq.lookup (fromIntegral name) registry.singletons of
+    Just global -> runProtocolM protocolHandle (global.bindObject newId)
+    Nothing -> traceM $ "Invalid global " <> show name
+  -- TODO dynamic globals
+
 data Global = Global {
-  name :: Word32,
   interface :: WlString,
-  version :: Word32
+  version :: Word32,
+  bindObject :: GenericNewId -> ProtocolM 'Server ()
 }
+
+maxVersion :: Version
+maxVersion = maxBound

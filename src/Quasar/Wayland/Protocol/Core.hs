@@ -47,6 +47,7 @@ module Quasar.Wayland.Protocol.Core (
   newObject,
   newObjectFromId,
   bindNewObject,
+  bindObjectFromId,
   getObject,
   getNullableObject,
   lookupObject,
@@ -641,9 +642,22 @@ bindNewObject
   -> Version
   -> Maybe (MessageHandler 'Client i)
   -> STM (Object 'Client i, GenericNewId)
-bindNewObject protocol version messageHandler = runProtocolM protocol do
-  (object, NewId (ObjectId newId)) <- newObject messageHandler
-  pure (object, GenericNewId (interfaceName @i) version newId)
+bindNewObject protocol version messageHandler =
+  runProtocolM protocol do
+    (object, NewId (ObjectId newId)) <- newObject messageHandler
+    pure (object, GenericNewId (interfaceName @i) version newId)
+
+-- | Create an object from a received id.
+-- object).
+--
+-- For implementing wl_registry.bind (which is low-level protocol functionality, but which depends on generated code).
+bindObjectFromId
+  :: forall i. IsInterfaceSide 'Server i
+  => Maybe (MessageHandler 'Server i)
+  -> GenericNewId
+  -> ProtocolM 'Server (Object 'Server i)
+bindObjectFromId messageHandler (GenericNewId interface version value) =
+  newObjectFromId messageHandler (NewId (ObjectId value))
 
 
 fromSomeObject
