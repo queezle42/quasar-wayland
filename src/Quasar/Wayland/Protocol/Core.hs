@@ -88,7 +88,7 @@ import Data.Foldable (toList)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Proxy
-import Data.Sequence (Seq)
+import Data.Sequence (Seq(Empty, (:<|)))
 import Data.Sequence qualified as Seq
 import Data.String (IsString(..))
 import Data.Typeable (Typeable, cast)
@@ -220,8 +220,14 @@ instance WireFormat GenericNewId where
 
 instance WireFormat Fd where
   putArgument fd = pure (MessagePart mempty 0 (Seq.singleton fd))
-  getArgument = undefined
+  getArgument = pure getFd
   showArgument (Fd fd) = "fd@" <> show fd
+
+getFd :: ProtocolM s Fd
+getFd =
+  readProtocolVar (.inboxFdsVar) >>= \case
+    (fd :<| fds) -> fd <$ writeProtocolVar (.inboxFdsVar) fds
+    Empty -> throwM $ ProtocolException "Expected fd"
 
 
 -- | Class for a proxy type (in the haskell sense) that describes a Wayland interface.
