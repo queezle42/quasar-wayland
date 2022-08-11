@@ -66,6 +66,7 @@ module Quasar.Wayland.Protocol.Core (
   ProtocolUsageError(..),
   MaximumIdReached(..),
   ServerError(..),
+  InternalError(..),
 
   -- * Message decoder operations
   WireFormat(..),

@@ -33,6 +33,7 @@ module Quasar.Wayland.Protocol (
   ProtocolUsageError(..),
   MaximumIdReached(..),
   ServerError(..),
+  InternalError(..),
 
   -- ** Classes for generated interfaces
   IsInterface(InterfaceName),
