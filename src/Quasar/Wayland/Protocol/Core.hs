@@ -24,6 +24,8 @@ module Quasar.Wayland.Protocol.Core (
   setRequestHandler,
   setMessageHandler,
   getMessageHandler,
+  setInterfaceData,
+  getInterfaceData,
   NewObject,
   IsObject,
   IsMessage(..),
@@ -80,6 +82,7 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.UTF8 qualified as BSUTF8
+import Data.Dynamic (Dynamic, toDyn, fromDynamic)
 import Data.Foldable (toList)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -308,6 +311,8 @@ data Object s i = IsInterfaceSide s i => Object {
   objectProtocol :: (ProtocolHandle s),
   objectId :: ObjectId (InterfaceName i),
   messageHandler :: TVar (Maybe (MessageHandler s i)),
+  -- FIXME type-safe variant for `interfaceData`?
+  interfaceData :: TVar Dynamic,
   destroyed :: TVar Bool
 }
 
@@ -323,6 +328,14 @@ setRequestHandler = setMessageHandler
 
 setEventHandler :: Object 'Client i -> EventHandler i -> STM ()
 setEventHandler = setMessageHandler
+
+-- | Attach interface-specific data to the object. Should only be used by the primary interface implementation.
+setInterfaceData :: Typeable a => Object s i -> a -> STM ()
+setInterfaceData object value = writeTVar object.interfaceData (toDyn value)
+
+-- | Get interface-specific data that was attached to the object.
+getInterfaceData :: Typeable a => Object s i -> STM (Maybe a)
+getInterfaceData object = fromDynamic <$> readTVar object.interfaceData
 
 -- | Type alias to indicate an object is created with a message.
 type NewObject s i = Object s i
@@ -504,8 +517,15 @@ initializeProtocol wlDisplayMessageHandler sendWlDisplayDeleteId initializationA
   }
 
   messageHandlerVar <- newTVar (Just (wlDisplayMessageHandler protocol))
+  interfaceData <- newTVar (toDyn ())
   destroyed <- newTVar False
-  let wlDisplay = Object protocol wlDisplayId messageHandlerVar destroyed
+  let wlDisplay = Object {
+        objectProtocol = protocol,
+        objectId = wlDisplayId,
+        messageHandler = messageHandlerVar,
+        interfaceData,
+        destroyed
+      }
 
   let state = ProtocolState {
     protocolHandle = protocol,
@@ -624,9 +644,16 @@ newObjectFromId
 newObjectFromId messageHandler (NewId oId) = do
   protocol <- askProtocol
   messageHandlerVar <- lift $ newTVar messageHandler
+  interfaceDataVar <- lift $ newTVar (toDyn ())
   destroyed <- lift $ newTVar False
   let
-    object = Object protocol oId messageHandlerVar destroyed
+    object = Object {
+      objectProtocol = protocol,
+      objectId = oId,
+      messageHandler = messageHandlerVar,
+      interfaceData = interfaceDataVar,
+      destroyed
+    }
     someObject = SomeObject object
   modifyProtocolVar (.objectsVar) (HM.insert (genericObjectId object) someObject)
   pure object
