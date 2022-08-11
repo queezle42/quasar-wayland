@@ -19,12 +19,6 @@ import System.Posix.IO (closeFd)
 import System.Posix.Types (Fd)
 
 
-data Buffer = Buffer {
-  wlBuffer :: Object 'Client Interface_wl_buffer,
-  currentlyUsed :: TVar Bool
-}
-
-
 data ShmBufferManager = ShmBufferManager {
   wlShm :: Object 'Client Interface_wl_shm,
   formats :: Future (Set.Set Word32)
