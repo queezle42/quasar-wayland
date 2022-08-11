@@ -83,6 +83,7 @@ library
     Quasar.Wayland.Protocol
     Quasar.Wayland.Protocol.Generated
     Quasar.Wayland.Protocol.TH
+    Quasar.Wayland.Region
     Quasar.Wayland.Server
     Quasar.Wayland.Server.Registry
     Quasar.Wayland.Server.Socket
