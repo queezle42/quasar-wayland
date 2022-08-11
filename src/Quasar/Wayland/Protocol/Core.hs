@@ -194,11 +194,13 @@ instance WireFormat BS.ByteString where
 instance KnownSymbol j => WireFormat (ObjectId (j :: Symbol)) where
   putArgument (ObjectId oId) = pure $ MessagePart (putWord32host oId) 4 mempty
   getArgument = pure . ObjectId <$> getWord32host
+  showArgument (ObjectId 0) = "null"
   showArgument (ObjectId oId) = symbolVal @j Proxy <> "@" <> show oId
 
 instance WireFormat GenericObjectId where
   putArgument (GenericObjectId oId) = pure $ MessagePart (putWord32host oId) 4 mempty
   getArgument = pure . GenericObjectId <$> getWord32host
+  showArgument (GenericObjectId 0) = "null"
   showArgument oId = "[unknown]@" <> show oId
 
 instance KnownSymbol j => WireFormat (NewId (j :: Symbol)) where
@@ -317,8 +319,8 @@ data Object s i = IsInterfaceSide s i => Object {
 }
 
 
-getMessageHandler :: Object s i -> STM (MessageHandler s i)
-getMessageHandler object = maybe retry pure =<< readTVar object.messageHandler
+getMessageHandler :: IsInterfaceSide s i => Object s i -> STM (MessageHandler s i)
+getMessageHandler object = maybe (throwM (InternalError ("No message handler attached to " <> showObject object))) pure =<< readTVar object.messageHandler
 
 setMessageHandler :: Object s i -> MessageHandler s i -> STM ()
 setMessageHandler object = writeTVar object.messageHandler . Just
@@ -425,6 +427,10 @@ data MaximumIdReached = MaximumIdReached
   deriving anyclass Exception
 
 data ServerError = ServerError Word32 String
+  deriving stock Show
+  deriving anyclass Exception
+
+data InternalError = InternalError String
   deriving stock Show
   deriving anyclass Exception
 
