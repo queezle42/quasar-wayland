@@ -73,8 +73,13 @@ newShmBuffer
 newShmBuffer shm width height = do
   (wlShmPool, ptr) <- trySendShm size (\fd -> shm.wlShm.create_pool fd size)
 
-  wlBuffer <- liftIO $ atomically $
-    wlShmPool.create_buffer offset width height stride pixelFormat
+  wlBuffer <- liftIO $ atomically do
+    wlBuffer <- wlShmPool.create_buffer offset width height stride pixelFormat
+    setEventHandler wlBuffer EventHandler_wl_buffer {
+      -- TODO
+      release = pure ()
+    }
+    pure wlBuffer
 
   atomically wlShmPool.destroy
 
