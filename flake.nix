@@ -21,7 +21,7 @@
       ]; };
     in rec {
       default = quasar-wayland;
-      quasar-wayland = pkgs.haskell.packages.ghc923.quasar-wayland;
+      quasar-wayland = pkgs.haskell.packages.ghc924.quasar-wayland;
     }
     );
 
