@@ -87,6 +87,7 @@ library
     Quasar.Wayland.Server
     Quasar.Wayland.Server.Registry
     Quasar.Wayland.Server.Socket
+    Quasar.Wayland.Surface
   other-modules:
     Quasar.Wayland.Protocol.Core
     Quasar.Wayland.Utils.InlineC

@@ -4,6 +4,8 @@ module Quasar.Wayland.Region (
   newRegion,
   addDownstream,
   Rectangle(..),
+  appRect,
+  appAsRect,
   addToRegion,
   subtractFromRegion,
   destroyRegion,
@@ -90,6 +92,9 @@ applyOperation region (Subtract rect) = region.subtract `appRect` rect
 
 appRect :: (Int32 -> Int32 -> Int32 -> Int32 -> a) -> Rectangle -> a
 appRect fn (Rectangle x y width height) = fn x y width height
+
+appAsRect :: (Rectangle -> a) -> Int32 -> Int32 -> Int32 -> Int32 -> a
+appAsRect fn x y width height = fn (Rectangle x y width height)
 
 callDownstreams :: (SomeRegion -> STM ()) -> Region -> STM ()
 callDownstreams fn region = do
