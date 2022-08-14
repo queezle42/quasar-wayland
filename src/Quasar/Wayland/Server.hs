@@ -4,6 +4,7 @@ module Quasar.Wayland.Server (
   newWaylandServer,
   newWaylandServerConnection,
   listenAt,
+  compositorGlobal,
 ) where
 
 import Control.Monad.Catch
@@ -13,8 +14,10 @@ import Quasar.Prelude
 import Quasar.Wayland.Connection
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
+import Quasar.Wayland.Region
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Socket
+import Quasar.Wayland.Surface
 
 
 data WaylandServer = WaylandServer {
@@ -58,3 +61,16 @@ listenAt socketPath server = disposeOnError do
   asyncWithUnmask_ \_ -> forever do
     socket <- atomically $ takeTMVar var
     newWaylandServerConnection server socket
+
+
+compositorGlobal :: forall b. BufferBackend b => Global
+compositorGlobal = createGlobal @Interface_wl_compositor maxVersion bindCompositor
+  where
+    bindCompositor :: Object 'Server Interface_wl_compositor -> STM ()
+    bindCompositor wlCompositor = setMessageHandler wlCompositor handler
+
+    handler :: RequestHandler_wl_compositor
+    handler = RequestHandler_wl_compositor {
+      create_surface = initializeServerSurface @b,
+      create_region = initializeServerRegion
+    }
