@@ -115,9 +115,13 @@ main = do
 
       wlrLayerShell <- bindSingleton @Interface_zwlr_layer_shell_v1 client.registry
 
+      configuredVar <- newTVar False
+
       wlrLayerSurface <- wlrLayerShell.get_layer_surface wlSurface Nothing 2 "demo"
       setMessageHandler wlrLayerSurface EventHandler_zwlr_layer_surface_v1 {
-        configure = \serial width height -> wlrLayerSurface.ack_configure serial,
+        configure = \serial width height -> do
+            wlrLayerSurface.ack_configure serial
+            writeTVar configuredVar True,
         closed = pure ()
       }
       wlrLayerSurface.set_size 512 512
@@ -129,6 +133,7 @@ main = do
         buffer <- liftIO $ toImageBuffer shm (mkImage gradient)
 
         liftIO $ atomically do
+          check =<< readTVar configuredVar
           wlSurface.attach (Just buffer) 0 0
           wlSurface.commit
 
