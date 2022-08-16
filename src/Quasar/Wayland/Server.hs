@@ -17,6 +17,7 @@ import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Socket
+import Quasar.Wayland.Server.Surface
 import Quasar.Wayland.Surface
 
 
