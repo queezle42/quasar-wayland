@@ -47,6 +47,7 @@ common shared-properties
     RankNTypes
     ScopedTypeVariables
     StandaloneDeriving
+    StandaloneKindSignatures
     TupleSections
     TypeApplications
     TypeFamilies

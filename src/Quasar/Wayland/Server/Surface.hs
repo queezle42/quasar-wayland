@@ -1,5 +1,6 @@
 module Quasar.Wayland.Server.Surface (
   initializeServerSurface,
+  initializeWlBuffer,
 ) where
 
 import Quasar.Prelude
@@ -31,7 +32,7 @@ newServerSurface = do
 modifyPending :: forall b. ServerSurface b -> (SurfaceCommit b -> SurfaceCommit b) -> STM ()
 modifyPending surface fn = modifyTVar surface.pendingSurfaceCommit fn
 
-commitServerSurface :: forall b. ServerSurface b -> STM ()
+commitServerSurface :: forall b. BufferBackend b => ServerSurface b -> STM ()
 commitServerSurface surface = do
   pendingCommit <- readTVar surface.pendingSurfaceCommit
 
@@ -79,6 +80,7 @@ damageBuffer surface rect =
 initializeServerSurface :: forall b. BufferBackend b => Object 'Server Interface_wl_surface -> STM ()
 initializeServerSurface wlSurface = do
   surface <- newServerSurface @b
+  -- TODO missing requests
   setMessageHandler wlSurface RequestHandler_wl_surface {
     -- TODO ensure role is destroyed before surface
     destroy = pure (),
@@ -94,3 +96,11 @@ initializeServerSurface wlSurface = do
   }
   setInterfaceData wlSurface surface
   traceM "wl_surface not implemented"
+
+initializeWlBuffer :: forall b. BufferBackend b => NewObject 'Server Interface_wl_buffer -> Buffer b -> STM ()
+initializeWlBuffer wlBuffer buffer = do
+  setInterfaceData wlBuffer buffer
+  setRequestHandler wlBuffer RequestHandler_wl_buffer {
+    -- TODO propagate buffer destruction
+    destroy = destroyBuffer buffer
+  }
