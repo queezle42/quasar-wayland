@@ -26,6 +26,7 @@ module Quasar.Wayland.Protocol.Core (
   getMessageHandler,
   setInterfaceData,
   getInterfaceData,
+  isDestroyed,
   NewObject,
   IsObject,
   IsMessage(..),
@@ -325,7 +326,6 @@ data Object s i = IsInterfaceSide s i => Object {
   destroyed :: TVar Bool
 }
 
-
 getMessageHandler :: IsInterfaceSide s i => Object s i -> STM (MessageHandler s i)
 getMessageHandler object = maybe (throwM (InternalError ("No message handler attached to " <> showObject object))) pure =<< readTVar object.messageHandler
 
@@ -345,6 +345,9 @@ setInterfaceData object value = writeTVar object.interfaceData (toDyn value)
 -- | Get interface-specific data that was attached to the object.
 getInterfaceData :: Typeable a => Object s i -> STM (Maybe a)
 getInterfaceData object = fromDynamic <$> readTVar object.interfaceData
+
+isDestroyed :: Object s i -> STM Bool
+isDestroyed object = readTVar object.destroyed
 
 -- | Type alias to indicate an object is created with a message.
 type NewObject s i = Object s i

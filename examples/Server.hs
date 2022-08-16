@@ -2,16 +2,16 @@ module Main (main) where
 
 import Quasar
 import Quasar.Prelude
-import Quasar.Wayland.Surface
 import Quasar.Wayland.Server
 import Quasar.Wayland.Server.Registry
+import Quasar.Wayland.Server.Shm
+import Quasar.Wayland.Shm
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 
 main :: IO ()
 main = runQuasarAndExit (stderrLogger LogLevelWarning) do
   let
-    shmGlobal = createGlobal @Interface_wl_shm maxVersion (\_ -> traceM "wl_shm not implemented")
     layerShellGlobal = createGlobal @Interface_zwlr_layer_shell_v1 maxVersion (\x -> setRequestHandler x layerShellHandler)
   registry <- newRegistry [compositorGlobal @ShmBufferBackend, shmGlobal, layerShellGlobal]
   server <- newWaylandServer registry
@@ -21,7 +21,10 @@ main = runQuasarAndExit (stderrLogger LogLevelWarning) do
 layerShellHandler :: RequestHandler_zwlr_layer_shell_v1
 layerShellHandler =
   RequestHandler_zwlr_layer_shell_v1 {
-    get_layer_surface = \wlLayerSurface _ _ _ _ -> setRequestHandler wlLayerSurface layerSurfaceHandler,
+    get_layer_surface = \wlLayerSurface _ _ _ _ -> do
+      setRequestHandler wlLayerSurface layerSurfaceHandler
+      -- Just send a "correct" configure event for the demo client to get things rolling
+      wlLayerSurface.configure 0 512 512,
     destroy = pure ()
   }
 

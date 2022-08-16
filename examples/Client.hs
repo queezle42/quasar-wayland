@@ -126,6 +126,7 @@ main = do
       }
       wlrLayerSurface.set_size 512 512
 
+      -- Commit role
       wlSurface.commit
       -- Should await first `configure` event
 
@@ -137,12 +138,21 @@ main = do
           wlSurface.attach (Just buffer) 0 0
           wlSurface.commit
 
-        -- buffer2 <- liftIO $ toImageBuffer shm (wallpaperImage wallpaper)
+        await =<< newDelay 1000000
 
-        --liftIO $ atomically do
-        --  wlSurface.attach (Nothing) 0 0
-        --  --wlSurface.damage 0 0 100 100
-        --  wlSurface.commit
+        buffer2 <- liftIO $ toImageBuffer shm (mkImage solidColor)
+
+        liftIO $ atomically do
+          wlSurface.attach (Just buffer2) 0 0
+          wlSurface.damage 0 0 42 42
+          wlSurface.commit
+
+        await =<< newDelay 1000000
+
+        liftIO $ atomically do
+          wlSurface.attach (Nothing) 0 0
+          wlSurface.damage 100 100 42 42
+          wlSurface.commit
 
         traceIO . ("shm buffer formats: " <>) . mconcat . intersperse ", " . fmap show . toList =<< await shm.formats
 

@@ -87,8 +87,10 @@ library
     Quasar.Wayland.Region
     Quasar.Wayland.Server
     Quasar.Wayland.Server.Registry
+    Quasar.Wayland.Server.Shm
     Quasar.Wayland.Server.Socket
     Quasar.Wayland.Server.Surface
+    Quasar.Wayland.Shm
     Quasar.Wayland.Surface
   other-modules:
     Quasar.Wayland.Protocol.Core

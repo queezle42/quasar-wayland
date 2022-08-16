@@ -71,7 +71,7 @@ newShmBuffer shm width height = do
     wlBuffer <- wlShmPool.create_buffer offset width height stride pixelFormat
     setEventHandler wlBuffer EventHandler_wl_buffer {
       -- TODO
-      release = pure ()
+      release = wlBuffer.destroy
     }
     pure wlBuffer
 
