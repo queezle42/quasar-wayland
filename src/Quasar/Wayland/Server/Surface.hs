@@ -1,8 +1,10 @@
 module Quasar.Wayland.Server.Surface (
   initializeServerSurface,
   initializeWlBuffer,
+  getBuffer,
 ) where
 
+import Control.Monad.Catch
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
@@ -104,3 +106,10 @@ initializeWlBuffer wlBuffer buffer = do
     -- TODO propagate buffer destruction
     destroy = destroyBuffer buffer
   }
+
+getBuffer :: forall b. BufferBackend b => Object 'Server Interface_wl_buffer -> STM (Buffer b)
+getBuffer wlBuffer = do
+  ifd <- getInterfaceData @(Buffer b) wlBuffer
+  case ifd of
+    Just buffer -> pure buffer
+    Nothing -> throwM $ InternalError ("Missing interface data on " <> show wlBuffer)

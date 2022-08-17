@@ -5,7 +5,6 @@ module Quasar.Wayland.Surface (
   newBuffer,
   lockBuffer,
   destroyBuffer,
-  getBuffer,
 
   -- * Surface
   Damage(..),
@@ -74,14 +73,6 @@ tryFinalizeBuffer buffer = do
   lockCount <- readTVar buffer.lockCount
   when (destroyed && lockCount == 0) do
     releaseBufferStorage @b buffer.content
-
-
-getBuffer :: forall b. BufferBackend b => Object 'Server Interface_wl_buffer -> STM (Buffer b)
-getBuffer wlBuffer = do
-  ifd <- getInterfaceData @(Buffer b) wlBuffer
-  case ifd of
-    Just buffer -> pure buffer
-    Nothing -> throwM $ InternalError ("Missing interface data on " <> show wlBuffer)
 
 
 class SurfaceRole a where
