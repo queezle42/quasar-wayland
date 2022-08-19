@@ -38,11 +38,5 @@ initializeWlShmPool wlShmPool fd size = do
 
 initializeWlShmBuffer :: ShmPool -> NewObject 'Server Interface_wl_buffer -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STM ()
 initializeWlShmBuffer pool wlBuffer offset width height stride format = do
-  shmBuffer <- newShmBuffer pool offset width height stride format releaseFn
-  initializeWlBuffer @ShmBufferBackend wlBuffer shmBuffer
-  where
-    releaseFn :: Int -> STM ()
-    -- TODO handle other exceptions (e.g. disconnected)
-    releaseFn attachedCount =
-      unlessM (isDestroyed wlBuffer)
-        (sequence_ (replicate attachedCount wlBuffer.release))
+  let initializeBufferFn = newShmBuffer pool offset width height stride format
+  initializeWlBuffer @ShmBufferBackend wlBuffer initializeBufferFn

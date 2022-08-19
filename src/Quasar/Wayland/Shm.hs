@@ -17,7 +17,6 @@ data ShmBufferBackend
 
 instance BufferBackend ShmBufferBackend where
   type BufferContent ShmBufferBackend = ShmBuffer
-  releaseBuffer buffer = buffer.releaseFn
   releaseBufferStorage buffer = do
     modifyTVar buffer.pool.bufferCount pred
     traceM "Finalized ShmBuffer"
@@ -39,8 +38,7 @@ data ShmBuffer = ShmBuffer {
   width :: Int32,
   height :: Int32,
   stride :: Int32,
-  format :: Word32,
-  releaseFn :: Int -> STM ()
+  format :: Word32
 }
 
 -- | Create an `ShmPool` for externally managed memory. Takes ownership of the passed file descriptor.
@@ -85,12 +83,12 @@ tryFinalizeShmPool pool = do
 
 
 -- | Create a new buffer for an externally managed pool
-newShmBuffer :: ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> (Int -> STM ()) -> STM (Buffer ShmBufferBackend)
-newShmBuffer pool offset width height stride format releaseFn = do
+newShmBuffer :: ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STM () -> STM (Buffer ShmBufferBackend)
+newShmBuffer pool offset width height stride format releaseBuffer = do
   -- TODO check arguments
   modifyTVar pool.bufferCount succ
-  let shmBuffer = ShmBuffer pool offset width height stride format releaseFn
-  newBuffer @ShmBufferBackend shmBuffer
+  let shmBuffer = ShmBuffer pool offset width height stride format
+  newBuffer @ShmBufferBackend shmBuffer releaseBuffer
 
 data DownstreamShmPool = DownstreamShmPool
 

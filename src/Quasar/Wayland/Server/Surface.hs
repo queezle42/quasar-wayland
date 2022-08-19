@@ -14,69 +14,73 @@ import Quasar.Wayland.Surface
 
 data ServerSurface b = ServerSurface {
   surface :: Surface b,
-  pendingSurfaceCommit :: TVar (SurfaceCommit b),
+  pendingBuffer :: TVar (Maybe (ServerBuffer b)),
+  pendingOffset :: TVar (Int32, Int32),
+  pendingBufferDamage :: TVar Damage,
   -- Damage specified in surface coordinates (i.e. produced by wl_surface.damage instead of wl_surface.damage_buffer).
   -- Damage can be converted to buffer coordinates on commit (NOTE: conversion requires wl_surface version 4)
   pendingSurfaceDamage :: TVar [Rectangle]
 }
 
+data ServerBuffer b = ServerBuffer {
+  buffer :: Buffer b,
+  attachedCount :: TVar Int
+}
+
 newServerSurface :: forall b. STM (ServerSurface b)
 newServerSurface = do
   surface <- newSurface @b
-  pendingSurfaceCommit <- newTVar (defaultSurfaceCommit (DamageList []))
-  pendingSurfaceDamage <- newTVar []
+  pendingBuffer <- newTVar Nothing
+  pendingOffset <- newTVar (0, 0)
+  pendingBufferDamage <- newTVar mempty
+  pendingSurfaceDamage <- newTVar mempty
+
   pure ServerSurface {
     surface,
-    pendingSurfaceCommit,
+    pendingBuffer,
+    pendingOffset,
+    pendingBufferDamage,
     pendingSurfaceDamage
   }
 
-modifyPending :: forall b. ServerSurface b -> (SurfaceCommit b -> SurfaceCommit b) -> STM ()
-modifyPending surface fn = modifyTVar surface.pendingSurfaceCommit fn
-
 commitServerSurface :: forall b. BufferBackend b => ServerSurface b -> STM ()
 commitServerSurface surface = do
-  pendingCommit <- readTVar surface.pendingSurfaceCommit
-
+  serverBuffer <- swapTVar surface.pendingBuffer Nothing
+  offset <- swapTVar surface.pendingOffset (0, 0)
+  bufferDamage <- swapTVar surface.pendingBufferDamage mempty
   surfaceDamage <- swapTVar surface.pendingSurfaceDamage mempty
-  let convertedSurfaceDamage =
-        case surfaceDamage of
-          [] -> DamageList []
-          -- TODO should do a coordinate conversion
-          _ -> DamageAll
+  let
+    convertedSurfaceDamage =
+      case surfaceDamage of
+        [] -> mempty
+        -- TODO should do a coordinate conversion
+        _ -> DamageAll
+    combinedDamage = bufferDamage <> convertedSurfaceDamage
 
-  let commit =
-        pendingCommit {
-          bufferDamage = pendingCommit.bufferDamage <> convertedSurfaceDamage
-        }
+  commitSurface surface.surface SurfaceCommit {
+    buffer = (.buffer) <$> serverBuffer,
+    offset,
+    bufferDamage = combinedDamage
+  }
 
-  writeTVar surface.pendingSurfaceCommit $
-    commit {
-      buffer = Nothing,
-      offset = (0, 0),
-      bufferDamage = DamageList []
-    }
-
-  commitSurface surface.surface commit
+  case serverBuffer of
+    Just sb -> modifyTVar sb.attachedCount (+ 1)
+    Nothing -> pure ()
 
 attachToSurface :: forall b. BufferBackend b => ServerSurface b -> Maybe (Object 'Server Interface_wl_buffer) -> Int32 -> Int32 -> STM ()
 attachToSurface surface wlBuffer x y = do
-  buffer <- mapM (getBuffer @b) wlBuffer
-  modifyPending surface \s ->
-    s {
-      buffer,
-      offset = (x, y)
-    }
+  buffer <- mapM (getServerBuffer @b) wlBuffer
+  writeTVar surface.pendingBuffer buffer
+  writeTVar surface.pendingOffset (x, y)
 
 damageSurface :: forall b. ServerSurface b -> Rectangle -> STM ()
-damageSurface surface rect =
-  modifyTVar surface.pendingSurfaceDamage (rect:)
+damageSurface surface rect = modifyTVar surface.pendingSurfaceDamage (rect:)
 
 damageBuffer :: forall b. ServerSurface b -> Rectangle -> STM ()
 damageBuffer surface rect =
-  modifyPending surface \case
-    commit@SurfaceCommit{bufferDamage = DamageAll} -> commit
-    commit@SurfaceCommit{bufferDamage = DamageList xs} -> commit { bufferDamage = DamageList (rect : xs) }
+  modifyTVar surface.pendingBufferDamage \case
+    DamageAll -> DamageAll
+    DamageList xs -> DamageList (rect : xs)
 
 
 initializeServerSurface :: forall b. BufferBackend b => Object 'Server Interface_wl_surface -> STM ()
@@ -99,17 +103,35 @@ initializeServerSurface wlSurface = do
   setInterfaceData wlSurface surface
   traceM "wl_surface not implemented"
 
-initializeWlBuffer :: forall b. BufferBackend b => NewObject 'Server Interface_wl_buffer -> Buffer b -> STM ()
-initializeWlBuffer wlBuffer buffer = do
-  setInterfaceData wlBuffer buffer
+initializeWlBuffer :: forall b. BufferBackend b => NewObject 'Server Interface_wl_buffer -> (STM () -> STM (Buffer b)) -> STM ()
+initializeWlBuffer wlBuffer initializeBufferFn = do
+  attachedCount <- newTVar 0
+  buffer <- initializeBufferFn (releaseServerBuffer attachedCount)
+
+  let serverBuffer = ServerBuffer {
+    buffer,
+    attachedCount
+  }
+  setInterfaceData wlBuffer serverBuffer
   setRequestHandler wlBuffer RequestHandler_wl_buffer {
     -- TODO propagate buffer destruction
     destroy = destroyBuffer buffer
   }
+  where
+    releaseServerBuffer :: TVar Int -> STM ()
+    releaseServerBuffer attachedCountVar = do
+      attachedCount <- swapTVar attachedCountVar 0
+        -- TODO handle other exceptions (e.g. disconnects)
+      unlessM (isDestroyed wlBuffer) $
+        sequence_ $ replicate attachedCount $ wlBuffer.release
 
-getBuffer :: forall b. BufferBackend b => Object 'Server Interface_wl_buffer -> STM (Buffer b)
-getBuffer wlBuffer = do
-  ifd <- getInterfaceData @(Buffer b) wlBuffer
+
+getServerBuffer :: forall b. BufferBackend b => Object 'Server Interface_wl_buffer -> STM (ServerBuffer b)
+getServerBuffer wlBuffer = do
+  ifd <- getInterfaceData @(ServerBuffer b) wlBuffer
   case ifd of
     Just buffer -> pure buffer
     Nothing -> throwM $ InternalError ("Missing interface data on " <> show wlBuffer)
+
+getBuffer :: forall b. BufferBackend b => Object 'Server Interface_wl_buffer -> STM (Buffer b)
+getBuffer wlBuffer = (.buffer) <$> getServerBuffer wlBuffer

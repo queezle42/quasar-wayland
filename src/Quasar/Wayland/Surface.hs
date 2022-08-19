@@ -25,30 +25,26 @@ import Quasar.Wayland.Region (Rectangle(..))
 type BufferBackend :: Type -> Constraint
 class Typeable b => BufferBackend b where
   type BufferContent b
-  -- | Buffer has been released by all current users and can be reused by the owner.
-  -- Wayland requires a release event per attach, so a counter provides the number of times the buffer was attached.
-  releaseBuffer :: BufferContent b -> Int -> STM ()
   -- | A destroyed buffer has been released, so the buffer storage can be freed by the owner.
   releaseBufferStorage :: BufferContent b -> STM ()
 
 data Buffer b = Buffer {
   content :: BufferContent b,
+  -- | Buffer has been released by all current users and can be reused by the owner.
+  releaseBuffer :: STM (),
   -- | Refcount that tracks how many times the buffer is locked by consumers.
   lockCount :: TVar Int,
-  -- | Tracks how often the buffer has been attached (wl_surface.attach + wl_surface.commit). Wayland requires one `release` event for each time a buffer is attached.
-  attachedCount :: TVar Int,
   destroyed :: TVar Bool
 }
 
-newBuffer :: forall b. BufferContent b -> STM (Buffer b)
-newBuffer content = do
+newBuffer :: forall b. BufferContent b -> STM () -> STM (Buffer b)
+newBuffer content releaseBuffer = do
   lockCount <- newTVar 0
-  attachedCount <- newTVar 0
   destroyed <- newTVar False
   pure Buffer {
     content,
+    releaseBuffer,
     lockCount,
-    attachedCount,
     destroyed
   }
 
@@ -62,8 +58,7 @@ lockBuffer buffer = do
     unlockBuffer = do
       lockCount <- stateTVar buffer.lockCount (dup . pred)
       when (lockCount == 0) do
-        attachedCount <- swapTVar buffer.attachedCount 0
-        releaseBuffer @b buffer.content attachedCount
+        buffer.releaseBuffer
         tryFinalizeBuffer @b buffer
 
 -- | Request destruction of the buffer. Since the buffer might still be in use downstream, the backing storage must not be changed until all downstreams release the buffer (signalled by `releaseBufferStorage`).
@@ -97,6 +92,9 @@ instance Semigroup Damage where
   DamageAll <> _ = DamageAll
   _ <> DamageAll = DamageAll
   DamageList xs <> DamageList ys = DamageList (xs <> ys)
+
+instance Monoid Damage where
+  mempty = DamageList []
 
 
 data Surface b = Surface {
@@ -150,9 +148,7 @@ commitSurface surface commit = do
 
   unlockFn <-
     case commit.buffer of
-      Just buffer -> do
-        modifyTVar buffer.attachedCount succ
-        lockBuffer @b buffer
+      Just buffer -> lockBuffer @b buffer
       Nothing -> pure (pure ())
 
   writeTVar surface.lastBufferUnlockFn unlockFn
