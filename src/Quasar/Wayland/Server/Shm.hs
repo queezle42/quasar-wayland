@@ -41,6 +41,8 @@ initializeWlShmBuffer pool wlBuffer offset width height stride format = do
   shmBuffer <- newShmBuffer pool offset width height stride format releaseFn
   initializeWlBuffer @ShmBufferBackend wlBuffer shmBuffer
   where
-    releaseFn :: STM ()
+    releaseFn :: Int -> STM ()
     -- TODO handle other exceptions (e.g. disconnected)
-    releaseFn = unlessM (isDestroyed wlBuffer) wlBuffer.release
+    releaseFn attachedCount =
+      unlessM (isDestroyed wlBuffer)
+        (sequence_ (replicate attachedCount wlBuffer.release))

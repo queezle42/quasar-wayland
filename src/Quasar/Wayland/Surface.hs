@@ -20,30 +20,35 @@ import Control.Monad.Catch
 import Data.Typeable
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
-import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (Rectangle(..))
 
 type BufferBackend :: Type -> Constraint
 class Typeable b => BufferBackend b where
   type BufferContent b
-  -- | Buffer has been released and can be reused by the owner.
-  releaseBuffer :: BufferContent b -> STM ()
+  -- | Buffer has been released by all current users and can be reused by the owner.
+  -- Wayland requires a release event per attach, so a counter provides the number of times the buffer was attached.
+  releaseBuffer :: BufferContent b -> Int -> STM ()
   -- | A destroyed buffer has been released, so the buffer storage can be freed by the owner.
   releaseBufferStorage :: BufferContent b -> STM ()
 
 data Buffer b = Buffer {
   content :: BufferContent b,
-  lockCount :: TVar Word32,
+  -- | Refcount that tracks how many times the buffer is locked by consumers.
+  lockCount :: TVar Int,
+  -- | Tracks how often the buffer has been attached (wl_surface.attach + wl_surface.commit). Wayland requires one `release` event for each time a buffer is attached.
+  attachedCount :: TVar Int,
   destroyed :: TVar Bool
 }
 
 newBuffer :: forall b. BufferContent b -> STM (Buffer b)
 newBuffer content = do
   lockCount <- newTVar 0
+  attachedCount <- newTVar 0
   destroyed <- newTVar False
   pure Buffer {
     content,
     lockCount,
+    attachedCount,
     destroyed
   }
 
@@ -57,9 +62,11 @@ lockBuffer buffer = do
     unlockBuffer = do
       lockCount <- stateTVar buffer.lockCount (dup . pred)
       when (lockCount == 0) do
-        releaseBuffer @b buffer.content
+        attachedCount <- swapTVar buffer.attachedCount 0
+        releaseBuffer @b buffer.content attachedCount
         tryFinalizeBuffer @b buffer
 
+-- | Request destruction of the buffer. Since the buffer might still be in use downstream, the backing storage must not be changed until all downstreams release the buffer (signalled by `releaseBufferStorage`).
 destroyBuffer :: forall b. BufferBackend b => Buffer b -> STM ()
 destroyBuffer buffer = do
   alreadyDestroyed <- readTVar buffer.destroyed
@@ -95,7 +102,7 @@ instance Semigroup Damage where
 data Surface b = Surface {
   surfaceRole :: TVar (Maybe SomeSurfaceRole),
   surfaceState :: TVar (SurfaceCommit b),
-  lastBufferUnlockFn :: TVar (Maybe (STM ())),
+  lastBufferUnlockFn :: TVar (STM ()),
   downstreams :: TVar [SurfaceDownstream b]
 }
 
@@ -118,7 +125,7 @@ newSurface :: forall b. STM (Surface b)
 newSurface = do
   surfaceRole <- newTVar Nothing
   surfaceState <- newTVar (defaultSurfaceCommit DamageAll)
-  lastBufferUnlockFn <- newTVar Nothing
+  lastBufferUnlockFn <- newTVar (pure ())
   downstreams <- newTVar []
   pure Surface {
     surfaceRole,
@@ -139,8 +146,16 @@ assignSurfaceRole surface role = do
 
 commitSurface :: forall b. BufferBackend b => Surface b -> SurfaceCommit b -> STM ()
 commitSurface surface commit = do
-  mapM_ id =<< readTVar surface.lastBufferUnlockFn
-  writeTVar surface.lastBufferUnlockFn =<< mapM (lockBuffer @b) commit.buffer
+  join $ readTVar surface.lastBufferUnlockFn
+
+  unlockFn <-
+    case commit.buffer of
+      Just buffer -> do
+        modifyTVar buffer.attachedCount succ
+        lockBuffer @b buffer
+      Nothing -> pure (pure ())
+
+  writeTVar surface.lastBufferUnlockFn unlockFn
 
   downstreams <- readTVar surface.downstreams
   -- TODO handle exceptions, remove failed downstreams

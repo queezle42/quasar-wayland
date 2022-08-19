@@ -40,7 +40,7 @@ data ShmBuffer = ShmBuffer {
   height :: Int32,
   stride :: Int32,
   format :: Word32,
-  releaseFn :: STM ()
+  releaseFn :: Int -> STM ()
 }
 
 -- | Create an `ShmPool` for externally managed memory. Takes ownership of the passed file descriptor.
@@ -85,7 +85,7 @@ tryFinalizeShmPool pool = do
 
 
 -- | Create a new buffer for an externally managed pool
-newShmBuffer :: ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STM () -> STM (Buffer ShmBufferBackend)
+newShmBuffer :: ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> (Int -> STM ()) -> STM (Buffer ShmBufferBackend)
 newShmBuffer pool offset width height stride format releaseFn = do
   -- TODO check arguments
   modifyTVar pool.bufferCount succ
