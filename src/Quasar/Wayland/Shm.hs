@@ -83,12 +83,12 @@ tryFinalizeShmPool pool = do
 
 
 -- | Create a new buffer for an externally managed pool
-newShmBuffer :: ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STM () -> STM (Buffer ShmBufferBackend)
-newShmBuffer pool offset width height stride format releaseBuffer = do
+newShmBuffer :: ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STM (Buffer ShmBufferBackend)
+newShmBuffer pool offset width height stride format = do
   -- TODO check arguments
   modifyTVar pool.bufferCount succ
   let shmBuffer = ShmBuffer pool offset width height stride format
-  newBuffer @ShmBufferBackend shmBuffer releaseBuffer
+  newBuffer @ShmBufferBackend shmBuffer
 
 data DownstreamShmPool = DownstreamShmPool
 

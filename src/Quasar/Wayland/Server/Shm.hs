@@ -38,5 +38,5 @@ initializeWlShmPool wlShmPool fd size = do
 
 initializeWlShmBuffer :: ShmPool -> NewObject 'Server Interface_wl_buffer -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STM ()
 initializeWlShmBuffer pool wlBuffer offset width height stride format = do
-  let initializeBufferFn = newShmBuffer pool offset width height stride format
-  initializeWlBuffer @ShmBufferBackend wlBuffer initializeBufferFn
+  buffer <- newShmBuffer pool offset width height stride format
+  initializeWlBuffer @ShmBufferBackend wlBuffer buffer

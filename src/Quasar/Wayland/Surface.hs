@@ -5,6 +5,7 @@ module Quasar.Wayland.Surface (
   newBuffer,
   lockBuffer,
   destroyBuffer,
+  addBufferReleaseCallback,
 
   -- * Surface
   Damage(..),
@@ -31,14 +32,15 @@ class Typeable b => BufferBackend b where
 data Buffer b = Buffer {
   content :: BufferContent b,
   -- | Buffer has been released by all current users and can be reused by the owner.
-  releaseBuffer :: STM (),
+  releaseBuffer :: TVar (STM ()),
   -- | Refcount that tracks how many times the buffer is locked by consumers.
   lockCount :: TVar Int,
   destroyed :: TVar Bool
 }
 
-newBuffer :: forall b. BufferContent b -> STM () -> STM (Buffer b)
-newBuffer content releaseBuffer = do
+newBuffer :: forall b. BufferContent b -> STM (Buffer b)
+newBuffer content = do
+  releaseBuffer <- newTVar (pure ())
   lockCount <- newTVar 0
   destroyed <- newTVar False
   pure Buffer {
@@ -47,6 +49,12 @@ newBuffer content releaseBuffer = do
     lockCount,
     destroyed
   }
+
+
+addBufferReleaseCallback :: Buffer b -> STM () -> STM ()
+addBufferReleaseCallback buffer releaseFn =
+  modifyTVar buffer.releaseBuffer (>> releaseFn)
+
 
 -- | Prevents the buffer from being released. Returns an unlock action.
 lockBuffer :: forall b. BufferBackend b => Buffer b -> STM (STM ())
@@ -58,7 +66,7 @@ lockBuffer buffer = do
     unlockBuffer = do
       lockCount <- stateTVar buffer.lockCount (dup . pred)
       when (lockCount == 0) do
-        buffer.releaseBuffer
+        join $ swapTVar buffer.releaseBuffer (pure ())
         tryFinalizeBuffer @b buffer
 
 -- | Request destruction of the buffer. Since the buffer might still be in use downstream, the backing storage must not be changed until all downstreams release the buffer (signalled by `releaseBufferStorage`).

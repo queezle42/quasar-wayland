@@ -24,7 +24,7 @@ data ServerSurface b = ServerSurface {
 
 data ServerBuffer b = ServerBuffer {
   buffer :: Buffer b,
-  attachedCount :: TVar Int
+  wlBuffer :: Object 'Server Interface_wl_buffer
 }
 
 newServerSurface :: forall b. STM (ServerSurface b)
@@ -57,15 +57,16 @@ commitServerSurface surface = do
         _ -> DamageAll
     combinedDamage = bufferDamage <> convertedSurfaceDamage
 
+  -- Attach callback for wl_buffer.release
+  forM_ serverBuffer \sb ->
+    addBufferReleaseCallback sb.buffer sb.wlBuffer.release
+
   commitSurface surface.surface SurfaceCommit {
     buffer = (.buffer) <$> serverBuffer,
     offset,
     bufferDamage = combinedDamage
   }
 
-  case serverBuffer of
-    Just sb -> modifyTVar sb.attachedCount (+ 1)
-    Nothing -> pure ()
 
 attachToSurface :: forall b. BufferBackend b => ServerSurface b -> Maybe (Object 'Server Interface_wl_buffer) -> Int32 -> Int32 -> STM ()
 attachToSurface surface wlBuffer x y = do
@@ -103,27 +104,17 @@ initializeServerSurface wlSurface = do
   setInterfaceData wlSurface surface
   traceM "wl_surface not implemented"
 
-initializeWlBuffer :: forall b. BufferBackend b => NewObject 'Server Interface_wl_buffer -> (STM () -> STM (Buffer b)) -> STM ()
-initializeWlBuffer wlBuffer initializeBufferFn = do
-  attachedCount <- newTVar 0
-  buffer <- initializeBufferFn (releaseServerBuffer attachedCount)
-
+initializeWlBuffer :: forall b. BufferBackend b => NewObject 'Server Interface_wl_buffer -> Buffer b -> STM ()
+initializeWlBuffer wlBuffer buffer = do
   let serverBuffer = ServerBuffer {
     buffer,
-    attachedCount
+    wlBuffer
   }
   setInterfaceData wlBuffer serverBuffer
   setRequestHandler wlBuffer RequestHandler_wl_buffer {
     -- TODO propagate buffer destruction
     destroy = destroyBuffer buffer
   }
-  where
-    releaseServerBuffer :: TVar Int -> STM ()
-    releaseServerBuffer attachedCountVar = do
-      attachedCount <- swapTVar attachedCountVar 0
-        -- TODO handle other exceptions (e.g. disconnects)
-      unlessM (isDestroyed wlBuffer) $
-        sequence_ $ replicate attachedCount $ wlBuffer.release
 
 
 getServerBuffer :: forall b. BufferBackend b => Object 'Server Interface_wl_buffer -> STM (ServerBuffer b)
