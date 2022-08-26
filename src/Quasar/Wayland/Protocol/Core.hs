@@ -26,7 +26,7 @@ module Quasar.Wayland.Protocol.Core (
   getMessageHandler,
   setInterfaceData,
   getInterfaceData,
-  isDestroyed,
+  isObjectDestroyed,
   NewObject,
   IsObject,
   IsMessage(..),
@@ -88,14 +88,15 @@ import Data.Dynamic (Dynamic, toDyn, fromDynamic)
 import Data.Foldable (toList)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
+import Data.Hashable (Hashable(hash, hashWithSalt))
 import Data.Proxy
 import Data.Sequence (Seq(Empty, (:<|)))
 import Data.Sequence qualified as Seq
 import Data.String (IsString(..))
 import Data.Typeable (Typeable, cast)
 import Data.Void (absurd)
-import GHC.Conc (unsafeIOToSTM)
 import GHC.TypeLits
+import GHC.Records
 import Quasar.Prelude
 import System.Posix.Types (Fd(Fd))
 
@@ -346,8 +347,14 @@ setInterfaceData object value = writeTVar object.interfaceData (toDyn value)
 getInterfaceData :: Typeable a => Object s i -> STM (Maybe a)
 getInterfaceData object = fromDynamic <$> readTVar object.interfaceData
 
-isDestroyed :: Object s i -> STM Bool
-isDestroyed object = readTVar object.destroyed
+isObjectDestroyed :: Object s i -> STM Bool
+isObjectDestroyed object = readTVar object.destroyed
+
+instance HasField "isDestroyed" (Object s i) (STM Bool) where
+  getField obj = isObjectDestroyed obj
+
+instance HasField "isDestroyed" (SomeObject s) (STM Bool) where
+  getField (SomeObject obj) = isObjectDestroyed obj
 
 -- | Type alias to indicate an object is created with a message.
 type NewObject s i = Object s i
@@ -451,13 +458,20 @@ data InvalidObject = InvalidObject String
 -- * Protocol state and monad plumbing
 
 -- | Top-level protocol handle (used e.g. to send/receive data)
-newtype ProtocolHandle (s :: Side) = ProtocolHandle {
+data ProtocolHandle (s :: Side) = ProtocolHandle {
+  protocolKey :: Unique,
   stateVar :: TVar (Either SomeException (ProtocolState s))
 }
 
+instance Eq (ProtocolHandle s) where
+  x == y = x.protocolKey == y.protocolKey
+
+instance Hashable (ProtocolHandle s) where
+  hashWithSalt salt x = hashWithSalt salt x.protocolKey
+  hash x = hash x.protocolKey
+
 -- | Protocol state handle, containing state for a non-failed protocol (should be kept in a 'ProtocolStateVar')
 data ProtocolState (s :: Side) = ProtocolState {
-  protocolKey :: Unique,
   protocolHandle :: ProtocolHandle s,
   bytesReceivedVar :: TVar Int64,
   bytesSentVar :: TVar Int64,
@@ -515,13 +529,14 @@ initializeProtocol
   -> (Object s wl_display -> STM a)
   -> STM (a, ProtocolHandle s)
 initializeProtocol wlDisplayMessageHandler sendWlDisplayDeleteId initializationAction = do
+  protocolKey <- newUniqueSTM
+
   bytesReceivedVar <- newTVar 0
   bytesSentVar <- newTVar 0
   inboxDecoderVar <- newTVar $ runGetIncremental getRawMessage
   inboxFdsVar <- newTVar mempty
   outboxVar <- newTVar Nothing
   outboxFdsVar <- newTVar mempty
-  protocolKey <- unsafeIOToSTM newUnique
   objectsVar <- newTVar $ HM.empty
   nextIdVar <- newTVar (initialId @s)
 
@@ -529,6 +544,7 @@ initializeProtocol wlDisplayMessageHandler sendWlDisplayDeleteId initializationA
   stateVar <- newTVar (Left unreachableCodePath)
 
   let protocol = ProtocolHandle {
+    protocolKey,
     stateVar
   }
 
@@ -545,7 +561,6 @@ initializeProtocol wlDisplayMessageHandler sendWlDisplayDeleteId initializationA
 
   let state = ProtocolState {
     protocolHandle = protocol,
-    protocolKey,
     bytesReceivedVar,
     bytesSentVar,
     inboxDecoderVar,

@@ -79,6 +79,7 @@ library
     Quasar.Wayland.Client.JuicyPixels
     Quasar.Wayland.Client.Registry
     Quasar.Wayland.Client.Socket
+    Quasar.Wayland.Client.Surface
     Quasar.Wayland.Client.Sync
     Quasar.Wayland.Connection
     Quasar.Wayland.Protocol
@@ -105,6 +106,7 @@ library
     directory,
     exceptions,
     filepath,
+    hashable,
     inline-c,
     JuicyPixels,
     mtl,

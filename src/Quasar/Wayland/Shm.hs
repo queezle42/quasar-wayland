@@ -11,6 +11,7 @@ import Control.Monad.Catch
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Surface
+import Quasar.Wayland.Client.Surface
 import System.Posix (Fd)
 
 data ShmBufferBackend
@@ -21,6 +22,15 @@ instance BufferBackend ShmBufferBackend where
     modifyTVar buffer.pool.bufferCount pred
     traceM "Finalized ShmBuffer"
     tryFinalizeShmPool buffer.pool
+
+instance ClientBufferBackend ShmBufferBackend where
+  type ClientBufferManager ShmBufferBackend = ShmClient
+  exportWlBuffer = undefined
+
+data ShmClient = ShmClient {
+}
+
+
 
 
 -- | Wrapper for an externally managed shm pool

@@ -11,13 +11,16 @@ module Quasar.Wayland.Surface (
   Damage(..),
   Surface,
   SurfaceCommit(..),
+  SurfaceDownstream,
   defaultSurfaceCommit,
   newSurface,
   assignSurfaceRole,
   commitSurface,
+  connectSurfaceDownstream,
 ) where
 
 import Control.Monad.Catch
+import Data.Hashable (Hashable(..))
 import Data.Typeable
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
@@ -29,7 +32,9 @@ class Typeable b => BufferBackend b where
   -- | A destroyed buffer has been released, so the buffer storage can be freed by the owner.
   releaseBufferStorage :: BufferContent b -> STM ()
 
+
 data Buffer b = Buffer {
+  key :: Unique,
   content :: BufferContent b,
   -- | Buffer has been released by all current users and can be reused by the owner.
   releaseBuffer :: TVar (STM ()),
@@ -38,12 +43,21 @@ data Buffer b = Buffer {
   destroyed :: TVar Bool
 }
 
+instance Eq (Buffer b) where
+  x == y = x.key == y.key
+
+instance Hashable (Buffer b) where
+  hash x = hash x.key
+  hashWithSalt salt x = hashWithSalt salt x.key
+
 newBuffer :: forall b. BufferContent b -> STM (Buffer b)
 newBuffer content = do
+  key <- newUniqueSTM
   releaseBuffer <- newTVar (pure ())
   lockCount <- newTVar 0
   destroyed <- newTVar False
   pure Buffer {
+    key,
     content,
     releaseBuffer,
     lockCount,
@@ -166,4 +180,6 @@ commitSurface surface commit = do
   mapM_ ($ commit) downstreams
 
 connectSurfaceDownstream :: forall b. Surface b -> SurfaceDownstream b -> STM ()
-connectSurfaceDownstream = undefined
+connectSurfaceDownstream surface downstream = do
+  modifyTVar surface.downstreams $ (downstream:)
+  -- TODO commit downstream
