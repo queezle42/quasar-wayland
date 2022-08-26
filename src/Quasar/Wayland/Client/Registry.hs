@@ -27,14 +27,6 @@ data Global = Global {
   version :: Word32
 }
 
-newGlobal :: Word32 -> WlString -> Word32 -> STM Global
-newGlobal name interface version = do
-  pure Global {
-    name,
-    interface,
-    version
-  }
-
 createRegistry :: Object 'Client Interface_wl_display -> STM Registry
 createRegistry wlDisplay = mfix \clientRegistry -> do
   globalsVar <- newTVar HM.empty
@@ -56,7 +48,7 @@ createRegistry wlDisplay = mfix \clientRegistry -> do
       where
         global :: Word32 -> WlString -> Word32 -> STM ()
         global name interface version =
-          modifyTVar clientRegistry.globalsVar . HM.insert name =<< newGlobal name interface version
+          modifyTVar clientRegistry.globalsVar $ HM.insert name Global { name, interface, version }
 
         global_remove :: Word32 -> STM ()
         global_remove name = do
