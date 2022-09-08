@@ -7,18 +7,18 @@ module Quasar.Wayland.Client.JuicyPixels (
 import Codec.Picture
 import Foreign
 import Quasar.Prelude
-import Quasar.Wayland.Client.Buffer
-import Quasar.Wayland.Protocol
-import Quasar.Wayland.Protocol.Generated
+import Quasar.Wayland.Client.ShmBuffer
+import Quasar.Wayland.Shm
+import Quasar.Wayland.Surface
 
-loadImageBuffer :: ShmBufferManager -> FilePath -> IO (Object 'Client Interface_wl_buffer)
-loadImageBuffer shm path = do
+loadImageBuffer :: FilePath -> IO (Buffer ShmBufferBackend)
+loadImageBuffer path = do
   image <- either fail (pure . convertRGBA8) =<< readImage path
-  toImageBuffer shm image
+  toImageBuffer image
 
-toImageBuffer :: ShmBufferManager -> Image PixelRGBA8 -> IO (Object 'Client Interface_wl_buffer)
-toImageBuffer shm image = do
-  (buffer, ptr) <- newShmBuffer shm (fromIntegral (imageWidth image)) (fromIntegral (imageHeight image))
+toImageBuffer :: Image PixelRGBA8 -> IO (Buffer ShmBufferBackend)
+toImageBuffer image = do
+  (buffer, ptr) <- newLocalShmBuffer (fromIntegral (imageWidth image)) (fromIntegral (imageHeight image))
   let
     width = imageWidth image
     height = imageHeight image
