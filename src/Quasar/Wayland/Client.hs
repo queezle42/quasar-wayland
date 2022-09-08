@@ -7,10 +7,15 @@ module Quasar.Wayland.Client (
   Registry,
   bindSingleton,
   tryBindSingleton,
+
+  getClientComponent
 ) where
 
-import Control.Concurrent.STM
 import Control.Monad.Catch
+import Data.Dynamic
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
+import Data.Proxy
 import GHC.Records
 import Network.Socket (Socket)
 import Quasar
@@ -21,12 +26,14 @@ import Quasar.Wayland.Client.Socket
 import Quasar.Wayland.Connection
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
+import Type.Reflection (SomeTypeRep, someTypeRep)
 
 
 data WaylandClient = WaylandClient {
   connection :: WaylandConnection 'Client,
   wlDisplay :: Object 'Client Interface_wl_display,
-  registry :: Registry
+  registry :: Registry,
+  globals :: TVar (Map SomeTypeRep Dynamic)
 }
 
 instance Resource WaylandClient where
@@ -41,10 +48,13 @@ newWaylandClient :: (MonadIO m, MonadQuasar m) => Socket -> m WaylandClient
 newWaylandClient socket = do
   ((wlDisplay, registry), connection) <- newWaylandConnection newClientDisplay socket
 
+  globals <- newTVarIO mempty
+
   pure WaylandClient {
     connection,
     wlDisplay,
-    registry
+    registry,
+    globals
   }
   where
     newClientDisplay :: STM ((Object 'Client Interface_wl_display, Registry), ProtocolHandle 'Client)
@@ -65,3 +75,20 @@ newWaylandClient socket = do
 
 instance HasField "sync" WaylandClient (STM (Future ())) where
   getField client = lowLevelSyncFuture client.wlDisplay
+
+
+-- | Get or create a client component; only one component of the same type will be created.
+getClientComponent :: forall a. Typeable a => STM a -> WaylandClient -> STM a
+getClientComponent initFn client = do
+  globals <- readTVar client.globals
+  case Map.lookup key globals of
+    Just dyn ->
+      case (fromDynamic @a dyn) of
+        Just global -> pure global
+        Nothing -> unreachableCodePathM
+    Nothing -> do
+      global <- initFn
+      writeTVar client.globals (Map.insert key (toDyn global) globals)
+      pure global
+  where
+    key = someTypeRep (Proxy @a)
