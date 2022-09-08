@@ -43,7 +43,7 @@ newServerSurface = do
     pendingSurfaceDamage
   }
 
-commitServerSurface :: forall b. BufferBackend b => ServerSurface b -> STM ()
+commitServerSurface :: ServerSurface b -> STM ()
 commitServerSurface surface = do
   serverBuffer <- swapTVar surface.pendingBuffer Nothing
   offset <- swapTVar surface.pendingOffset (0, 0)

@@ -1,11 +1,13 @@
 module Quasar.Wayland.Surface (
   -- * Buffer backend
   BufferBackend(..),
-  Buffer,
+  Buffer(storage),
   newBuffer,
   lockBuffer,
   destroyBuffer,
+  isBufferDestroyed,
   addBufferReleaseCallback,
+  addBufferDestroyedCallback,
 
   -- * Surface
   Damage(..),
@@ -17,6 +19,9 @@ module Quasar.Wayland.Surface (
   assignSurfaceRole,
   commitSurface,
   connectSurfaceDownstream,
+
+  -- * Reexports
+  Rectangle(..),
 ) where
 
 import Control.Monad.Catch
@@ -25,22 +30,23 @@ import Data.Typeable
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Region (Rectangle(..))
+import Quasar.Wayland.Utils.Once (once)
 
 type BufferBackend :: Type -> Constraint
 class Typeable b => BufferBackend b where
-  type BufferContent b
-  -- | A destroyed buffer has been released, so the buffer storage can be freed by the owner.
-  releaseBufferStorage :: BufferContent b -> STM ()
+  type BufferStorage b
 
 
 data Buffer b = Buffer {
   key :: Unique,
-  content :: BufferContent b,
+  storage :: BufferStorage b,
   -- | Buffer has been released by all current users and can be reused by the owner.
-  releaseBuffer :: TVar (STM ()),
+  releaseBufferCallback :: TVar (STM ()),
   -- | Refcount that tracks how many times the buffer is locked by consumers.
   lockCount :: TVar Int,
-  destroyed :: TVar Bool
+  destroyRequested :: TVar Bool,
+  destroyed :: TVar Bool,
+  destroyedCallback :: TVar (STM ())
 }
 
 instance Eq (Buffer b) where
@@ -50,53 +56,64 @@ instance Hashable (Buffer b) where
   hash x = hash x.key
   hashWithSalt salt x = hashWithSalt salt x.key
 
-newBuffer :: forall b. BufferContent b -> STM (Buffer b)
-newBuffer content = do
+newBuffer :: forall b. BufferStorage b -> STM () -> STM (Buffer b)
+newBuffer storage bufferDestroyedFn = do
   key <- newUniqueSTM
-  releaseBuffer <- newTVar (pure ())
+  releaseBufferCallback <- newTVar (pure ())
   lockCount <- newTVar 0
+  destroyRequested <- newTVar False
   destroyed <- newTVar False
+  destroyedCallback <- newTVar bufferDestroyedFn
   pure Buffer {
     key,
-    content,
-    releaseBuffer,
+    storage,
+    releaseBufferCallback,
     lockCount,
-    destroyed
+    destroyRequested,
+    destroyed,
+    destroyedCallback
   }
-
 
 addBufferReleaseCallback :: Buffer b -> STM () -> STM ()
 addBufferReleaseCallback buffer releaseFn =
-  modifyTVar buffer.releaseBuffer (>> releaseFn)
+  modifyTVar buffer.releaseBufferCallback (>> releaseFn)
 
+addBufferDestroyedCallback :: Buffer b -> STM () -> STM ()
+addBufferDestroyedCallback buffer callback =
+  modifyTVar buffer.destroyedCallback (>> callback)
 
 -- | Prevents the buffer from being released. Returns an unlock action.
-lockBuffer :: forall b. BufferBackend b => Buffer b -> STM (STM ())
+lockBuffer :: Buffer b -> STM (STM ())
 lockBuffer buffer = do
   modifyTVar buffer.lockCount succ
-  pure unlockBuffer
+  once unlockBuffer
   where
     unlockBuffer :: STM ()
     unlockBuffer = do
       lockCount <- stateTVar buffer.lockCount (dup . pred)
       when (lockCount == 0) do
-        join $ swapTVar buffer.releaseBuffer (pure ())
-        tryFinalizeBuffer @b buffer
+        join $ swapTVar buffer.releaseBufferCallback (pure ())
+        tryFinalizeBuffer buffer
 
--- | Request destruction of the buffer. Since the buffer might still be in use downstream, the backing storage must not be changed until all downstreams release the buffer (signalled by `releaseBufferStorage`).
-destroyBuffer :: forall b. BufferBackend b => Buffer b -> STM ()
+-- | Request destruction of the buffer. Since the buffer might still be in use downstream, the backing storage must not be changed until all downstreams release the buffer (signalled finalization, e.g. `addBufferDestroyedCallback`).
+destroyBuffer :: Buffer b -> STM ()
 destroyBuffer buffer = do
-  alreadyDestroyed <- readTVar buffer.destroyed
-  unless alreadyDestroyed do
-    writeTVar buffer.destroyed True
+  alreadyRequested <- readTVar buffer.destroyRequested
+  unless alreadyRequested do
+    writeTVar buffer.destroyRequested True
     tryFinalizeBuffer buffer
 
-tryFinalizeBuffer :: forall b. BufferBackend b => Buffer b -> STM ()
+tryFinalizeBuffer :: Buffer b -> STM ()
 tryFinalizeBuffer buffer = do
-  destroyed <- readTVar buffer.destroyed
+  destroyRequested <- readTVar buffer.destroyRequested
   lockCount <- readTVar buffer.lockCount
-  when (destroyed && lockCount == 0) do
-    releaseBufferStorage @b buffer.content
+  when (destroyRequested && lockCount == 0) do
+    writeTVar buffer.destroyed True
+    -- Run callbacks
+    join $ swapTVar buffer.destroyedCallback (pure ())
+
+isBufferDestroyed :: Buffer b -> STM Bool
+isBufferDestroyed buffer = readTVar buffer.destroyed
 
 
 class SurfaceRole a where
@@ -132,6 +149,13 @@ data SurfaceCommit b = SurfaceCommit {
   bufferDamage :: Damage
 }
 
+--instance Semigroup (SurfaceCommit b) where
+--  old <> new = SurfaceCommit {
+--    buffer = new.buffer,
+--    offset = new.offset,
+--    bufferDamage = old.bufferDamage <> new.bufferDamage
+--  }
+
 type SurfaceDownstream b = SurfaceCommit b -> STM ()
 
 defaultSurfaceCommit :: Damage -> SurfaceCommit b
@@ -156,7 +180,7 @@ newSurface = do
 
 assignSurfaceRole :: SurfaceRole a => Surface b -> a -> STM ()
 assignSurfaceRole surface role = do
-  readTVar surface.surfaceRole >>= \case
+  readTVar surface.surfaceRole >>= \x -> (flip ($)) x \case
     Just currentRole ->
       let msg = mconcat ["Cannot change wl_surface role. Current role is ", surfaceRoleName currentRole, "; new role is ", surfaceRoleName role]
       in throwM (ProtocolUsageError msg)
@@ -164,13 +188,13 @@ assignSurfaceRole surface role = do
 
   writeTVar surface.surfaceRole (Just (SomeSurfaceRole role))
 
-commitSurface :: forall b. BufferBackend b => Surface b -> SurfaceCommit b -> STM ()
+commitSurface :: Surface b -> SurfaceCommit b -> STM ()
 commitSurface surface commit = do
   join $ readTVar surface.lastBufferUnlockFn
 
   unlockFn <-
     case commit.buffer of
-      Just buffer -> lockBuffer @b buffer
+      Just buffer -> lockBuffer buffer
       Nothing -> pure (pure ())
 
   writeTVar surface.lastBufferUnlockFn unlockFn
@@ -181,5 +205,5 @@ commitSurface surface commit = do
 
 connectSurfaceDownstream :: forall b. Surface b -> SurfaceDownstream b -> STM ()
 connectSurfaceDownstream surface downstream = do
-  modifyTVar surface.downstreams $ (downstream:)
+  modifyTVar surface.downstreams (downstream:)
   -- TODO commit downstream
