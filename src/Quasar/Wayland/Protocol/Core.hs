@@ -764,7 +764,9 @@ getNullableObject oId = Just <$> getObject oId
 -- | Handle a wl_display.error message. Because this is part of the core protocol but generated from the xml it has to
 -- be called from the client module.
 handleWlDisplayError :: ProtocolHandle 'Client -> GenericObjectId -> Word32 -> WlString -> STM ()
-handleWlDisplayError _protocol _oId code message = throwM $ ServerError code (toString message)
+handleWlDisplayError _protocol _oId code message =
+  -- TODO lookup object id
+  throwM $ ServerError code (toString message)
 
 -- | Handle a wl_display.delete_id message. Because this is part of the core protocol but generated from the xml it has
 -- to be called from the client module.
