@@ -85,7 +85,7 @@ sendThread connection = mask_ $ forever do
   (msg, fds) <- takeOutbox connection.protocolHandle
   finally
     do
-      traceIO $ "Sending " <> show (BSL.length msg) <> " bytes"
+      traceIO $ "Sending " <> show (BSL.length msg) <> " bytes" <> describeFds fds
 
       -- TODO limit max fds
       send (fromIntegral (BSL.length msg)) (BSL.toChunks msg) fds
@@ -127,9 +127,14 @@ receiveThread connection = forever do
   when (BS.null chunk) do
     throwM SocketClosed
 
-  traceIO $ "Received " <> show (BS.length chunk) <> " bytes"
+  traceIO $ "Received " <> show (BS.length chunk) <> " bytes" <> describeFds fds
 
   feedInput connection.protocolHandle chunk fds
+
+
+describeFds :: [Fd] -> String
+describeFds [] = ""
+describeFds fds = " (" <> show (length fds) <> " fds)"
 
 
 closeConnection :: WaylandConnection s -> IO ()
