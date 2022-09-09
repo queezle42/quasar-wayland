@@ -9,7 +9,10 @@ module Quasar.Wayland.Connection (
 import Control.Monad.Catch
 import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
+import Data.ByteString.Internal qualified as BS
 import Data.ByteString.Lazy qualified as BSL
+import Data.List (singleton)
+import Foreign (Storable, peekElemOff, pokeElemOff, withForeignPtr, sizeOf, castPtr)
 import Language.C.Inline qualified as C
 import Language.C.Inline.Unsafe qualified as CU
 import Network.Socket (Socket)
@@ -19,7 +22,7 @@ import Quasar.Prelude
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Utils.Socket
 import System.Posix.IO (closeFd)
-import System.Posix.Types (Fd)
+import System.Posix.Types (Fd(Fd))
 
 
 C.include "<sys/socket.h>"
@@ -96,7 +99,10 @@ sendThread connection = mask_ $ forever do
     send :: Int -> [BS.ByteString] -> [Fd] -> IO ()
     send remaining chunks fds = do
       -- TODO add MSG_NOSIGNAL (not exposed by `network`)
-      sent <- sendMsg connection.socket chunks (Socket.encodeCmsg <$> fds) mempty
+      cmsgs <- case fds of
+        [] -> pure []
+        _ -> singleton <$> encodeFds fds
+      sent <- sendMsg connection.socket chunks cmsgs mempty
       let nowRemaining = remaining - sent
       when (nowRemaining > 0) do
         send nowRemaining (dropL sent chunks) []
@@ -114,15 +120,15 @@ receiveThread connection = forever do
   -- TODO add MSG_CMSG_CLOEXEC (not exposed by `network`)
   (chunk, cmsgs, flags) <- recvMsg connection.socket 4096 cmsgBufferSize mempty
 
-  let fds = catMaybes (Socket.decodeCmsg @Fd <$> cmsgs)
+  fds <- mconcat <$> (mapM decodeFds cmsgs)
+
+  when (any (\cmsg -> cmsg.cmsgId /= Socket.CmsgIdFd) cmsgs) do
+    -- TODO close fds
+    fail "Wayland connection: Received unexpected ancillary message (only SCM_RIGHTS is supported)"
 
   when (flags .&. Socket.MSG_CTRUNC > 0) do
     -- TODO close fds
     fail "Wayland connection: Ancillary data was truncated"
-
-  when (length fds /= length cmsgs) do
-    -- TODO close fds
-    fail "Wayland connection: Received unexpected ancillary message (only SCM_RIGHTS is supported)"
 
   when (BS.null chunk) do
     throwM SocketClosed
@@ -132,9 +138,26 @@ receiveThread connection = forever do
   feedInput connection.protocolHandle chunk fds
 
 
+decodeFds :: Socket.Cmsg -> IO [Fd]
+decodeFds Socket.Cmsg{cmsgId, cmsgData=BS.BS fptr len}
+  | cmsgId == Socket.CmsgIdFd =
+    withForeignPtr fptr \ptr ->
+      mapM (peekElemOff (castPtr ptr)) [0..(len `div` sizeOf' @Fd - 1)]
+  | otherwise = pure []
+
+encodeFds :: [Fd] -> IO Socket.Cmsg
+encodeFds fds =
+  Socket.Cmsg Socket.CmsgIdFd <$>
+      BS.create (length fds * sizeOf' @Fd) \ptr ->
+        mapM_ (\(fd, i) -> (pokeElemOff (castPtr ptr) i fd)) (zip fds [0..])
+
+sizeOf' :: forall a. Storable a => Int
+sizeOf' = sizeOf @a unreachableCodePath
+
+
 describeFds :: [Fd] -> String
 describeFds [] = ""
-describeFds fds = " (" <> show (length fds) <> " fds)"
+describeFds fds = " (" <> (intercalate ", " ((\(Fd fd) -> "fd@" <> show fd) <$> fds)) <> ")"
 
 
 closeConnection :: WaylandConnection s -> IO ()
