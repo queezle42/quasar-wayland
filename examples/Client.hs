@@ -153,8 +153,8 @@ main = do
             offset = (0, 0),
             bufferDamage = DamageList [Rectangle 0 0 42 42]
           }
-          --destroyBuffer buffer
-          --destroyBuffer buffer2
+          destroyBuffer buffer
+          destroyBuffer buffer2
 
         await =<< newDelay 100000
         traceIO "Waiting 2s"
