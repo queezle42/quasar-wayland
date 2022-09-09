@@ -87,12 +87,8 @@ releaseClientBuffer clientBuffer = do
 
 destroyClientBuffer :: ClientBuffer b -> STM ()
 destroyClientBuffer clientBuffer = do
-  clientBuffer.wlBuffer.destroy
   writeTVar clientBuffer.destroyed True
-  state <- readTVar clientBuffer.state
-  case state of
-    Attached _ -> traceM "ClientBuffer: Destroyed while attached (this is a bug somewhere in the buffer locking logic)"
-    Released -> clientBuffer.wlBuffer.destroy
+  clientBuffer.wlBuffer.destroy
 
 
 -- | Since `release` is undefined when a buffer is attached to multiple surfaces,
