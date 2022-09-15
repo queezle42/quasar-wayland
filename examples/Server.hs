@@ -5,15 +5,18 @@ import Quasar.Prelude
 import Quasar.Wayland.Server
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Shm
+import Quasar.Wayland.Server.XdgShell
 import Quasar.Wayland.Shm
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 
 main :: IO ()
 main = runQuasarAndExit (stderrLogger LogLevelWarning) do
+  wm <- atomically newServerWindowManager
   let
     layerShellGlobal = createGlobal @Interface_zwlr_layer_shell_v1 maxVersion (\x -> setRequestHandler x layerShellHandler)
-  registry <- newRegistry [compositorGlobal @ShmBufferBackend, shmGlobal, layerShellGlobal]
+    wmGlobal = xdgShellGlobal @ShmBufferBackend wm
+  registry <- newRegistry [compositorGlobal @ShmBufferBackend, shmGlobal, layerShellGlobal, wmGlobal]
   server <- newWaylandServer registry
   listenAt "example.socket" server
   sleepForever

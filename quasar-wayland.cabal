@@ -91,6 +91,7 @@ library
     Quasar.Wayland.Server.Shm
     Quasar.Wayland.Server.Socket
     Quasar.Wayland.Server.Surface
+    Quasar.Wayland.Server.XdgShell
     Quasar.Wayland.Shm
     Quasar.Wayland.Surface
   other-modules:
