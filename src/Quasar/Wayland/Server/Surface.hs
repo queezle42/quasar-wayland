@@ -2,7 +2,6 @@ module Quasar.Wayland.Server.Surface (
   ServerSurface,
   initializeServerSurface,
   getServerSurface,
-  connectServerSurfaceDownstream,
   assignSurfaceRole,
   removeSurfaceRole,
   initializeWlBuffer,
@@ -57,9 +56,9 @@ newServerSurface = do
 getServerSurface :: forall b. BufferBackend b => Object 'Server Interface_wl_surface -> STM (Maybe (ServerSurface b))
 getServerSurface wlSurface = getInterfaceData @(ServerSurface b) wlSurface
 
-connectServerSurfaceDownstream :: forall b. ServerSurface b -> SurfaceDownstream b -> STM ()
-connectServerSurfaceDownstream serverSurface downstream =
-  connectSurfaceDownstream serverSurface.surface downstream
+instance IsSurfaceUpstream b (ServerSurface b) where
+  connectSurfaceDownstream serverSurface downstream =
+    connectSurfaceDownstream serverSurface.surface downstream
 
 commitServerSurface :: ServerSurface b -> STM ()
 commitServerSurface surface = do

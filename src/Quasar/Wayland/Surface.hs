@@ -13,11 +13,13 @@ module Quasar.Wayland.Surface (
   Damage(..),
   Surface,
   SurfaceCommit(..),
+  IsSurfaceDownstream(..),
   SurfaceDownstream,
+  IsSurfaceUpstream(..),
+  SurfaceUpstream,
   defaultSurfaceCommit,
   newSurface,
   commitSurface,
-  connectSurfaceDownstream,
 
   -- * Reexports
   Rectangle(..),
@@ -31,7 +33,7 @@ import Quasar.Wayland.Utils.Once (once)
 
 type BufferBackend :: Type -> Constraint
 class Typeable b => BufferBackend b where
-  type BufferStorage b
+  type BufferStorage b :: Type
 
 
 data Buffer b = Buffer {
@@ -126,7 +128,8 @@ instance Monoid Damage where
 
 data Surface b = Surface {
   surfaceState :: TVar (SurfaceCommit b),
-  lastBufferUnlockFn :: TVar (STM ()),
+  -- Stores an STM action that will release the currently committed buffer.
+  bufferUnlockFn :: TVar (STM ()),
   downstreams :: TVar [SurfaceDownstream b]
 }
 
@@ -143,7 +146,29 @@ data SurfaceCommit b = SurfaceCommit {
 --    bufferDamage = old.bufferDamage <> new.bufferDamage
 --  }
 
-type SurfaceDownstream b = SurfaceCommit b -> STM ()
+data SurfaceDownstream b = forall a. IsSurfaceDownstream b a => SurfaceDownstream a
+
+class IsSurfaceDownstream b a | a -> b where
+  toSurfaceDownstream :: a -> SurfaceDownstream b
+  toSurfaceDownstream = SurfaceDownstream
+  commitSurfaceDownstream :: a -> SurfaceCommit b -> STM ()
+
+instance IsSurfaceDownstream b (SurfaceDownstream b) where
+  toSurfaceDownstream = id
+  commitSurfaceDownstream (SurfaceDownstream x) = commitSurfaceDownstream x
+
+
+data SurfaceUpstream b = forall a. IsSurfaceUpstream b a => SurfaceUpstream a
+
+class IsSurfaceUpstream b a | a -> b where
+  toSurfaceUpstream :: a -> SurfaceUpstream b
+  toSurfaceUpstream = SurfaceUpstream
+  connectSurfaceDownstream :: IsSurfaceDownstream b d => a -> d -> STM ()
+
+instance IsSurfaceUpstream b (SurfaceUpstream b) where
+  toSurfaceUpstream = id
+  connectSurfaceDownstream (SurfaceUpstream x) = connectSurfaceDownstream @b x
+
 
 defaultSurfaceCommit :: Damage -> SurfaceCommit b
 defaultSurfaceCommit bufferDamage = SurfaceCommit {
@@ -155,30 +180,30 @@ defaultSurfaceCommit bufferDamage = SurfaceCommit {
 newSurface :: forall b. STM (Surface b)
 newSurface = do
   surfaceState <- newTVar (defaultSurfaceCommit DamageAll)
-  lastBufferUnlockFn <- newTVar (pure ())
+  bufferUnlockFn <- newTVar (pure ())
   downstreams <- newTVar []
   pure Surface {
     surfaceState,
-    lastBufferUnlockFn,
+    bufferUnlockFn,
     downstreams
   }
 
 commitSurface :: Surface b -> SurfaceCommit b -> STM ()
 commitSurface surface commit = do
-  join $ readTVar surface.lastBufferUnlockFn
-
   unlockFn <-
     case commit.buffer of
       Just buffer -> lockBuffer buffer
       Nothing -> pure (pure ())
 
-  writeTVar surface.lastBufferUnlockFn unlockFn
+  -- Store new unlockFn and then unlock previously used buffer
+  join $ swapTVar surface.bufferUnlockFn unlockFn
 
   downstreams <- readTVar surface.downstreams
   -- TODO handle exceptions, remove failed downstreams
-  mapM_ ($ commit) downstreams
+  mapM_ (\downstream -> commitSurfaceDownstream downstream commit) downstreams
 
-connectSurfaceDownstream :: forall b. Surface b -> SurfaceDownstream b -> STM ()
-connectSurfaceDownstream surface downstream = do
-  modifyTVar surface.downstreams (downstream:)
-  -- TODO commit downstream
+instance IsSurfaceUpstream b (Surface b) where
+  connectSurfaceDownstream surface downstream = do
+    modifyTVar surface.downstreams (toSurfaceDownstream downstream:)
+    -- TODO handle exceptions
+    commitSurfaceDownstream downstream =<< readTVar surface.surfaceState

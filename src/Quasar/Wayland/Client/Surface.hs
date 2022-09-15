@@ -161,7 +161,7 @@ exportWlSurface :: ClientBufferBackend b => ClientSurfaceManager b -> Surface b 
 exportWlSurface surfaceManager surface = do
   wlSurface <- surfaceManager.wlCompositor.create_surface
   let clientSurface = ClientSurface { surfaceManager, wlSurface }
-  connectSurfaceDownstream surface (surfaceDownstream clientSurface)
+  connectSurfaceDownstream surface clientSurface
   -- TODO: add finalizer, so that the surface is destroyed with the wlSurface
   -- TODO event handling
   setEventHandler wlSurface EventHandler_wl_surface {
@@ -170,8 +170,8 @@ exportWlSurface surfaceManager surface = do
   }
   pure wlSurface
 
-surfaceDownstream :: ClientBufferBackend b => ClientSurface b -> SurfaceDownstream b
-surfaceDownstream surface = onSurfaceCommit surface
+instance ClientBufferBackend b => IsSurfaceDownstream b (ClientSurface b) where
+  commitSurfaceDownstream = onSurfaceCommit
 
 onSurfaceCommit :: ClientBufferBackend b => ClientSurface b -> SurfaceCommit b -> STM ()
 onSurfaceCommit surface (commit@SurfaceCommit{buffer = Nothing}) = do
