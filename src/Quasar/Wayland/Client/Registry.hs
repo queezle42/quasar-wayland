@@ -7,6 +7,7 @@ module Quasar.Wayland.Client.Registry (
 
 import Control.Monad.Catch
 import Data.HashMap.Strict qualified as HM
+import Data.String (IsString(..))
 import Quasar
 import Quasar.Prelude
 import Quasar.Wayland.Client.Sync
@@ -74,14 +75,14 @@ tryBindSingleton registry = do
   globals <- filterInterface . HM.elems <$> readTVar registry.globalsVar
 
   case globals of
-    [] -> pure $ Left $ mconcat ["No global named ", toString (interfaceName @i), " is available"]
+    [] -> pure $ Left $ mconcat ["No global named ", interfaceName @i, " is available"]
     (global:[]) -> do
       let version = min global.version (interfaceVersion @i)
       (object, newId) <- bindNewObject registry.wlRegistry.objectProtocol version Nothing
       registry.wlRegistry.bind global.name newId
       pure $ Right object
-    _ -> pure $ Left $ mconcat ["Cannot bind singleton: multiple globals with type ", toString (interfaceName @i), " are available"]
+    _ -> pure $ Left $ mconcat ["Cannot bind singleton: multiple globals with type ", interfaceName @i, " are available"]
 
   where
     filterInterface :: [Global] -> [Global]
-    filterInterface = filter \global -> global.interface == interfaceName @i
+    filterInterface = filter \global -> global.interface == fromString (interfaceName @i)

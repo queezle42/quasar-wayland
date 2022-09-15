@@ -11,6 +11,7 @@ import Data.Foldable (toList)
 import Data.HashMap.Strict qualified as HM
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
+import Data.String (IsString(..))
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Core
@@ -39,7 +40,7 @@ data RegistryConnection = RegistryConnection {
 createGlobal :: forall i. IsInterfaceSide 'Server i => Version -> (Object 'Server i -> STM ()) -> Global
 createGlobal supportedVersion bindFn =
   Global {
-    interface = interfaceName @i,
+    interface = fromString (interfaceName @i),
     version = min supportedVersion (interfaceVersion @i),
     bindObject
   }

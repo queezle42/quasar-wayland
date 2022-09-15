@@ -11,7 +11,6 @@ module Quasar.Wayland.Protocol.Core (
   doubleToFixed,
   WlString(..),
   toString,
-  fromString,
   IsSide(..),
   Side(..),
   IsInterface(..),
@@ -248,8 +247,8 @@ class (
   type InterfaceName i :: Symbol
   type InterfaceVersion i :: Nat
 
-interfaceName :: forall i. IsInterface i => WlString
-interfaceName = fromString $ symbolVal @(InterfaceName i) Proxy
+interfaceName :: forall i. IsInterface i => String
+interfaceName = symbolVal @(InterfaceName i) Proxy
 
 interfaceVersion :: forall i. IsInterface i => Word32
 interfaceVersion = fromIntegral $ natVal @(InterfaceVersion i) Proxy
@@ -364,9 +363,9 @@ instance IsInterface i => Show (Object s i) where
 
 class IsObject a where
   genericObjectId :: a -> GenericObjectId
-  objectInterfaceName :: a -> WlString
+  objectInterfaceName :: a -> String
   showObject :: a -> String
-  showObject object = toString (objectInterfaceName object) <> "@" <> show (genericObjectId object)
+  showObject object = objectInterfaceName object <> "@" <> show (genericObjectId object)
 
 class IsObjectSide a where
   describeUpMessage :: a -> Opcode -> BSL.ByteString -> String
@@ -378,11 +377,11 @@ instance forall s i. IsInterface i => IsObject (Object s i) where
 
 instance forall s i. IsInterfaceSide s i => IsObjectSide (Object s i) where
   describeUpMessage object opcode body = mconcat [
-    toString (objectInterfaceName object), "@", show (genericObjectId object),
+    objectInterfaceName object, "@", show (genericObjectId object),
     ".", fromMaybe "[invalidOpcode]" (opcodeName @(WireUp s i) opcode),
     " (", show (BSL.length body), "B)"]
   describeDownMessage object opcode body = mconcat [
-    toString (objectInterfaceName object), "@", show (genericObjectId object),
+    objectInterfaceName object, "@", show (genericObjectId object),
     ".", fromMaybe "[invalidOpcode]" (opcodeName @(WireDown s i) opcode),
     " (", show (BSL.length body), "B)"]
 
@@ -413,7 +412,7 @@ buildMessage opcode parts = (opcode,) . mconcat <$> sequence parts
 
 invalidOpcode :: IsInterface i => Object s i -> Opcode -> Get a
 invalidOpcode object opcode = fail $ mconcat [
-  "Invalid opcode ", show opcode, " on ", toString (objectInterfaceName object),
+  "Invalid opcode ", show opcode, " on ", objectInterfaceName object,
   "@", show (genericObjectId object)]
 
 showObjectMessage :: (IsObject a, IsMessage b) => a -> b -> String
@@ -703,7 +702,7 @@ bindNewObject
 bindNewObject protocol version messageHandler =
   runProtocolM protocol do
     (object, NewId (ObjectId newId)) <- newObject messageHandler
-    pure (object, GenericNewId (interfaceName @i) version newId)
+    pure (object, GenericNewId (fromString (interfaceName @i)) version newId)
 
 -- | Create an object from a received id.
 -- object).
@@ -724,8 +723,8 @@ fromSomeObject
 fromSomeObject (SomeObject someObject) =
   case cast someObject of
     Nothing -> Left $ mconcat ["Expected object with type ",
-      toString (interfaceName @i), ", but object has type ",
-      toString (objectInterfaceName someObject)]
+      interfaceName @i, ", but object has type ",
+      objectInterfaceName someObject]
     Just object -> pure object
 
 
