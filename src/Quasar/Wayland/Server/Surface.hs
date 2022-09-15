@@ -1,5 +1,10 @@
 module Quasar.Wayland.Server.Surface (
+  ServerSurface,
   initializeServerSurface,
+  getServerSurface,
+  connectServerSurfaceDownstream,
+  assignSurfaceRole,
+  removeSurfaceRole,
   initializeWlBuffer,
   getBuffer,
 ) where
@@ -8,12 +13,14 @@ import Control.Monad.Catch
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
-import Quasar.Wayland.Region (Rectangle(..), appAsRect)
+import Quasar.Wayland.Region (appAsRect)
 import Quasar.Wayland.Surface
 
 
 data ServerSurface b = ServerSurface {
   surface :: Surface b,
+  lastRole :: TVar (Maybe String),
+  hasActiveRole :: TVar Bool,
   pendingBuffer :: TVar (Maybe (ServerBuffer b)),
   pendingOffset :: TVar (Int32, Int32),
   pendingBufferDamage :: TVar Damage,
@@ -30,6 +37,8 @@ data ServerBuffer b = ServerBuffer {
 newServerSurface :: forall b. STM (ServerSurface b)
 newServerSurface = do
   surface <- newSurface @b
+  lastRole <- newTVar Nothing
+  hasActiveRole <- newTVar False
   pendingBuffer <- newTVar Nothing
   pendingOffset <- newTVar (0, 0)
   pendingBufferDamage <- newTVar mempty
@@ -37,11 +46,20 @@ newServerSurface = do
 
   pure ServerSurface {
     surface,
+    lastRole,
+    hasActiveRole,
     pendingBuffer,
     pendingOffset,
     pendingBufferDamage,
     pendingSurfaceDamage
   }
+
+getServerSurface :: forall b. BufferBackend b => Object 'Server Interface_wl_surface -> STM (Maybe (ServerSurface b))
+getServerSurface wlSurface = getInterfaceData @(ServerSurface b) wlSurface
+
+connectServerSurfaceDownstream :: forall b. ServerSurface b -> SurfaceDownstream b -> STM ()
+connectServerSurfaceDownstream serverSurface downstream =
+  connectSurfaceDownstream serverSurface.surface downstream
 
 commitServerSurface :: ServerSurface b -> STM ()
 commitServerSurface surface = do
@@ -86,23 +104,23 @@ damageBuffer surface rect =
 
 initializeServerSurface :: forall b. BufferBackend b => Object 'Server Interface_wl_surface -> STM ()
 initializeServerSurface wlSurface = do
-  surface <- newServerSurface @b
+  serverSurface <- newServerSurface @b
   -- TODO missing requests
   setMessageHandler wlSurface RequestHandler_wl_surface {
     -- TODO ensure role is destroyed before surface
+    -- TODO destroy associated surface
     destroy = pure (),
-    attach = attachToSurface surface,
-    damage = appAsRect (damageSurface surface),
+    attach = attachToSurface serverSurface,
+    damage = appAsRect (damageSurface serverSurface),
     frame = \callback -> pure (),
     set_opaque_region = \region -> pure (),
     set_input_region = \region -> pure (),
-    commit = commitServerSurface surface,
+    commit = commitServerSurface serverSurface,
     set_buffer_transform = \transform -> pure (),
     set_buffer_scale = \scale -> pure (),
-    damage_buffer = appAsRect (damageBuffer surface)
+    damage_buffer = appAsRect (damageBuffer serverSurface)
   }
-  setInterfaceData wlSurface surface
-  traceM "wl_surface not implemented"
+  setInterfaceData wlSurface serverSurface
 
 initializeWlBuffer :: forall b. BufferBackend b => NewObject 'Server Interface_wl_buffer -> Buffer b -> STM ()
 initializeWlBuffer wlBuffer buffer = do
@@ -126,3 +144,23 @@ getServerBuffer wlBuffer = do
 
 getBuffer :: forall b. BufferBackend b => Object 'Server Interface_wl_buffer -> STM (Buffer b)
 getBuffer wlBuffer = (.buffer) <$> getServerBuffer wlBuffer
+
+
+assignSurfaceRole :: forall i b. IsInterfaceSide 'Server i => ServerSurface b -> STM ()
+assignSurfaceRole surface = do
+  let role = interfaceName @i
+
+  hasActiveRole <- readTVar surface.hasActiveRole
+  if hasActiveRole
+    then throwM (ProtocolUsageError "Cannot assign wl_surface a new role, since it already has an active role.")
+    else writeTVar surface.hasActiveRole True
+
+  readTVar surface.lastRole >>= \x -> (flip ($)) x \case
+    Just ((== role) -> True) -> pure ()
+    Just currentRole ->
+      let msg = mconcat ["Cannot change wl_surface role. The last role was ", currentRole, "; new role is ", role]
+      in throwM (ProtocolUsageError msg)
+    Nothing -> writeTVar surface.lastRole (Just role)
+
+removeSurfaceRole :: ServerSurface b -> STM ()
+removeSurfaceRole surface = writeTVar surface.hasActiveRole False

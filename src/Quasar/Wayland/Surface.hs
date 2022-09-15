@@ -16,7 +16,6 @@ module Quasar.Wayland.Surface (
   SurfaceDownstream,
   defaultSurfaceCommit,
   newSurface,
-  assignSurfaceRole,
   commitSurface,
   connectSurfaceDownstream,
 
@@ -24,11 +23,9 @@ module Quasar.Wayland.Surface (
   Rectangle(..),
 ) where
 
-import Control.Monad.Catch
 import Data.Hashable (Hashable(..))
 import Data.Typeable
 import Quasar.Prelude
-import Quasar.Wayland.Protocol
 import Quasar.Wayland.Region (Rectangle(..))
 import Quasar.Wayland.Utils.Once (once)
 
@@ -116,15 +113,6 @@ isBufferDestroyed :: Buffer b -> STM Bool
 isBufferDestroyed buffer = readTVar buffer.destroyed
 
 
-class SurfaceRole a where
-  surfaceRoleName :: a -> String
-
-data SomeSurfaceRole = forall a. SurfaceRole a => SomeSurfaceRole a
-
-instance SurfaceRole SomeSurfaceRole where
-  surfaceRoleName (SomeSurfaceRole role) = surfaceRoleName role
-
-
 data Damage = DamageAll | DamageList [Rectangle]
 
 instance Semigroup Damage where
@@ -137,7 +125,6 @@ instance Monoid Damage where
 
 
 data Surface b = Surface {
-  surfaceRole :: TVar (Maybe SomeSurfaceRole),
   surfaceState :: TVar (SurfaceCommit b),
   lastBufferUnlockFn :: TVar (STM ()),
   downstreams :: TVar [SurfaceDownstream b]
@@ -167,26 +154,14 @@ defaultSurfaceCommit bufferDamage = SurfaceCommit {
 
 newSurface :: forall b. STM (Surface b)
 newSurface = do
-  surfaceRole <- newTVar Nothing
   surfaceState <- newTVar (defaultSurfaceCommit DamageAll)
   lastBufferUnlockFn <- newTVar (pure ())
   downstreams <- newTVar []
   pure Surface {
-    surfaceRole,
     surfaceState,
     lastBufferUnlockFn,
     downstreams
   }
-
-assignSurfaceRole :: SurfaceRole a => Surface b -> a -> STM ()
-assignSurfaceRole surface role = do
-  readTVar surface.surfaceRole >>= \x -> (flip ($)) x \case
-    Just currentRole ->
-      let msg = mconcat ["Cannot change wl_surface role. Current role is ", surfaceRoleName currentRole, "; new role is ", surfaceRoleName role]
-      in throwM (ProtocolUsageError msg)
-    Nothing -> pure ()
-
-  writeTVar surface.surfaceRole (Just (SomeSurfaceRole role))
 
 commitSurface :: Surface b -> SurfaceCommit b -> STM ()
 commitSurface surface commit = do
