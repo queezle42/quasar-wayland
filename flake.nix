@@ -16,8 +16,8 @@
   in {
     packages = forAllSystems (system:
     let pkgs = import nixpkgs { inherit system; overlays = [
-        self.overlay
-        quasar.overlay
+        self.overlays.default
+        quasar.overlays.default
       ]; };
     in rec {
       default = quasar-wayland;
@@ -25,15 +25,16 @@
     }
     );
 
-    overlay = final: prev: {
-      haskell = prev.haskell // {
-        packageOverrides = hfinal: hprev: prev.haskell.packageOverrides hfinal hprev // {
-          quasar-wayland = hfinal.callCabal2nix "quasar-wayland" ./. {};
-        };
-      };
-    };
 
     overlays = {
+      default = final: prev: {
+        haskell = prev.haskell // {
+          packageOverrides = hfinal: hprev: prev.haskell.packageOverrides hfinal hprev // {
+            quasar-wayland = hfinal.callCabal2nix "quasar-wayland" ./. {};
+          };
+        };
+      };
+
       quasar = quasar.overlay;
     };
 
@@ -48,6 +49,7 @@
           pkgs.entr
           pkgs.ghcid
           pkgs.haskell-language-server
+          pkgs.hlint
         ];
       }
     );
