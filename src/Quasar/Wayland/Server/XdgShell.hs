@@ -21,17 +21,22 @@ xdgShellGlobal :: forall b. BufferBackend b => ServerWindowManager b -> Global
 xdgShellGlobal wm =
   createGlobal @Interface_xdg_wm_base maxVersion (initializeXdgWmBase wm)
 
+data XdgWmBase b = XdgWmBase {
+  wm :: ServerWindowManager b
+}
+
 initializeXdgWmBase ::
   forall b.
   BufferBackend b =>
   ServerWindowManager b -> Object 'Server Interface_xdg_wm_base -> STM ()
-initializeXdgWmBase wm wlXdgWm =
+initializeXdgWmBase wm wlXdgWm = do
+  let xdgWmBase = XdgWmBase { wm }
   setRequestHandler wlXdgWm RequestHandler_xdg_wm_base {
     -- TODO raise error if any surface derived from this xdg_wm_base is still
     -- alive
     destroy = pure (),
     create_positioner = undefined,
-    get_xdg_surface = initializeXdgSurface wm,
+    get_xdg_surface = initializeXdgSurface xdgWmBase,
     pong = const (pure ())
   }
 
@@ -39,15 +44,14 @@ initializeXdgWmBase wm wlXdgWm =
 data XdgSurface b = XdgSurface {
   wlXdgSurface :: Object 'Server Interface_xdg_surface,
   serverSurface :: ServerSurface b,
-  surfaceRole :: TVar (Maybe Role)
+  hasRoleObject :: TVar Bool,
+  surface :: TVar (Maybe (Surface b))
 }
-
-data Role = Toplevel | Popup
 
 initializeXdgSurface ::
   forall b.
   BufferBackend b =>
-  ServerWindowManager b ->
+  XdgWmBase b ->
   NewObject 'Server Interface_xdg_surface ->
   Object 'Server Interface_wl_surface ->
   STM ()
@@ -58,7 +62,7 @@ initializeXdgSurface wm wlXdgSurface wlSurface = do
 
 initializeXdgSurface' ::
   forall b.
-  ServerWindowManager b ->
+  XdgWmBase b ->
   NewObject 'Server Interface_xdg_surface ->
   ServerSurface b ->
   STM ()
@@ -76,8 +80,15 @@ initializeXdgSurface' wm wlXdgSurface serverSurface = do
   -- xdg_surface), this part of the spec is ignored in this implementation. A
   -- role object is only set when creating a toplevel- or popup surface.
 
-  surfaceRole <- newTVar Nothing
-  let xdgSurface = XdgSurface { wlXdgSurface, serverSurface, surfaceRole }
+  hasRoleObject <- newTVar False
+  surface <- newTVar Nothing
+  let xdgSurface =
+        XdgSurface {
+          wlXdgSurface,
+          serverSurface,
+          hasRoleObject,
+          surface
+        }
 
   setRequestHandler wlXdgSurface RequestHandler_xdg_surface {
     destroy = destroyXdgSurface xdgSurface,
@@ -88,10 +99,10 @@ initializeXdgSurface' wm wlXdgSurface serverSurface = do
   }
 
 destroyXdgSurface :: XdgSurface b -> STM ()
-destroyXdgSurface surface = do
-  readTVar surface.surfaceRole >>= \case
-    Just _ -> throwM (userError "Cannot destroy xdg_surface before its role object has been destroyed.")
-    Nothing -> pure ()
+destroyXdgSurface xdgSurface =
+  whenM (readTVar xdgSurface.hasRoleObject) do
+    -- TODO convert to server error that is relayed to the client
+    throwM (userError "Cannot destroy xdg_surface before its role object has been destroyed.")
 
 data XdgToplevel b = XdgToplevel {
   xdgSurface :: XdgSurface b
@@ -99,14 +110,18 @@ data XdgToplevel b = XdgToplevel {
 
 initializeXdgToplevel :: XdgSurface b -> NewObject 'Server Interface_xdg_toplevel -> STM ()
 initializeXdgToplevel xdgSurface wlXdgToplevel = do
-  -- NOTE this throws if the surface role is changed
-  -- TODO change error type to a corret ServerError if that happens
-  assignSurfaceRole @Interface_xdg_toplevel xdgSurface.serverSurface
-  writeTVar xdgSurface.surfaceRole (Just Toplevel)
+  writeTVar xdgSurface.hasRoleObject True
 
   let xdgToplevel = XdgToplevel {
     xdgSurface
   }
+
+  -- NOTE this throws if the surface role is changed
+  -- TODO change error type to a corret ServerError if that happens
+  assignSurfaceRole
+    @Interface_xdg_toplevel
+    xdgSurface.serverSurface
+    (onInitialSurfaceCommit xdgToplevel)
 
   setRequestHandler wlXdgToplevel RequestHandler_xdg_toplevel {
     destroy = destroyXdgToplevel xdgToplevel,
@@ -125,8 +140,15 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
     set_minimized = undefined
   }
 
+onInitialSurfaceCommit :: XdgToplevel b -> Surface b -> STM ()
+onInitialSurfaceCommit xdgToplevel surface =
+  writeTVar xdgToplevel.xdgSurface.surface (Just surface)
+
+onNullSurfaceCommit :: XdgToplevel b -> STM ()
+onNullSurfaceCommit = undefined
+
 destroyXdgToplevel :: XdgToplevel b -> STM ()
 destroyXdgToplevel xdgToplevel = do
   removeSurfaceRole xdgToplevel.xdgSurface.serverSurface
-  writeTVar xdgToplevel.xdgSurface.surfaceRole Nothing
-  undefined
+  writeTVar xdgToplevel.xdgSurface.surface Nothing
+  writeTVar xdgToplevel.xdgSurface.hasRoleObject False
