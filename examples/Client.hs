@@ -76,9 +76,9 @@ main = do
           destroyBuffer buffer
           destroyBuffer buffer2
 
-        await =<< newDelay 100000
+        threadDelay 100000
         traceIO "Waiting 2s"
-        await =<< newDelay 2000000
+        threadDelay 2000000
 
         atomically do
           commitSurface surface SurfaceCommit {
@@ -87,7 +87,7 @@ main = do
             bufferDamage = DamageList []
           }
 
-        -- await =<< newDelay 100000
+        -- threadDelay 100000
         atomically do
           commitSurface surface2 SurfaceCommit {
             buffer = Nothing,
@@ -95,7 +95,7 @@ main = do
             bufferDamage = DamageList []
           }
 
-    await =<< newDelay 1000000
+    threadDelay 1000000
     traceIO "Closing"
   traceIO "Closed"
 
