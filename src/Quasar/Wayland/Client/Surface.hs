@@ -161,13 +161,14 @@ exportWlSurface :: ClientBufferBackend b => ClientSurfaceManager b -> Surface b 
 exportWlSurface surfaceManager surface = do
   wlSurface <- surfaceManager.wlCompositor.create_surface
   let clientSurface = ClientSurface { surfaceManager, wlSurface }
-  connectSurfaceDownstream surface clientSurface
   -- TODO: add finalizer, so that the surface is destroyed with the wlSurface
   -- TODO event handling
   setEventHandler wlSurface EventHandler_wl_surface {
     enter = \_ -> pure (),
     leave = \_ -> pure ()
   }
+  -- TODO must not connect before first configure
+  connectSurfaceDownstream surface clientSurface
   pure wlSurface
 
 instance ClientBufferBackend b => IsSurfaceDownstream b (ClientSurface b) where
