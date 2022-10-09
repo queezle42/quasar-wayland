@@ -6,7 +6,7 @@ category: Wayland, User Interfaces
 description: An implementation of the Wayland protocol.
 author: Jens Nolte
 maintainer: Jens Nolte
-copyright: 2021 Jens Nolte
+copyright: 2021-2022 Jens Nolte
 license: BSD-2-Clause
 license-file: LICENSE
 build-type: Simple
