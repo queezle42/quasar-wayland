@@ -1,7 +1,7 @@
 {
   inputs = {
     quasar = {
-      url = gitlab:jens/quasar?host=git.c3pb.de;
+      url = github:queezle42/quasar;
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
@@ -24,7 +24,6 @@
       quasar-wayland = pkgs.haskell.packages.ghc924.quasar-wayland;
     }
     );
-
 
     overlays = {
       default = final: prev: {

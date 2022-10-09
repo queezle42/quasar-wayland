@@ -23,19 +23,17 @@
         ]
       },
       "locked": {
-        "host": "git.c3pb.de",
-        "lastModified": 1664064185,
-        "narHash": "sha256-gSMv64mqL432oeUvMtvSPj76peq+cWUkXgRAMmJ/xLY=",
-        "owner": "jens",
+        "lastModified": 1665357154,
+        "narHash": "sha256-jxtz8Skk0X+3FhZMZFthvU7dwpewPiz1ZMQKUPPTrno=",
+        "owner": "queezle42",
         "repo": "quasar",
-        "rev": "2b384f9f31c344d206d2e04cf6256f5439cc1dbc",
-        "type": "gitlab"
+        "rev": "079a43f42d3f601046d86d5a369f9f9a01365d40",
+        "type": "github"
       },
       "original": {
-        "host": "git.c3pb.de",
-        "owner": "jens",
+        "owner": "queezle42",
         "repo": "quasar",
-        "type": "gitlab"
+        "type": "github"
       }
     },
     "root": {
