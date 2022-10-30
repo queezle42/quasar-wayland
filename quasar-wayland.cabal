@@ -81,6 +81,7 @@ library
     Quasar.Wayland.Client.Socket
     Quasar.Wayland.Client.Surface
     Quasar.Wayland.Client.Sync
+    Quasar.Wayland.Client.XdgShell
     Quasar.Wayland.Connection
     Quasar.Wayland.Protocol
     Quasar.Wayland.Protocol.Generated
