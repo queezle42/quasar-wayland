@@ -10,8 +10,6 @@ module Quasar.Wayland.Shm (
 import Control.Monad.Catch
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
-import Data.HashSet (HashSet)
-import Data.HashSet qualified as HS
 import Data.Hashable (Hashable(hash, hashWithSalt))
 import Data.Set (Set)
 import Data.Set qualified as Set
@@ -114,7 +112,7 @@ tryFinalizeShmPool pool = do
     mapM_ (.destroy) downstreams
     traceM "Finalized ShmPool"
     -- TODO close fd
-    traceM $ "leaking fd " <> show fd <> " (closing fd is not implemented yet)"
+    forM_ fd \fd' -> traceM $ "leaking fd fd@" <> show fd' <> " (needs to be deferred to IO)"
 
 connectDownstreamShmPool :: ShmPool -> DownstreamShmPool -> STM ()
 connectDownstreamShmPool pool downstream = do
