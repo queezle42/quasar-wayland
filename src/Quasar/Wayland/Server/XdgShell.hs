@@ -67,18 +67,18 @@ initializeXdgSurface' ::
   ServerSurface b ->
   STM ()
 initializeXdgSurface' wm wlXdgSurface serverSurface = do
-  -- The spec says that "It is illegal to create an xdg_surface for a wl_surface
-  -- which already has an assigned role and this will result in a protocol
-  -- error."
+  -- The spec states that "It is illegal to create an xdg_surface for a
+  -- wl_surface which already has an assigned role and this will result in a
+  -- protocol error."
   --
   -- In practice it's not as easy as just checking for an assigned role, since
   -- this might also occur the other way round (an xdg_surface is created and
   -- then the surface is assigned another role), or multiple xdg_surface objects
   -- might be created for the same wl_surface.
   --
-  -- Instead, since an xdg_surface has no effect in itself (in version 5 of
-  -- xdg_surface), this part of the spec is ignored in this implementation. A
-  -- role object is only set when creating a toplevel- or popup surface.
+  -- Since an xdg_surface has no effect in itself (in version 5 of xdg_surface),
+  -- this part of the spec is ignored in this implementation. A role object is
+  -- only set when creating a toplevel- or popup surface.
 
   hasRoleObject <- newTVar False
   surface <- newTVar Nothing
@@ -95,7 +95,8 @@ initializeXdgSurface' wm wlXdgSurface serverSurface = do
     get_toplevel = initializeXdgToplevel xdgSurface,
     get_popup = undefined,
     set_window_geometry = undefined,
-    ack_configure = undefined
+    -- TODO
+    ack_configure = \_serial -> pure ()
   }
 
 destroyXdgSurface :: XdgSurface b -> STM ()
@@ -140,12 +141,15 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
     set_minimized = undefined
   }
 
+  -- TODO proper mechanism for configure events
+  xdgSurface.wlXdgSurface.configure 0
+
 onInitialSurfaceCommit :: XdgToplevel b -> Surface b -> STM ()
 onInitialSurfaceCommit xdgToplevel surface =
   writeTVar xdgToplevel.xdgSurface.surface (Just surface)
 
 onNullSurfaceCommit :: XdgToplevel b -> STM ()
-onNullSurfaceCommit = undefined
+onNullSurfaceCommit = undefined -- TODO unmap surface
 
 destroyXdgToplevel :: XdgToplevel b -> STM ()
 destroyXdgToplevel xdgToplevel = do
