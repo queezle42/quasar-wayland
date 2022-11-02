@@ -46,7 +46,7 @@ instance Resource (WaylandConnection s) where
 
 data SocketClosed = SocketClosed
   deriving stock Show
-  deriving anyclass Exception
+instance Exception SocketClosed
 
 newWaylandConnection
   :: forall s m a. (IsSide s, MonadIO m, MonadQuasar m)

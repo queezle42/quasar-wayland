@@ -424,35 +424,35 @@ showObjectMessage object message =
 
 data WireCallbackFailed = WireCallbackFailed SomeException
   deriving stock Show
-  deriving anyclass Exception
+instance Exception WireCallbackFailed
 
 data ParserFailed = ParserFailed String String
   deriving stock Show
-  deriving anyclass Exception
+instance Exception ParserFailed
 
 data ProtocolException = ProtocolException String
   deriving stock Show
-  deriving anyclass Exception
+instance Exception ProtocolException
 
 data ProtocolUsageError = ProtocolUsageError String
   deriving stock Show
-  deriving anyclass Exception
+instance Exception ProtocolUsageError
 
 data MaximumIdReached = MaximumIdReached
   deriving stock Show
-  deriving anyclass Exception
+instance Exception MaximumIdReached
 
 data ServerError = ServerError Word32 String
   deriving stock Show
-  deriving anyclass Exception
+instance Exception ServerError
 
 data InternalError = InternalError String
   deriving stock Show
-  deriving anyclass Exception
+instance Exception InternalError
 
 data InvalidObject = InvalidObject String
   deriving stock Show
-  deriving anyclass Exception
+instance Exception InvalidObject
 
 -- * Protocol state and monad plumbing
 
