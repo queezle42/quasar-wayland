@@ -130,6 +130,7 @@ executable quasar-wayland-example-client
     base,
     JuicyPixels,
     quasar,
+    quasar-timer,
     quasar-wayland,
   main-is: Client.hs
   hs-source-dirs:
