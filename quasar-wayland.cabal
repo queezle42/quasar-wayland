@@ -65,6 +65,7 @@ library
     Quasar.Wayland.Client.Surface
     Quasar.Wayland.Client.Sync
     Quasar.Wayland.Client.XdgShell
+    Quasar.Wayland.Common.WindowManagerApi
     Quasar.Wayland.Connection
     Quasar.Wayland.Protocol
     Quasar.Wayland.Protocol.Generated
