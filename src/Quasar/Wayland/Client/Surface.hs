@@ -7,8 +7,8 @@ module Quasar.Wayland.Client.Surface (
   ClientSurfaceManager,
   getClientSurfaceManager,
 
+  ClientSurface,
   newClientSurface,
-  exportWlSurface,
 ) where
 
 import Control.Monad.Catch
@@ -149,40 +149,37 @@ newWlCompositor client = do
   pure wlCompositor
 
 
-newClientSurface :: ClientBufferBackend b => WaylandClient -> STM (Surface b, Object 'Client Interface_wl_surface)
-newClientSurface client = do
-  surfaceManager <- getClientSurfaceManager client
-  surface <- newSurface
-  wlSurface <- exportWlSurface surfaceManager surface
-  pure (surface, wlSurface)
-
--- | Creates a wl_surface object that mirrors the content of a `Surface`.
-exportWlSurface :: ClientBufferBackend b => ClientSurfaceManager b -> Surface b -> STM (Object 'Client Interface_wl_surface)
-exportWlSurface surfaceManager surface = do
+newClientSurface :: forall b a. ClientBufferBackend b => WaylandClient -> (Object 'Client Interface_wl_surface -> STM a) -> STM (ClientSurface b, a)
+newClientSurface client initializeSurfaceRoleFn = do
+  surfaceManager <- getClientSurfaceManager @b client
   wlSurface <- surfaceManager.wlCompositor.create_surface
-  let clientSurface = ClientSurface { surfaceManager, wlSurface }
+
   -- TODO: add finalizer, so that the surface is destroyed with the wlSurface
   -- TODO event handling
   setEventHandler wlSurface EventHandler_wl_surface {
     enter = \_ -> pure (),
     leave = \_ -> pure ()
   }
-  -- TODO must not connect before first configure
-  connectSurfaceDownstream surface clientSurface
-  pure wlSurface
+  fnResult <- initializeSurfaceRoleFn wlSurface
+
+  -- Commit role
+  wlSurface.commit
+
+  let clientSurface = ClientSurface { surfaceManager, wlSurface }
+  pure (clientSurface, fnResult)
 
 instance ClientBufferBackend b => IsSurfaceDownstream b (ClientSurface b) where
-  commitSurfaceDownstream = onSurfaceCommit
+  commitSurfaceDownstream = commitClientSurface
 
-onSurfaceCommit :: ClientBufferBackend b => ClientSurface b -> SurfaceCommit b -> STM ()
-onSurfaceCommit surface (commit@SurfaceCommit{buffer = Nothing}) = do
+commitClientSurface :: ClientBufferBackend b => ClientSurface b -> SurfaceCommit b -> STM ()
+commitClientSurface surface (commit@SurfaceCommit{buffer = Nothing}) = do
   -- TODO catch exceptions and redirect to client owner (so the shared surface can continue to work when one backend fails)
 
   surface.wlSurface.attach Nothing (fst commit.offset) (snd commit.offset)
   -- TODO damage might not be required when removing a buffer?
   addBufferDamage surface.wlSurface commit.bufferDamage
   surface.wlSurface.commit
-onSurfaceCommit surface commit@SurfaceCommit{buffer = Just buffer} = do
+commitClientSurface surface commit@SurfaceCommit{buffer = Just buffer} = do
   -- TODO catch exceptions and redirect to client owner (so the shared surface can continue to work when one backend fails)
 
   wlBuffer <- requestClientBuffer surface.surfaceManager buffer
@@ -193,5 +190,5 @@ onSurfaceCommit surface commit@SurfaceCommit{buffer = Just buffer} = do
   surface.wlSurface.commit
 
 addBufferDamage :: Object 'Client Interface_wl_surface -> Damage -> STM ()
-addBufferDamage wlSurface DamageAll = wlSurface.damage_buffer minBound minBound maxBound maxBound
+addBufferDamage wlSurface DamageAll = wlSurface.damage_buffer (minBound `div` 2) (minBound `div` 2) maxBound maxBound
 addBufferDamage wlSurface (DamageList xs) = mapM_ (appRect wlSurface.damage_buffer) xs
