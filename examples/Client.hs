@@ -5,10 +5,11 @@ import Quasar.Prelude
 import Quasar.Timer
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.JuicyPixels
-import Quasar.Wayland.Client.Surface
+--import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Client.XdgShell
-import Quasar.Wayland.Protocol
-import Quasar.Wayland.Protocol.Generated
+--import Quasar.Wayland.Protocol
+--import Quasar.Wayland.Protocol.Generated
+--import Quasar.Wayland.Shared.DummyWindowManager
 import Quasar.Wayland.Shm
 import Quasar.Wayland.Surface
 
@@ -25,14 +26,15 @@ main = do
     configurationVar <- newEmptyTMVarIO
 
     tl <- atomically do
-      clientWindowManager <- getClientWindowManager @ShmBufferBackend client
-      tl <- newWindow clientWindowManager (writeTMVar configurationVar)
+      windowManager <- getClientWindowManager @ShmBufferBackend client
+      --windowManager <- newDummyWindowManager @ShmBufferBackend
+      tl <- newWindow windowManager (writeTMVar configurationVar)
       setTitle tl "quasar-wayland-example-client"
       pure tl
 
-    forM_ [gradient, gradient2, gradient3, gradient4] \img -> do
+    forM_ [solidColor, gradient, gradient2, gradient3, gradient4] \img -> do
       -- Blocks until first configure event
-      configuration <- (atomically $ readTMVar configurationVar)
+      configuration <- atomically $ readTMVar configurationVar
       let width = max configuration.width 512
       let height = max configuration.height 512
       buffer <- liftIO $ toImageBuffer (mkImage width height img)
@@ -193,18 +195,6 @@ solidColor _p = color (255 :: Double) 0 0
 mkImage :: Int32 -> Int32 -> (Position -> PixelRGBA8) -> Image PixelRGBA8
 mkImage width height fn = generateImage pixel (fromIntegral width) (fromIntegral height)
   where
-    dimensions :: Dimensions
-    dimensions = mkDimensions width height
-    pixel :: Int -> Int -> PixelRGBA8
-    pixel x y = fn $ mkPosition dimensions x y
-
-mkImage' :: (Position -> PixelRGBA8) -> Image PixelRGBA8
-mkImage' fn = generateImage pixel width height
-  where
-    width :: Int
-    width = 512
-    height :: Int
-    height = 512
     dimensions :: Dimensions
     dimensions = mkDimensions width height
     pixel :: Int -> Int -> PixelRGBA8
