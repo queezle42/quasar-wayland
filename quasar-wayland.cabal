@@ -131,6 +131,16 @@ executable quasar-wayland-example-server
   hs-source-dirs:
     examples
 
+executable quasar-wayland-example-proxy
+  import: shared-executable-properties
+  build-depends:
+    base,
+    quasar,
+    quasar-wayland,
+  main-is: Proxy.hs
+  hs-source-dirs:
+    examples
+
 test-suite quasar-wayland-test
   import: shared-executable-properties
   type: exitcode-stdio-1.0
