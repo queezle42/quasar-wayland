@@ -14,13 +14,12 @@ module Quasar.Wayland.Client.XdgShell (
   commitXdgToplevel,
 ) where
 
-import Data.String (fromString)
 import Quasar.Prelude
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
-import Quasar.Wayland.Common.WindowManagerApi
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
+import Quasar.Wayland.Shared.WindowManagerApi
 import Quasar.Wayland.Surface
 
 
@@ -30,13 +29,12 @@ data ClientWindowManager b = ClientWindowManager {
   wlXdgWmBase :: Object 'Client Interface_xdg_wm_base
 }
 
-instance ClientBufferBackend b => IsWindowManager (ClientWindowManager b) where
-  type Window (ClientWindowManager b) = ClientXdgToplevel b
+instance ClientBufferBackend b => IsWindowManager b (ClientWindowManager b) where
+  type Window b (ClientWindowManager b) = ClientXdgToplevel b
   newWindow = newClientXdgToplevel
 
-instance ClientBufferBackend b => IsWindow (ClientXdgToplevel b) where
-  type WindowBackend (ClientXdgToplevel b) = b
-  setTitle w = setToplevelTitle w . fromString
+instance ClientBufferBackend b => IsWindow b (ClientXdgToplevel b) where
+  setTitle w = setToplevelTitle w
   commitWindowContent = commitXdgToplevel
   ackWindowConfigure = ackToplevelConfigure
 
@@ -94,9 +92,9 @@ newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} configureCallback 
     configurationAccumulator
   }
 
-commitXdgToplevel :: ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> SurfaceCommit b -> STM ()
+commitXdgToplevel :: forall b. ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> SurfaceCommit b -> STM ()
 commitXdgToplevel toplevel configureSerial surfaceCommit = do
-  ackWindowConfigure toplevel configureSerial
+  ackWindowConfigure @b toplevel configureSerial
   commitSurfaceDownstream toplevel.clientSurface surfaceCommit
 
 ackToplevelConfigure :: ClientXdgToplevel b -> ConfigureSerial -> STM ()

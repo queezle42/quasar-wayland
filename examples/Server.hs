@@ -2,20 +2,21 @@ module Main (main) where
 
 import Quasar
 import Quasar.Prelude
+import Quasar.Wayland.Protocol
+import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Shm
 import Quasar.Wayland.Server.XdgShell
+import Quasar.Wayland.Shared.DummyWindowManager
 import Quasar.Wayland.Shm
-import Quasar.Wayland.Protocol
-import Quasar.Wayland.Protocol.Generated
 
 main :: IO ()
 main = runQuasarAndExit (stderrLogger LogLevelWarning) do
-  wm <- atomically newServerWindowManager
+  wm <- newDummyWindowManager @ShmBufferBackend
   let
     layerShellGlobal = createGlobal @Interface_zwlr_layer_shell_v1 maxVersion (\x -> setRequestHandler x layerShellHandler)
-    wmGlobal = xdgShellGlobal @ShmBufferBackend wm
+    wmGlobal = xdgShellGlobal wm
   registry <- newRegistry [compositorGlobal @ShmBufferBackend, shmGlobal, layerShellGlobal, wmGlobal]
   server <- newWaylandServer registry
   listenAt "example.socket" server

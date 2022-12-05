@@ -23,11 +23,11 @@ data ServerSurface b = ServerSurface {
 
 data ServerSurfaceState b =
   Unmapped |
-  Pending (Surface b -> STM ()) |
+  Pending (SurfaceDownstream b) |
   Mapped (MappedServerSurface b)
 
 data MappedServerSurface b = MappedServerSurface {
-  surface :: Surface b,
+  surfaceDownstream :: SurfaceDownstream b,
   pendingBuffer :: TVar (Maybe (ServerBuffer b)),
   pendingOffset :: TVar (Int32, Int32),
   pendingBufferDamage :: TVar Damage,
@@ -62,21 +62,19 @@ commitServerSurface :: ServerSurface b -> STM ()
 commitServerSurface serverSurface = do
   readTVar serverSurface.state >>= \case
     Unmapped -> throwM $ userError "Cannot commit a surface that does not have a role"
-    Pending surfaceMappedCallback -> do
-      mappedSurface <- mapServerSurface
+    Pending surfaceDownstream -> do
+      mappedSurface <- mapServerSurface surfaceDownstream
       writeTVar serverSurface.state (Mapped mappedSurface)
-      surfaceMappedCallback mappedSurface.surface
     Mapped mappedSurface -> commitMappedServerSurface mappedSurface
 
-mapServerSurface :: STM (MappedServerSurface b)
-mapServerSurface = do
-  surface <- newSurface
+mapServerSurface :: SurfaceDownstream b -> STM (MappedServerSurface b)
+mapServerSurface surfaceDownstream = do
   pendingBuffer <- newTVar Nothing
   pendingOffset <- newTVar (0, 0)
   pendingBufferDamage <- newTVar mempty
   pendingSurfaceDamage <- newTVar mempty
   pure MappedServerSurface {
-    surface,
+    surfaceDownstream,
     pendingBuffer,
     pendingOffset,
     pendingBufferDamage,
@@ -101,7 +99,7 @@ commitMappedServerSurface mapped = do
   forM_ serverBuffer \sb ->
     addBufferReleaseCallback sb.buffer sb.wlBuffer.release
 
-  commitSurface mapped.surface SurfaceCommit {
+  commitSurfaceDownstream mapped.surfaceDownstream SurfaceCommit {
     buffer = (.buffer) <$> serverBuffer,
     offset,
     bufferDamage = combinedDamage
@@ -179,8 +177,8 @@ getBuffer :: forall b. BufferBackend b => Object 'Server Interface_wl_buffer -> 
 getBuffer wlBuffer = (.buffer) <$> getServerBuffer wlBuffer
 
 
-assignSurfaceRole :: forall i b. IsInterfaceSide 'Server i => ServerSurface b -> (Surface b -> STM ()) -> STM ()
-assignSurfaceRole surface onRoleCommit = do
+assignSurfaceRole :: forall i b. IsInterfaceSide 'Server i => ServerSurface b -> SurfaceDownstream b -> STM ()
+assignSurfaceRole surface surfaceDownstream = do
   let role = interfaceName @i
 
   readTVar surface.state >>= \case
@@ -188,7 +186,7 @@ assignSurfaceRole surface onRoleCommit = do
     Pending _ -> throwM (ProtocolUsageError "Cannot assign wl_surface a new role, since it already has a pending role.")
     Unmapped -> pure ()
 
-  writeTVar surface.state (Pending onRoleCommit)
+  writeTVar surface.state (Pending surfaceDownstream)
 
   readTVar surface.lastRole >>= \x -> (flip ($)) x \case
     Just ((== role) -> True) -> pure ()

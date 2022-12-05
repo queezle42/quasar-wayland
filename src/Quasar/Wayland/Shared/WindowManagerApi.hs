@@ -1,4 +1,4 @@
-module Quasar.Wayland.Common.WindowManagerApi (
+module Quasar.Wayland.Shared.WindowManagerApi (
   IsWindowManager(..),
   IsWindow(..),
 
@@ -10,16 +10,16 @@ module Quasar.Wayland.Common.WindowManagerApi (
 
 import Data.ByteString qualified as BS
 import Quasar.Prelude
+import Quasar.Wayland.Protocol
 import Quasar.Wayland.Surface
 
-class IsWindow (Window a) => IsWindowManager a where
-  type Window a
-  newWindow :: a -> (WindowConfiguration -> STM ()) -> STM (Window a)
+class IsWindow b (Window b a) => IsWindowManager b a | a -> b where
+  type Window b a
+  newWindow :: a -> (WindowConfiguration -> STM ()) -> STM (Window b a)
 
-class IsWindow a where
-  type WindowBackend a
-  setTitle :: a -> String -> STM ()
-  commitWindowContent :: a -> ConfigureSerial -> SurfaceCommit (WindowBackend a) -> STM ()
+class BufferBackend b => IsWindow b a | a -> b where
+  setTitle :: a -> WlString -> STM ()
+  commitWindowContent :: a -> ConfigureSerial -> SurfaceCommit b -> STM ()
   ackWindowConfigure :: a -> ConfigureSerial -> STM ()
 
 
