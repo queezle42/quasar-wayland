@@ -32,6 +32,7 @@
       default = quasar-wayland-examples;
       quasar-wayland = ghc92.quasar-wayland;
       quasar-wayland-examples = ghc92.quasar-wayland-examples;
+      quasar-wayland-gles = ghc92.quasar-wayland-gles;
     }
     );
 
@@ -39,8 +40,9 @@
       default = final: prev: {
         haskell = prev.haskell // {
           packageOverrides = hfinal: hprev: prev.haskell.packageOverrides hfinal hprev // {
-            quasar-wayland-examples = hfinal.callCabal2nix "quasar-wayland-examples" ./examples {};
             quasar-wayland = hfinal.callCabal2nix "quasar-wayland" ./quasar-wayland {};
+            quasar-wayland-examples = hfinal.callCabal2nix "quasar-wayland-examples" ./examples {};
+            quasar-wayland-gles = hfinal.callCabal2nix "quasar-wayland-gles" ./quasar-wayland-gles {};
           };
         };
       };
@@ -60,6 +62,7 @@
           packages = hpkgs: [
             hpkgs.quasar-wayland
             hpkgs.quasar-wayland-examples
+            hpkgs.quasar-wayland-gles
           ];
           nativeBuildInputs = [
             pkgs.cabal-install

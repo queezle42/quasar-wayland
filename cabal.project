@@ -1,3 +1,4 @@
 packages:
-  quasar-wayland
   examples
+  quasar-wayland
+  quasar-wayland-gles

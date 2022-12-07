@@ -1,0 +1,76 @@
+cabal-version: 3.0
+
+name: quasar-wayland-gles
+version: 0.1.0.0
+category: Wayland, User Interfaces
+description: OpenGL ES 2.0 backend for quasar-wayland
+author: Jens Nolte
+maintainer: Jens Nolte
+copyright: 2021-2022 Jens Nolte
+license: BSD-2-Clause
+build-type: Simple
+extra-source-files:
+  README.md
+
+source-repository head
+  type: git
+  location: https://github.com/queezle42/quasar-wayland
+
+common shared-properties
+  default-extensions:
+    AllowAmbiguousTypes
+    BangPatterns
+    BlockArguments
+    DataKinds
+    DefaultSignatures
+    DerivingStrategies
+    DuplicateRecordFields
+    FunctionalDependencies
+    GADTs
+    LambdaCase
+    NoImplicitPrelude
+    NoStarIsType
+    OverloadedRecordDot
+    OverloadedStrings
+    TypeFamilies
+    ViewPatterns
+  default-language: GHC2021
+  ghc-options:
+    -Weverything
+    -Wno-all-missed-specialisations
+    -Wno-missing-deriving-strategies
+    -Wno-missing-import-lists
+    -Wno-missing-kind-signatures
+    -Wno-missing-safe-haskell-mode
+    -Wno-unsafe
+    -Werror=incomplete-patterns
+    -Werror=missing-fields
+    -Werror=missing-methods
+
+library
+  import: shared-properties
+  exposed-modules:
+  other-modules:
+  build-depends:
+    quasar,
+    quasar-wayland,
+  hs-source-dirs:
+    src
+
+test-suite quasar-wayland-gles-test
+  import: shared-properties
+  type: exitcode-stdio-1.0
+  build-depends:
+    base,
+    hspec,
+    inline-c,
+    quasar,
+    quasar-wayland,
+    QuickCheck,
+  ghc-options:
+    -threaded
+    -rtsopts "-with-rtsopts=-N"
+  main-is: Spec.hs
+  other-modules:
+  hs-source-dirs:
+    test
