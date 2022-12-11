@@ -1,0 +1,77 @@
+cabal-version: 3.0
+
+name: quasar-wayland-examples
+version: 0.1.0.0
+category: Wayland, User Interfaces
+author: Jens Nolte
+maintainer: Jens Nolte
+copyright: 2021-2022 Jens Nolte
+license: BSD-2-Clause
+build-type: Simple
+
+source-repository head
+  type: git
+  location: https://github.com/queezle42/quasar-wayland
+
+common shared-properties
+  default-extensions:
+    AllowAmbiguousTypes
+    BangPatterns
+    BlockArguments
+    DataKinds
+    DefaultSignatures
+    DerivingStrategies
+    DuplicateRecordFields
+    FunctionalDependencies
+    GADTs
+    LambdaCase
+    NoImplicitPrelude
+    NoStarIsType
+    OverloadedRecordDot
+    OverloadedStrings
+    TypeFamilies
+    ViewPatterns
+  default-language: GHC2021
+  ghc-options:
+    -Weverything
+    -Wno-all-missed-specialisations
+    -Wno-missing-deriving-strategies
+    -Wno-missing-import-lists
+    -Wno-missing-kind-signatures
+    -Wno-missing-safe-haskell-mode
+    -Wno-unsafe
+    -Werror=incomplete-patterns
+    -Werror=missing-fields
+    -Werror=missing-methods
+
+common shared-executable-properties
+  import: shared-properties
+  ghc-options:
+    -threaded
+    -rtsopts "-with-rtsopts=-N -I0"
+
+executable quasar-wayland-example-client
+  import: shared-executable-properties
+  build-depends:
+    base,
+    JuicyPixels,
+    quasar,
+    quasar-timer,
+    quasar-wayland,
+  main-is: Client.hs
+
+executable quasar-wayland-example-server
+  import: shared-executable-properties
+  build-depends:
+    base,
+    quasar,
+    quasar-wayland,
+  main-is: Server.hs
+
+executable quasar-wayland-example-proxy
+  import: shared-executable-properties
+  build-depends:
+    base,
+    quasar,
+    quasar-wayland,
+  main-is: Proxy.hs
