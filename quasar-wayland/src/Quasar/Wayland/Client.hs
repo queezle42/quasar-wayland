@@ -83,7 +83,7 @@ getClientComponent initFn client = do
   globals <- readTVar client.globals
   case Map.lookup key globals of
     Just dyn ->
-      case (fromDynamic @a dyn) of
+      case fromDynamic @a dyn of
         Just global -> pure global
         Nothing -> unreachableCodePathM
     Nothing -> do
