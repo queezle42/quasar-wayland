@@ -42,7 +42,12 @@
           packageOverrides = hfinal: hprev: prev.haskell.packageOverrides hfinal hprev // {
             quasar-wayland = hfinal.callCabal2nix "quasar-wayland" ./quasar-wayland {};
             quasar-wayland-examples = hfinal.callCabal2nix "quasar-wayland-examples" ./examples {};
-            quasar-wayland-gles = hfinal.callCabal2nix "quasar-wayland-gles" ./quasar-wayland-gles {};
+            quasar-wayland-gles =
+              final.haskell.lib.overrideCabal
+                (hfinal.callCabal2nix "quasar-wayland-gles" ./quasar-wayland-gles { EGL = null; GLESv2 = null; })
+                {
+                  librarySystemDepends = [ final.libGL ];
+                };
             # Due to a ghc bug in 9.4.3 and 9.2.5
             ListLike = final.haskell.lib.dontCheck hprev.ListLike;
           };
@@ -76,6 +81,10 @@
             pkgs.ghcid
             pkgs.hlint
           ];
+          # Provide libEGL/libGLES2 to ghci (`librarySystemDepends` does not
+          # seem to work with `shellFor`. It worked with a shell based on
+          # `<package>.env`).
+          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libGL ];
         };
       }
     );

@@ -54,6 +54,7 @@ library
   build-depends:
     quasar,
     quasar-wayland,
+  extra-libraries: EGL, GLESv2
   hs-source-dirs:
     src
 
