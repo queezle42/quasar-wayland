@@ -43,6 +43,8 @@
             quasar-wayland = hfinal.callCabal2nix "quasar-wayland" ./quasar-wayland {};
             quasar-wayland-examples = hfinal.callCabal2nix "quasar-wayland-examples" ./examples {};
             quasar-wayland-gles = hfinal.callCabal2nix "quasar-wayland-gles" ./quasar-wayland-gles {};
+            # Due to a ghc bug in 9.4.3 and 9.2.5
+            ListLike = final.haskell.lib.dontCheck hprev.ListLike;
           };
         };
       };
@@ -65,11 +67,13 @@
             hpkgs.quasar-wayland-gles
           ];
           nativeBuildInputs = [
+            # On some versions hls requires the same GHC version as the compiled
+            # package. Not cached :(
+            haskellPackages.haskell-language-server
             pkgs.cabal-install
             pkgs.zsh
             pkgs.entr
             pkgs.ghcid
-            pkgs.haskell-language-server
             pkgs.hlint
           ];
         };
