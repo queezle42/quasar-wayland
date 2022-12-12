@@ -34,7 +34,8 @@ instance ClientBufferBackend b => IsWindowManager b (ClientWindowManager b) wher
   newWindow = newClientXdgToplevel
 
 instance ClientBufferBackend b => IsWindow b (ClientXdgToplevel b) where
-  setTitle w = setToplevelTitle w
+  setTitle w = w.xdgToplevel.set_title
+  setAppId w = w.xdgToplevel.set_app_id
   commitWindowContent = commitXdgToplevel
   ackWindowConfigure = ackToplevelConfigure
 
@@ -103,7 +104,3 @@ ackToplevelConfigure toplevel _configureSerial = do
   swapTVar toplevel.nextConfigureSerial Nothing >>= \case
     Nothing -> pure ()
     Just serial -> toplevel.xdgSurface.ack_configure serial
-
-
-setToplevelTitle :: ClientXdgToplevel b -> WlString -> STM ()
-setToplevelTitle toplevel title = toplevel.xdgToplevel.set_title title

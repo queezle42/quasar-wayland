@@ -25,5 +25,6 @@ instance BufferBackend b => IsWindowManager b (DummyWindowManager b) where
 
 instance BufferBackend b => IsWindow b (DummyWindow b) where
   setTitle _window title = traceM $ mconcat ["Window title: \"", toString title, "\""]
+  setAppId _window appId = traceM $ mconcat ["App id: \"", toString appId, "\""]
   commitWindowContent _window _configureSerial _commit = traceM "Window comitted"
   ackWindowConfigure _window _configureSerial = traceM "Window configure acked"

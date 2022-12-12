@@ -132,7 +132,7 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
       destroy = destroyXdgToplevel xdgToplevel,
       set_parent = undefined,
       set_title = setTitle window,
-      set_app_id = undefined,
+      set_app_id = setAppId window,
       show_window_menu = undefined,
       move = undefined,
       resize = undefined,
@@ -153,9 +153,7 @@ sendConfigureEvent :: XdgToplevel b wm -> WindowConfiguration -> STM ()
 sendConfigureEvent xdgToplevel windowConfiguration = do
   traceM "Sending window configuration"
 
-  -- TODO send xdg_toplevel configure events
-  xdgToplevel.wlXdgToplevel.configure 0 0 ""
-
+  xdgToplevel.wlXdgToplevel.configure windowConfiguration.width windowConfiguration.height windowConfiguration.states
   xdgToplevel.xdgSurface.wlXdgSurface.configure 0
 
 onNullSurfaceCommit :: XdgToplevel b wm -> STM ()
