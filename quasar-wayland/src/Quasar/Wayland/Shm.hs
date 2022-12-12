@@ -162,7 +162,7 @@ instance Hashable ClientShmManager where
 newClientShmManager :: WaylandClient -> STM ClientShmManager
 newClientShmManager client = do
   key <- newUniqueSTM
-  wlShm <- bindSingleton client.registry
+  wlShm <- bindSingleton client.registry maxVersion
   wlShmPools <- newTVar mempty
   formatsVar <- newTVar mempty
   setEventHandler wlShm $ EventHandler_wl_shm {

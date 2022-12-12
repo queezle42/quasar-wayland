@@ -3,6 +3,8 @@ module Quasar.Wayland.Client.Registry (
   createRegistry,
   bindSingleton,
   tryBindSingleton,
+  Version,
+  maxVersion,
 ) where
 
 import Control.Monad.Catch
@@ -62,23 +64,23 @@ createRegistry wlDisplay = mfix \clientRegistry -> do
 -- | Bind a new client object to a compositor singleton. Throws an exception if the global is not available.
 --
 -- Will retry until the the registry has sent the initial list of globals.
-bindSingleton :: IsInterfaceSide 'Client i => Registry -> STM (Object 'Client i)
-bindSingleton registry = either (throwM . ProtocolUsageError) pure =<< tryBindSingleton registry
+bindSingleton :: IsInterfaceSide 'Client i => Registry -> Version -> STM (Object 'Client i)
+bindSingleton registry version = either (throwM . ProtocolUsageError) pure =<< tryBindSingleton registry version
 
 -- | Try to bind a new client object to a compositor singleton.
 --
 -- Will retry until the the registry has sent the initial list of globals.
-tryBindSingleton :: forall i. IsInterfaceSide 'Client i => Registry -> STM (Either String (Object 'Client i))
-tryBindSingleton registry = do
+tryBindSingleton :: forall i. IsInterfaceSide 'Client i => Registry -> Version -> STM (Either String (Object 'Client i))
+tryBindSingleton registry version = do
   awaitSTM registry.initialSyncComplete
 
   globals <- filterInterface . HM.elems <$> readTVar registry.globalsVar
 
   case globals of
     [] -> pure $ Left $ mconcat ["No global named ", interfaceName @i, " is available"]
-    (global:[]) -> do
-      let version = min global.version (interfaceVersion @i)
-      (object, newId) <- bindNewObject registry.wlRegistry.objectProtocol version Nothing
+    [global] -> do
+      let effectiveVersion = min (min global.version (interfaceVersion @i)) version
+      (object, newId) <- bindNewObject registry.wlRegistry.objectProtocol effectiveVersion Nothing
       registry.wlRegistry.bind global.name newId
       pure $ Right object
     _ -> pure $ Left $ mconcat ["Cannot bind singleton: multiple globals with type ", interfaceName @i, " are available"]

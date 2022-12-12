@@ -4,6 +4,7 @@ module Quasar.Wayland.Server.Registry (
   newRegistry,
   addRegistryConnection,
   createGlobal,
+  Version,
   maxVersion,
 ) where
 
@@ -47,7 +48,7 @@ createGlobal supportedVersion bindFn =
   where
     bindObject :: GenericNewId -> ProtocolM 'Server ()
     bindObject newId = do
-      object <- bindObjectFromId Nothing newId
+      object <- bindObjectFromId Nothing supportedVersion newId
       liftSTM $ bindFn object
 
 addRegistryConnection :: Registry -> Object 'Server Interface_wl_registry -> STM ()
@@ -77,6 +78,3 @@ data Global = Global {
   version :: Word32,
   bindObject :: GenericNewId -> ProtocolM 'Server ()
 }
-
-maxVersion :: Version
-maxVersion = maxBound

@@ -251,7 +251,14 @@ interfaceDecs interface = do
     handleMessageClause msg = clause [objectIfRequiredP, handlerP, msgConP msg] (normalB bodyE) []
       where
         objectIfRequiredP :: Q Pat
-        objectIfRequiredP = if msg.msgSpec.isDestructor then objectP else wildP
+        objectIfRequiredP =
+          if msg.msgSpec.isDestructor ||
+            any (argRequiresObjectP . (.argType)) msg.msgSpec.arguments
+            then objectP
+            else wildP
+        argRequiresObjectP :: ArgumentType -> Bool
+        argRequiresObjectP (NewIdArgument _) = True
+        argRequiresObjectP _ = False
         fieldNameLitT :: Q Type
         fieldNameLitT = litT (strTyLit (messageFieldNameString msg))
         msgHandlerE :: Q Exp
@@ -272,7 +279,7 @@ interfaceDecs interface = do
         fromWireArgument :: ArgumentType -> Q Exp -> Q Exp
         fromWireArgument (ObjectArgument _) objIdE = [|getObject $objIdE|]
         fromWireArgument (NullableObjectArgument _) objIdE = [|getNullableObject $objIdE|]
-        fromWireArgument (NewIdArgument _) objIdE = [|newObjectFromId Nothing $objIdE|]
+        fromWireArgument (NewIdArgument _) objIdE = [|newObjectFromId Nothing $objectE.version $objIdE|]
         fromWireArgument _ x = [|pure $x|]
 
 messageProxyInstanceDecs :: Side -> [MessageContext] -> Q [Dec]
@@ -284,6 +291,8 @@ messageProxyInstanceDecs side messageContexts = mapM messageProxyInstanceD messa
       ]
       where
         objectName = mkName "object"
+        objectE :: Q Exp
+        objectE = varE objectName
         instanceT :: Q Type
         instanceT = [t|HasField $(litT (strTyLit msg.msgSpec.name)) $objectT $proxyT|]
         objectT :: Q Type
@@ -306,7 +315,7 @@ messageProxyInstanceDecs side messageContexts = mapM messageProxyInstanceD messa
 
         -- Constructor: the first argument becomes the return value
         ctorE :: Q Exp
-        ctorE = [|newObject Nothing >>= \(newObj, newId) -> newObj <$ (sendMessage object =<< $(msgE [|pure newId|]))|]
+        ctorE = [|newObject Nothing $objectE.version >>= \(newObj, newId) -> newObj <$ (sendMessage object =<< $(msgE [|pure newId|]))|]
           where
             msgE :: Q Exp -> Q Exp
             msgE idArgE = mkWireMsgE (idArgE : (wireArgE <$> args))

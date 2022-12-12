@@ -50,7 +50,7 @@ data ClientXdgToplevel b = ClientXdgToplevel {
 
 newClientWindowManager :: WaylandClient -> STM (ClientWindowManager b)
 newClientWindowManager client = do
-  wlXdgWmBase <- bindSingleton client.registry
+  wlXdgWmBase <- bindSingleton client.registry maxVersion
   setEventHandler wlXdgWmBase EventHandler_xdg_wm_base {
     ping = wlXdgWmBase.pong
   }

@@ -143,7 +143,7 @@ newClientSurfaceManager client = do
 
 newWlCompositor :: WaylandClient -> STM (Object 'Client Interface_wl_compositor)
 newWlCompositor client = do
-  wlCompositor <- bindSingleton client.registry
+  wlCompositor <- bindSingleton client.registry maxVersion
   -- wl_compositor does not have any events. Setting `()` as the event handler will produce a type error if that changes in the future.
   setEventHandler wlCompositor ()
   pure wlCompositor

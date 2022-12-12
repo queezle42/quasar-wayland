@@ -16,9 +16,10 @@ module Quasar.Wayland.Protocol.Core (
   IsInterface(..),
   interfaceName,
   Version,
+  maxVersion,
   interfaceVersion,
   IsInterfaceSide(..),
-  Object(objectProtocol),
+  Object(objectProtocol, version),
   setEventHandler,
   setRequestHandler,
   setMessageHandler,
@@ -115,6 +116,9 @@ objectIdValue (ObjectId value) = value
 type Opcode = Word16
 
 type Version = Word32
+
+maxVersion :: Version
+maxVersion = maxBound
 
 
 newtype NewId (j :: Symbol) = NewId (ObjectId j)
@@ -320,6 +324,7 @@ data Side = Client | Server
 data Object s i = IsInterfaceSide s i => Object {
   objectProtocol :: (ProtocolHandle s),
   objectId :: ObjectId (InterfaceName i),
+  version :: Version,
   messageHandler :: TVar (Maybe (MessageHandler s i)),
   -- FIXME type-safe variant for `interfaceData`?
   interfaceData :: TVar Dynamic,
@@ -553,6 +558,7 @@ initializeProtocol wlDisplayMessageHandler sendWlDisplayDeleteId initializationA
   let wlDisplay = Object {
         objectProtocol = protocol,
         objectId = wlDisplayId,
+        version = 1,
         messageHandler = messageHandlerVar,
         interfaceData,
         destroyed
@@ -644,11 +650,12 @@ takeOutbox protocol = runProtocolTransaction protocol do
 newObject
   :: forall s i. IsInterfaceSide s i
   => Maybe (MessageHandler s i)
+  -> Version
   -> ProtocolM s (Object s i, NewId (InterfaceName i))
-newObject messageHandler = do
+newObject messageHandler version = do
   oId <- allocateObjectId
   let newId = NewId @(InterfaceName i) oId
-  object <- newObjectFromId messageHandler newId
+  object <- newObjectFromId messageHandler version newId
   pure (object, newId)
   where
     allocateObjectId :: ProtocolM s (ObjectId (InterfaceName i))
@@ -665,13 +672,15 @@ newObject messageHandler = do
 -- | Create an object from a received id. The caller is responsible for using a 'NewId' exactly once while handling an
 -- incoming message
 --
--- For use in generated code.
+-- Used in generated code.
 newObjectFromId
   :: forall s i. IsInterfaceSide s i
   => Maybe (MessageHandler s i)
+  -> Version
   -> NewId (InterfaceName i)
   -> ProtocolM s (Object s i)
-newObjectFromId messageHandler (NewId oId) = do
+newObjectFromId messageHandler version (NewId oId) = do
+  -- TODO verify (version <= interfaceVersion @i)
   protocol <- askProtocol
   messageHandlerVar <- lift $ newTVar messageHandler
   interfaceDataVar <- lift $ newTVar (toDyn ())
@@ -680,6 +689,7 @@ newObjectFromId messageHandler (NewId oId) = do
     object = Object {
       objectProtocol = protocol,
       objectId = oId,
+      version,
       messageHandler = messageHandlerVar,
       interfaceData = interfaceDataVar,
       destroyed
@@ -701,20 +711,23 @@ bindNewObject
   -> STM (Object 'Client i, GenericNewId)
 bindNewObject protocol version messageHandler =
   runProtocolM protocol do
-    (object, NewId (ObjectId newId)) <- newObject messageHandler
+    (object, NewId (ObjectId newId)) <- newObject messageHandler version
     pure (object, GenericNewId (fromString (interfaceName @i)) version newId)
 
 -- | Create an object from a received id.
 -- object).
 --
--- For implementing wl_registry.bind (which is low-level protocol functionality, but which depends on generated code).
+-- For implementing the server side of wl_registry.bind (which is low-level protocol functionality, but which depends on generated code).
 bindObjectFromId
   :: forall i. IsInterfaceSide 'Server i
   => Maybe (MessageHandler 'Server i)
+  -> Version
   -> GenericNewId
   -> ProtocolM 'Server (Object 'Server i)
-bindObjectFromId messageHandler (GenericNewId interface version value) =
-  newObjectFromId messageHandler (NewId (ObjectId value))
+bindObjectFromId messageHandler supportedVersion (GenericNewId interface version value) = do
+  when (interface /= fromString (interfaceName @i)) $ throwM $ userError "wl_registry.bind: Interface does not match requested global"
+  when (version > supportedVersion) $ throwM $ userError $ mconcat ["wl_registry.bind: Invalid version (requested: ", show version, ", available: ", show maxVersion, ")"]
+  newObjectFromId messageHandler version (NewId (ObjectId value))
 
 
 fromSomeObject
