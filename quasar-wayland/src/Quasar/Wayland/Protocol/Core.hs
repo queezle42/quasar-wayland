@@ -1,5 +1,3 @@
-{-# LANGUAGE DeriveLift #-}
-
 module Quasar.Wayland.Protocol.Core (
   ObjectId,
   GenericObjectId,
@@ -322,7 +320,7 @@ data Side = Client | Server
 
 -- | An object belonging to a wayland connection.
 data Object s i = IsInterfaceSide s i => Object {
-  objectProtocol :: (ProtocolHandle s),
+  objectProtocol :: ProtocolHandle s,
   objectId :: ObjectId (InterfaceName i),
   version :: Version,
   messageHandler :: TVar (Maybe (MessageHandler s i)),
@@ -646,7 +644,7 @@ takeOutbox protocol = runProtocolTransaction protocol do
 -- | Create an object. The caller is responsible for sending the 'NewId' immediately (exactly once and before using the
 -- object).
 --
--- For use in generated code.
+-- Used in generated code.
 newObject
   :: forall s i. IsInterfaceSide s i
   => Maybe (MessageHandler s i)
@@ -699,10 +697,11 @@ newObjectFromId messageHandler version (NewId oId) = do
   pure object
 
 
+
 -- | Create an object. The caller is responsible for sending the 'NewId' immediately (exactly once and before using the
 -- object).
 --
--- For implementing wl_registry.bind (which is low-level protocol functionality, but which depends on generated code).
+-- For implementing the client side of wl_registry.bind (which is low-level protocol functionality, but which depends on generated code).
 bindNewObject
   :: forall i. IsInterfaceSide 'Client i
   => ProtocolHandle 'Client

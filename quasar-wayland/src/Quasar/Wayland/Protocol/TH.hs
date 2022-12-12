@@ -236,8 +236,8 @@ interfaceDecs interface = do
 
     interfaceSideInstanceDs :: Q [Dec]
     interfaceSideInstanceDs = execWriterT do
-      tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Client $iT|]) [handleMessageD Client]
-      tellQ $ instanceD (pure []) ([t|IsInterfaceSide 'Server $iT|]) [handleMessageD Server]
+      tellQ $ instanceD (pure []) [t|IsInterfaceSide 'Client $iT|] [handleMessageD Client]
+      tellQ $ instanceD (pure []) [t|IsInterfaceSide 'Server $iT|] [handleMessageD Server]
 
     handleMessageD :: Side -> Q Dec
     handleMessageD Client = funD 'handleMessage (handleMessageClauses wireEventContexts)
