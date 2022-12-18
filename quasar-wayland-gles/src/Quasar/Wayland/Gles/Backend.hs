@@ -7,6 +7,9 @@ module Quasar.Wayland.Gles.Backend (
   newClientDmabufSingleton,
   getClientDmabufSingleton,
   awaitSupportedFormats,
+
+  -- * Server
+  dmabufGlobal,
 ) where
 
 import Control.Monad.Catch
@@ -115,3 +118,80 @@ exportGlesWlBuffer dmabufSingleton buffer = do
     bufferParams.add plane.fd i plane.offset plane.stride plane.modifier.hi plane.modifier.lo
 
   bufferParams.create_immed buffer.width buffer.height buffer.dmabuf.format.fourcc 0
+
+
+-- * Server
+
+type ServerDmabufParams = TVar ServerDmabufParamsState
+type ServerDmabufParamsState = Maybe (Map Word32 DmabufPlane)
+
+dmabufGlobal :: [DrmFormat] -> [(DrmFormat, DrmModifier)] -> Global
+dmabufGlobal supportedFormats supportedModifiers =
+  createGlobal @Interface_zwp_linux_dmabuf_v1 3 initialize
+  where
+    initialize :: NewObject 'Server Interface_zwp_linux_dmabuf_v1 -> STM ()
+    initialize wlLinuxDmabuf = do
+      wlLinuxDmabuf `setRequestHandler` dmabufHandler
+      forM_ supportedFormats \format -> do
+        wlLinuxDmabuf.format format.fourcc
+
+      when (wlLinuxDmabuf.version == 3) do
+        forM_ supportedModifiers \(format, modifier) -> do
+          wlLinuxDmabuf.modifier format.fourcc modifier.hi modifier.lo
+
+    dmabufHandler :: RequestHandler_zwp_linux_dmabuf_v1
+    dmabufHandler =
+      RequestHandler_zwp_linux_dmabuf_v1 {
+        destroy = pure (),
+        create_params = initializeDmabufParams,
+        -- Not required in version 3
+        get_default_feedback = undefined,
+        get_surface_feedback = undefined
+      }
+
+initializeDmabufParams :: NewObject 'Server Interface_zwp_linux_buffer_params_v1 -> STM ()
+initializeDmabufParams wlDmabufParams = do
+  var <- newTVar (Just mempty)
+  wlDmabufParams `setRequestHandler` dmabufParamsHandler var
+  where
+    dmabufParamsHandler :: ServerDmabufParams -> RequestHandler_zwp_linux_buffer_params_v1
+    dmabufParamsHandler var = RequestHandler_zwp_linux_buffer_params_v1 {
+      destroy = pure (),
+      add = addDmabufPlane var,
+      create = \_width _height _format _flags -> undefined,
+      create_immed = initializeDmabufBuffer var
+    }
+
+addDmabufPlane :: ServerDmabufParams -> Fd -> Word32 -> Word32 -> Word32 -> Word32 -> Word32 -> STM ()
+addDmabufPlane var fd planeIndex offset stride modifierHi modifierLo = do
+  readTVar var >>= \case
+    Nothing -> throwM $ userError "zwp_linux_buffer_params_v1::error.already_used: the dmabuf_batch object has already been used to create a wl_buffer"
+    Just planes ->
+      writeTVar var . Just =<< Map.alterF addPlane planeIndex planes
+  where
+    modifier :: DrmModifier
+    modifier = createDrmModifier modifierHi modifierLo
+
+    addPlane :: Maybe DmabufPlane -> STM (Maybe DmabufPlane)
+    addPlane Nothing = pure (Just (DmabufPlane {fd, offset, stride, modifier}))
+    addPlane (Just _) = throwM $ userError "zwp_linux_buffer_params_v1::error.plane_set: the plane index was already set"
+
+importDmabuf :: ServerDmabufParams -> Word32 -> Word32 -> STM Dmabuf
+importDmabuf var (DrmFormat -> format) 0 = do
+  readTVar var >>= \case
+    Nothing -> throwM $ userError "zwp_linux_buffer_params_v1::error.already_used: the dmabuf_batch object has already been used to create a wl_buffer"
+    Just planesMap -> do
+      planes <-
+        forM (zip [0,1..] (Map.toList planesMap)) \(i, (clientIndex, plane)) -> do
+          if i == clientIndex
+            then pure plane
+            else throwM $ userError "zwp_linux_buffer_params_v1::error.incomplete: missing or too many planes to create a buffer"
+      pure $ Dmabuf { format, planes }
+importDmabuf _ _ _ = throwM $ userError "zwp_linux_buffer_params_v1 flags (inverted, interlaced) are not supported"
+
+initializeDmabufBuffer :: ServerDmabufParams -> NewObject 'Server Interface_wl_buffer -> Int32 -> Int32 -> Word32 -> Word32 -> STM ()
+initializeDmabufBuffer var wlBuffer width height format flags = do
+  dmabuf <- importDmabuf var format flags
+  -- Second arg is the destroy callback
+  buffer <- newBuffer @GlesBackend (GlesBuffer dmabuf width height) (pure ())
+  initializeWlBuffer wlBuffer buffer
