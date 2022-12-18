@@ -1,0 +1,50 @@
+module Main (main) where
+
+import Quasar
+import Quasar.Prelude
+import Quasar.Timer
+import Quasar.Wayland.Client
+import Quasar.Wayland.Client.XdgShell
+import Quasar.Wayland.Gles
+import Quasar.Wayland.Gles.Backend
+import Quasar.Wayland.Gles.Dmabuf
+import Quasar.Wayland.Gles.Egl
+import Quasar.Wayland.Protocol
+import Quasar.Wayland.Protocol.Generated
+import Quasar.Wayland.Shm
+import Quasar.Wayland.Surface
+
+
+main :: IO ()
+main = do
+  _ <- runQuasarAndExit (stderrLogger LogLevelWarning) do
+    traceIO "Connecting"
+    client <- connectWaylandClient
+    traceIO "Connected"
+
+    buffer <- liftIO do
+      egl <- initializeGles
+      renderDemo egl
+
+    configurationVar <- newEmptyTMVarIO
+
+    tl <- atomically do
+      windowManager <- getClientWindowManager @GlesBackend client
+      tl <- newWindow windowManager (writeTMVar configurationVar)
+      setTitle tl "quasar-wayland-example-client"
+      pure tl
+
+    -- Blocks until first configure event
+    configuration <- atomically $ readTMVar configurationVar
+    let width = max configuration.width 512
+    let height = max configuration.height 512
+    atomically do
+      commitWindowContent tl configuration.configureSerial (defaultSurfaceCommit DamageAll) {
+        buffer = Just buffer
+      }
+      destroyBuffer buffer
+
+    await =<< newDelay 1000000
+
+    traceIO "Closing"
+  traceIO "Closed"

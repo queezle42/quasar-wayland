@@ -60,6 +60,16 @@ executable quasar-wayland-example-client
     quasar-wayland,
   main-is: Client.hs
 
+executable quasar-wayland-example-client-gles
+  import: shared-executable-properties
+  build-depends:
+    base,
+    quasar,
+    quasar-timer,
+    quasar-wayland,
+    quasar-wayland-gles,
+  main-is: GlesClient.hs
+
 executable quasar-wayland-example-server
   import: shared-executable-properties
   build-depends:
