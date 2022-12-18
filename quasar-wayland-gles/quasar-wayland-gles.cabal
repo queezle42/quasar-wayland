@@ -51,6 +51,7 @@ common shared-properties
 library
   import: shared-properties
   exposed-modules:
+    Quasar.Wayland.Gles.Dmabuf
     Quasar.Wayland.Gles.Egl
   other-modules:
     Quasar.Wayland.Gles.Egl.Debug

@@ -3,8 +3,11 @@
 
 module Quasar.Wayland.Gles.Egl (
   Egl,
+  Dmabuf(..),
+  DmabufPlane(..),
   initializeEgl,
   eglCreateGLImage,
+  exportDmabuf,
 ) where
 
 import Data.Set (Set)
@@ -32,6 +35,9 @@ C.include "<GLES2/gl2.h>"
 
 C.verbatim "PFNEGLQUERYDEVICESEXTPROC eglQueryDevicesEXT;"
 C.verbatim "PFNEGLQUERYDEVICESTRINGEXTPROC eglQueryDeviceStringEXT;"
+
+C.verbatim "PFNEGLEXPORTDMABUFIMAGEQUERYMESAPROC eglExportDMABUFImageQueryMESA;"
+C.verbatim "PFNEGLEXPORTDMABUFIMAGEMESAPROC eglExportDMABUFImageMESA;"
 
 data Egl = Egl {
   display :: EGLDisplay,
@@ -230,3 +236,47 @@ eglCreateGLImage Egl{display, context} glTexture = do
   -- EGLImage is available in EGL 1.4 with EGL_KHR_image_base and EGL_KHR_gl_image
   throwErrnoIfNull "eglCreateImage"
     [CU.exp| EGLImage { eglCreateImage($(EGLDisplay display), $(EGLContext context), EGL_GL_TEXTURE_2D, (EGLClientBuffer)(intptr_t) $(GLuint glTexture), NULL) } |]
+
+exportDmabuf :: Egl -> EGLImage -> IO Dmabuf
+exportDmabuf Egl{display} image = do
+  (DrmFormat -> format, DrmModifier -> modifier, fromIntegral -> numPlanes) <-
+    C.withPtrs_ \(fourccPtr, modifierPtr, numPlanesPtr) ->
+      throwErrnoIf_ (== 0) "eglExportDMABUFImageQueryMESA"
+        [CU.block|
+          EGLBoolean {
+            return eglExportDMABUFImageQueryMESA(
+              $(EGLDisplay display),
+              $(EGLImage image),
+              $(uint32_t* fourccPtr),
+              $(int* numPlanesPtr),
+              $(uint64_t* modifierPtr));
+          }
+        |]
+
+  planes <-
+    allocaArray numPlanes \fdsPtr ->
+    allocaArray numPlanes \stridesPtr ->
+    allocaArray numPlanes \offsetsPtr -> do
+      throwErrnoIf_ (== 0) "eglExportDMABUFImageMESA"
+        [CU.block|
+          EGLBoolean {
+            return eglExportDMABUFImageMESA(
+              $(EGLDisplay display),
+              $(EGLImage image),
+              $(int* fdsPtr),
+              $(uint32_t* stridesPtr),
+              $(uint32_t* offsetsPtr));
+          }
+        |]
+      fds <- Fd <<$>> peekArray numPlanes fdsPtr
+      strides <- peekArray numPlanes stridesPtr
+      offsets <- peekArray numPlanes offsetsPtr
+      pure (zipPlanes modifier fds strides offsets)
+
+  pure Dmabuf { format, planes }
+
+zipPlanes :: DrmModifier -> [Fd] -> [Word32] -> [Word32] -> [DmabufPlane]
+zipPlanes modifier fds strides offsets = packPlane <$> zipped
+  where
+    zipped = zip3 fds strides offsets
+    packPlane (fd, stride, offset) = DmabufPlane {fd, stride, offset, modifier}
