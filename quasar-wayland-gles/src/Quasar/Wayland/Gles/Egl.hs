@@ -8,6 +8,7 @@ module Quasar.Wayland.Gles.Egl (
   initializeEgl,
   eglCreateGLImage,
   exportDmabuf,
+  queryDmabufFormats,
 ) where
 
 import Data.Set (Set)
@@ -38,6 +39,9 @@ C.verbatim "PFNEGLQUERYDEVICESTRINGEXTPROC eglQueryDeviceStringEXT;"
 
 C.verbatim "PFNEGLEXPORTDMABUFIMAGEQUERYMESAPROC eglExportDMABUFImageQueryMESA;"
 C.verbatim "PFNEGLEXPORTDMABUFIMAGEMESAPROC eglExportDMABUFImageMESA;"
+
+C.verbatim "PFNEGLQUERYDMABUFFORMATSEXTPROC eglQueryDmaBufFormatsEXT;"
+C.verbatim "PFNEGLQUERYDMABUFMODIFIERSEXTPROC eglQueryDmaBufModifiersEXT;"
 
 data Egl = Egl {
   display :: EGLDisplay,
@@ -280,3 +284,60 @@ zipPlanes modifier fds strides offsets = packPlane <$> zipped
   where
     zipped = zip3 fds strides offsets
     packPlane (fd, stride, offset) = DmabufPlane {fd, stride, offset, modifier}
+
+
+queryDmabufFormats :: Egl -> IO [(DrmFormat, [DrmModifier])]
+queryDmabufFormats egl@Egl{display} = do
+  -- Requires EGL_EXT_image_dma_buf_import_modifiers
+
+  -- Query format count
+  maxCount <- alloca \ptr -> do
+    throwErrnoIf_ (== 0) "eglQueryDmaBufFormatsEXT"
+      [CU.exp|EGLBoolean {
+        eglQueryDmaBufFormatsEXT($(EGLDisplay display), 0, NULL, $(EGLint* ptr))
+      }|]
+    peek ptr
+
+  -- Query formats
+  formats <- allocaArray (fromIntegral maxCount) \ptr -> do
+    alloca \countPtr -> do
+      throwErrnoIf_ (== 0) "eglQueryDmaBufFormatsEXT"
+        [CU.exp|EGLBoolean {
+          eglQueryDmaBufFormatsEXT($(EGLDisplay display), $(EGLint maxCount), $(uint32_t* ptr), $(EGLint* countPtr))
+        }|]
+      count <- peek countPtr
+      DrmFormat <<$>> peekArray (fromIntegral count) ptr
+
+  forM formats \format -> do
+    modifiers <- queryDmabufModifiers egl format
+    pure (format, modifiers)
+
+queryDmabufModifiers :: Egl -> DrmFormat -> IO [DrmModifier]
+queryDmabufModifiers Egl{display} DrmFormat{fourcc} = do
+  -- Requires EGL_EXT_image_dma_buf_import_modifiers
+
+  -- Query modifier count
+  maxCount <- alloca \countPtr -> do
+    throwErrnoIf_ (== 0) "eglQueryDmaBufModifiersEXT"
+      [CU.exp|EGLBoolean {
+        eglQueryDmaBufModifiersEXT($(EGLDisplay display), $(uint32_t fourcc), 0, NULL, NULL, $(EGLint* countPtr))
+      }|]
+    peek countPtr
+
+  -- Query modifiers
+  allocaArray (fromIntegral maxCount) \modifiersPtr ->
+    alloca \countPtr -> do
+      throwErrnoIf_ (== 0) "eglQueryDmaBufModifiersEXT"
+        [CU.exp|EGLBoolean {
+          eglQueryDmaBufModifiersEXT(
+            $(EGLDisplay display),
+            $(uint32_t fourcc),
+            $(EGLint maxCount),
+            $(uint64_t* modifiersPtr),
+            // The external_only modifier can be ignored, since all textures
+            // are imported by using GL_OES_EGL_image_external
+            NULL,
+            $(EGLint* countPtr))
+        }|]
+      count <- peek countPtr
+      DrmModifier <<$>> peekArray (fromIntegral count) modifiersPtr
