@@ -51,10 +51,23 @@ common shared-properties
 library
   import: shared-properties
   exposed-modules:
+    Quasar.Wayland.Gles.Egl
   other-modules:
+    Quasar.Wayland.Gles.Egl.Debug
+    Quasar.Wayland.Gles.Egl.Types
+    Quasar.Wayland.Gles.Utils.InlineC
   build-depends:
+    base,
+    bytestring,
+    containers,
+    exceptions,
+    inline-c,
+    quasar,
     quasar,
     quasar-wayland,
+    quasar-wayland,
+    template-haskell,
+    unix,
   extra-libraries: EGL, GLESv2
   hs-source-dirs:
     src
