@@ -85,3 +85,12 @@ executable quasar-wayland-example-proxy
     quasar,
     quasar-wayland,
   main-is: Proxy.hs
+
+executable quasar-wayland-example-proxy-gles
+  import: shared-executable-properties
+  build-depends:
+    base,
+    quasar,
+    quasar-wayland,
+    quasar-wayland-gles,
+  main-is: GlesProxy.hs
