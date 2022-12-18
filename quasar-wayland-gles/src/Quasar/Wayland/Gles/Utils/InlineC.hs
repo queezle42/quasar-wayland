@@ -44,4 +44,8 @@ types = [
   (TypeName "EGLImage", [t|EGLImage|]),
   (TypeName "EGLLabel", [t|EGLLabel|]),
   (TypeName "EGLDEBUGPROCKHR", [t|FunPtr EglDebugCallback|]),
+
+  (TypeName "GLenum", [t|GLenum|]),
+  (TypeName "GLsizei", [t|GLsizei|]),
+  (TypeName "GLuint", [t|GLuint|])
   ]
