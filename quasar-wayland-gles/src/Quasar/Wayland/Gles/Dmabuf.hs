@@ -15,6 +15,8 @@ import Quasar.Prelude
 import System.Posix.Types (Fd)
 
 data Dmabuf = Dmabuf {
+  width :: Int32,
+  height :: Int32,
   format :: DrmFormat,
   planes :: [DmabufPlane]
 }

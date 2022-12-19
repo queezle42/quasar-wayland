@@ -6,8 +6,8 @@ module Quasar.Wayland.Gles.Egl (
   DmabufPlane(..),
   initializeEgl,
   eglCreateGLImage,
-  exportDmabuf,
   queryDmabufFormats,
+  eglExportDmabuf,
 ) where
 
 import Data.Set (Set)
@@ -240,8 +240,8 @@ eglCreateGLImage Egl{display, context} glTexture = do
   throwErrnoIfNull "eglCreateImage"
     [CU.exp| EGLImage { eglCreateImage($(EGLDisplay display), $(EGLContext context), EGL_GL_TEXTURE_2D, (EGLClientBuffer)(intptr_t) $(GLuint glTexture), NULL) } |]
 
-exportDmabuf :: Egl -> EGLImage -> IO Dmabuf
-exportDmabuf Egl{display} image = do
+eglExportDmabuf :: Egl -> EGLImage -> Int32 -> Int32 -> IO Dmabuf
+eglExportDmabuf Egl{display} image width height = do
   (DrmFormat -> format, DrmModifier -> modifier, fromIntegral -> numPlanes) <-
     C.withPtrs_ \(fourccPtr, modifierPtr, numPlanesPtr) ->
       throwErrnoIf_ (== 0) "eglExportDMABUFImageQueryMESA"
@@ -276,7 +276,7 @@ exportDmabuf Egl{display} image = do
       offsets <- peekArray numPlanes offsetsPtr
       pure (zipPlanes modifier fds strides offsets)
 
-  pure Dmabuf { format, planes }
+  pure Dmabuf { width, height, format, planes }
 
 zipPlanes :: DrmModifier -> [Fd] -> [Word32] -> [Word32] -> [DmabufPlane]
 zipPlanes modifier fds strides offsets = packPlane <$> zipped

@@ -36,9 +36,7 @@ instance BufferBackend GlesBackend where
   type BufferStorage GlesBackend = GlesBuffer
 
 data GlesBuffer = GlesBuffer {
-  dmabuf :: Dmabuf,
-  width :: Int32,
-  height :: Int32
+  dmabuf :: Dmabuf
 }
 
 
@@ -117,7 +115,7 @@ exportGlesWlBuffer dmabufSingleton buffer = do
   forM_ (zip [0,1..] buffer.dmabuf.planes) \(i, plane) ->
     bufferParams.add plane.fd i plane.offset plane.stride plane.modifier.hi plane.modifier.lo
 
-  bufferParams.create_immed buffer.width buffer.height buffer.dmabuf.format.fourcc 0
+  bufferParams.create_immed buffer.dmabuf.width buffer.dmabuf.height buffer.dmabuf.format.fourcc 0
 
 
 -- * Server
@@ -176,8 +174,8 @@ addDmabufPlane var fd planeIndex offset stride modifierHi modifierLo = do
     addPlane Nothing = pure (Just (DmabufPlane {fd, offset, stride, modifier}))
     addPlane (Just _) = throwM $ userError "zwp_linux_buffer_params_v1::error.plane_set: the plane index was already set"
 
-importDmabuf :: ServerDmabufParams -> Word32 -> Word32 -> STM Dmabuf
-importDmabuf var (DrmFormat -> format) 0 = do
+importDmabufServerBuffer :: ServerDmabufParams -> Int32 -> Int32 -> Word32 -> Word32 -> STM Dmabuf
+importDmabufServerBuffer var width height (DrmFormat -> format) _flags@0 = do
   readTVar var >>= \case
     Nothing -> throwM $ userError "zwp_linux_buffer_params_v1::error.already_used: the dmabuf_batch object has already been used to create a wl_buffer"
     Just planesMap -> do
@@ -186,12 +184,12 @@ importDmabuf var (DrmFormat -> format) 0 = do
           if i == clientIndex
             then pure plane
             else throwM $ userError "zwp_linux_buffer_params_v1::error.incomplete: missing or too many planes to create a buffer"
-      pure $ Dmabuf { format, planes }
-importDmabuf _ _ _ = throwM $ userError "zwp_linux_buffer_params_v1 flags (inverted, interlaced) are not supported"
+      pure $ Dmabuf { width, height, format, planes }
+importDmabufServerBuffer _ _ _ _ _ = throwM $ userError "zwp_linux_buffer_params_v1 flags (inverted, interlaced) are not supported"
 
 initializeDmabufBuffer :: ServerDmabufParams -> NewObject 'Server Interface_wl_buffer -> Int32 -> Int32 -> Word32 -> Word32 -> STM ()
 initializeDmabufBuffer var wlBuffer width height format flags = do
-  dmabuf <- importDmabuf var format flags
+  dmabuf <- importDmabufServerBuffer var width height format flags
   -- Second arg is the destroy callback
-  buffer <- newBuffer @GlesBackend (GlesBuffer dmabuf width height) (pure ())
+  buffer <- newBuffer @GlesBackend (GlesBuffer dmabuf) (pure ())
   initializeWlBuffer wlBuffer buffer

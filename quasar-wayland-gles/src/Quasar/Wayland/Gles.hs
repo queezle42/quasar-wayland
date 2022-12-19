@@ -67,9 +67,9 @@ renderDemo egl = do
     glFinish();
   }|]
 
-  dmabuf <- exportDmabuf egl eglImage
   let glesBuffer = GlesBuffer dmabuf (fromIntegral width) (fromIntegral height)
   atomically $ newBuffer glesBuffer (traceM "Should destroy dmabuf?")
+  dmabuf <- eglExportDmabuf egl eglImage width height
 
 
 glGetString :: GLenum -> IO String
