@@ -5,6 +5,8 @@ module Quasar.Wayland.Gles (
   renderDemo,
 ) where
 
+import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Foreign
 import Foreign.C
 import Language.C.Inline qualified as C
@@ -15,6 +17,7 @@ import Quasar.Wayland.Gles.Egl
 import Quasar.Wayland.Gles.Types
 import Quasar.Wayland.Gles.Utils.InlineC
 import Quasar.Wayland.Surface
+import System.IO (stderr)
 
 C.context ctx
 
@@ -89,3 +92,137 @@ genFramebuffer =
   alloca \ptr -> do
     [CU.exp|void { glGenFramebuffers(1, $(GLuint* ptr)) }|]
     peek ptr
+glCompileNewShader :: GLenum -> ByteString -> IO (Maybe GLuint, ByteString)
+glCompileNewShader shaderType source = do
+  shader <- [CU.exp|GLuint { glCreateShader($(GLenum shaderType)) }|]
+  when (shader == 0) $ fail "Failed to create shader"
+
+  BS.useAsCString source \ptr -> with ptr \ptrPtr ->
+    [CU.block|void {
+      glShaderSource($(GLuint shader), 1, $(const GLchar* const* ptrPtr), NULL);
+      glCompileShader($(GLuint shader));
+    }|]
+
+  success <- alloca \successPtr -> do
+    [CU.block|void {
+      glGetShaderiv($(GLuint shader), GL_COMPILE_STATUS, $(GLint* successPtr));
+    }|]
+    peek successPtr
+
+  infoLogLength <- alloca \infoLogLengthPtr -> do
+    [CU.block|void {
+      glGetShaderiv($(GLuint shader), GL_INFO_LOG_LENGTH, $(GLint* infoLogLengthPtr));
+    }|]
+    peek infoLogLengthPtr
+
+  infoLog <- allocaBytes (fromIntegral infoLogLength) \infoLogPtr -> do
+    [CU.block|void {
+      glGetShaderInfoLog($(GLuint shader), $(GLsizei infoLogLength), NULL, $(GLchar* infoLogPtr));
+    }|]
+    BS.packCString infoLogPtr
+
+  if success > 0
+    then pure (Just shader, infoLog)
+    else do
+      glDeleteShader shader
+      pure (Nothing, infoLog)
+
+glDeleteShader :: GLuint -> IO ()
+glDeleteShader shader =
+  [CU.block|void {
+    glDeleteShader($(GLuint shader));
+  }|]
+
+glLinkNewProgram :: GLuint -> GLuint -> IO (Maybe GLuint, ByteString)
+glLinkNewProgram vertexShader fragmentShader = do
+  program <- [CU.block|GLuint { glCreateProgram(); }|]
+  when (program == 0) $ fail "Failed to create shader program"
+
+  [CU.block|void {
+    glAttachShader($(GLuint program), $(GLuint vertexShader));
+    glAttachShader($(GLuint program), $(GLuint fragmentShader));
+    glLinkProgram($(GLuint program));
+  }|]
+
+  success <- alloca \successPtr -> do
+    [CU.block|void {
+      glGetProgramiv($(GLuint program), GL_LINK_STATUS, $(GLint* successPtr));
+    }|]
+    peek successPtr
+
+  infoLog <- glGetProgramInfoLog program
+
+  if success > 0
+    then pure (Just program, infoLog)
+    else do
+      glDeleteProgram program
+      pure (Nothing, infoLog)
+
+glDeleteProgram :: GLuint -> IO ()
+glDeleteProgram program =
+  [CU.block|void {
+    glDeleteProgram($(GLuint program));
+  }|]
+
+glValidateProgram :: GLuint -> IO (Bool, ByteString)
+glValidateProgram program = do
+  [CU.block|void { glValidateProgram($(GLuint program)); }|]
+
+  validateStatus <- alloca \validateStatusPtr -> do
+    [CU.block|void {
+      glGetProgramiv($(GLuint program), GL_LINK_STATUS, $(GLint* validateStatusPtr));
+    }|]
+    peek validateStatusPtr
+
+  infoLog <- glGetProgramInfoLog program
+
+  let isValid = validateStatus == [CU.pure|GLint { GL_TRUE }|]
+
+  pure (isValid, infoLog)
+
+glGetProgramInfoLog :: GLuint -> IO ByteString
+glGetProgramInfoLog program = do
+  infoLogLength <- alloca \infoLogLengthPtr -> do
+    [CU.block|void {
+      glGetProgramiv($(GLuint program), GL_INFO_LOG_LENGTH, $(GLint* infoLogLengthPtr));
+    }|]
+    peek infoLogLengthPtr
+
+  allocaBytes (fromIntegral infoLogLength) \infoLogPtr -> do
+    [CU.block|void {
+      glGetProgramInfoLog($(GLuint program), $(GLsizei infoLogLength), NULL, $(GLchar* infoLogPtr));
+    }|]
+    BS.packCString infoLogPtr
+
+-- | All-in-one wrapper to compile a shader program from vertex- and fragment
+-- shader sources. Logs messages to stderr.
+compileShaderProgram :: ByteString -> ByteString -> IO (Maybe GLuint)
+compileShaderProgram vertexShaderSource fragmentShaderSource = do
+  traceIO "Compiling vertex shader..."
+  (vertexShader, vertexShaderMessages) <- glCompileNewShader [CU.pure|GLenum { GL_VERTEX_SHADER }|] vertexShaderSource
+  BS.hPutStr stderr vertexShaderMessages
+
+  traceIO "Compiling fragment shader..."
+  (fragmentShader, fragmentShaderMessages) <- glCompileNewShader [CU.pure|GLenum { GL_FRAGMENT_SHADER }|] fragmentShaderSource
+  BS.hPutStr stderr fragmentShaderMessages
+
+  shaderProgram <-
+    join <$> forM vertexShader \vs ->
+    join <$> forM fragmentShader \fs -> do
+      traceIO "Linking shader program..."
+      (shaderProgram, shaderProgramMessages) <- glLinkNewProgram vs fs
+      BS.hPutStr stderr shaderProgramMessages
+      pure shaderProgram
+
+  mapM_ glDeleteShader vertexShader
+  mapM_ glDeleteShader fragmentShader
+
+  pure shaderProgram
+
+
+glGetUniformLocation :: GLuint -> String -> IO GLint
+glGetUniformLocation program name =
+  withCString name \namePtr ->
+    [CU.block|GLint {
+      glGetUniformLocation($(GLuint program), $(const GLchar* namePtr));
+    }|]

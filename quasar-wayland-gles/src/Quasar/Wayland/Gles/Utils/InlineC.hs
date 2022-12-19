@@ -47,5 +47,8 @@ types = [
 
   (TypeName "GLenum", [t|GLenum|]),
   (TypeName "GLsizei", [t|GLsizei|]),
-  (TypeName "GLuint", [t|GLuint|])
+  (TypeName "GLuint", [t|GLuint|]),
+  (TypeName "GLint", [t|GLint|]),
+  (TypeName "GLfloat", [t|GLfloat|]),
+  (TypeName "GLchar", [t|GLchar|])
   ]
