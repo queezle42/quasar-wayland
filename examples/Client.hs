@@ -35,7 +35,7 @@ main = do
       let height = max configuration.height 512
       buffer <- liftIO $ toImageBuffer (mkImage width height img)
       atomically do
-        commitWindowContent tl configuration.configureSerial (defaultSurfaceCommit DamageAll) {
+        commitWindowContent tl configuration.configureSerial defaultSurfaceCommit {
           buffer = Just buffer
         }
         destroyBuffer buffer

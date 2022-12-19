@@ -36,8 +36,8 @@ newtype PendingServerSurface b = PendingServerSurface {
 data MappedServerSurface b = MappedServerSurface {
   surfaceDownstream :: SurfaceDownstream b,
   pendingBuffer :: TVar (Maybe (ServerBuffer b)),
-  pendingOffset :: TVar (Int32, Int32),
-  pendingBufferDamage :: TVar Damage,
+  pendingOffset :: TVar (Maybe (Int32, Int32)),
+  pendingBufferDamage :: TVar (Maybe Damage),
   -- Damage specified in surface coordinates (i.e. produced by wl_surface.damage instead of wl_surface.damage_buffer).
   -- Damage can be converted to buffer coordinates on commit (NOTE: conversion requires wl_surface version 4)
   pendingSurfaceDamage :: TVar [Rectangle]
@@ -75,8 +75,8 @@ commitServerSurface serverSurface = do
 mapServerSurface :: PendingServerSurface b -> STM (MappedServerSurface b)
 mapServerSurface pending = do
   pendingBuffer <- newTVar Nothing
-  pendingOffset <- newTVar (0, 0)
-  pendingBufferDamage <- newTVar mempty
+  pendingOffset <- newTVar Nothing
+  pendingBufferDamage <- newTVar Nothing
   pendingSurfaceDamage <- newTVar mempty
   pure MappedServerSurface {
     surfaceDownstream = pending.surfaceDownstream,
@@ -89,8 +89,8 @@ mapServerSurface pending = do
 commitMappedServerSurface :: ServerSurface b -> MappedServerSurface b -> STM ()
 commitMappedServerSurface surface mapped = do
   serverBuffer <- swapTVar mapped.pendingBuffer Nothing
-  offset <- swapTVar mapped.pendingOffset (0, 0)
-  bufferDamage <- swapTVar mapped.pendingBufferDamage mempty
+  offset <- swapTVar mapped.pendingOffset Nothing
+  bufferDamage <- swapTVar mapped.pendingBufferDamage Nothing
   surfaceDamage <- swapTVar mapped.pendingSurfaceDamage mempty
   frameCallback <- swapTVar surface.pendingFrameCallback Nothing
   let
@@ -98,7 +98,7 @@ commitMappedServerSurface surface mapped = do
       case surfaceDamage of
         [] -> mempty
         -- TODO should do a coordinate conversion
-        _ -> DamageAll
+        _ -> Just DamageAll
     combinedDamage = bufferDamage <> convertedSurfaceDamage
 
   -- Attach callback for wl_buffer.release
@@ -125,7 +125,8 @@ attachToSurface serverSurface wlBuffer x y = do
   mappedSurface <- requireMappedSurface serverSurface
   buffer <- mapM (getServerBuffer @b) wlBuffer
   writeTVar mappedSurface.pendingBuffer buffer
-  writeTVar mappedSurface.pendingOffset (x, y)
+  -- TODO ensure (x == 0 && y == 0) for wl_surface v5
+  writeTVar mappedSurface.pendingOffset (Just (x, y))
 
 damageSurface :: ServerSurface b -> Rectangle -> STM ()
 damageSurface serverSurface rect = do
@@ -135,9 +136,7 @@ damageSurface serverSurface rect = do
 damageBuffer :: ServerSurface b -> Rectangle -> STM ()
 damageBuffer serverSurface rect = do
   mappedSurface <- requireMappedSurface serverSurface
-  modifyTVar mappedSurface.pendingBufferDamage \case
-    DamageAll -> DamageAll
-    DamageList xs -> DamageList (rect : xs)
+  modifyTVar mappedSurface.pendingBufferDamage (addDamage rect)
 
 
 initializeServerSurface :: forall b. BufferBackend b => Object 'Server Interface_wl_surface -> STM ()

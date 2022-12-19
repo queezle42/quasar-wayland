@@ -11,15 +11,17 @@ module Quasar.Wayland.Surface (
 
   -- * Surface
   Damage(..),
-  Surface,
+  addDamage,
   SurfaceCommit(..),
   IsSurfaceDownstream(..),
   SurfaceDownstream,
   IsSurfaceUpstream(..),
   SurfaceUpstream,
   defaultSurfaceCommit,
-  newSurface,
-  commitSurface,
+
+  --Surface,
+  --newSurface,
+  --commitSurface,
 
   -- * Reexports
   Rectangle(..),
@@ -125,27 +127,20 @@ instance Semigroup Damage where
 instance Monoid Damage where
   mempty = DamageList []
 
+addDamage :: Rectangle -> Maybe Damage -> Maybe Damage
+addDamage x Nothing = Just (DamageList [x])
+addDamage _ r@(Just DamageAll) = r
+addDamage x (Just (DamageList xs)) = Just (DamageList (x : xs))
 
-data Surface b = Surface {
-  surfaceState :: TVar (SurfaceCommit b),
-  -- Stores an STM action that will release the currently committed buffer.
-  bufferUnlockFn :: TVar (STM ()),
-  downstreams :: TVar [SurfaceDownstream b]
-}
 
 data SurfaceCommit b = SurfaceCommit {
   buffer :: Maybe (Buffer b),
-  offset :: (Int32, Int32),
-  bufferDamage :: Damage,
+  offset :: Maybe (Int32, Int32),
+  -- | May be empty on the first commit.
+  bufferDamage :: Maybe Damage,
   frameCallback :: Maybe (Word32 -> STM ())
 }
 
---instance Semigroup (SurfaceCommit b) where
---  old <> new = SurfaceCommit {
---    buffer = new.buffer,
---    offset = new.offset,
---    bufferDamage = old.bufferDamage <> new.bufferDamage
---  }
 
 data SurfaceDownstream b = forall a. IsSurfaceDownstream b a => SurfaceDownstream a
 
@@ -171,46 +166,64 @@ instance IsSurfaceUpstream b (SurfaceUpstream b) where
   connectSurfaceDownstream (SurfaceUpstream x) = connectSurfaceDownstream @b x
 
 
-defaultSurfaceCommit :: Damage -> SurfaceCommit b
-defaultSurfaceCommit bufferDamage = SurfaceCommit {
+defaultSurfaceCommit :: SurfaceCommit b
+defaultSurfaceCommit = SurfaceCommit {
   buffer = Nothing,
-  offset = (0, 0),
-  bufferDamage,
+  offset = Nothing,
+  bufferDamage = Nothing,
   frameCallback = Nothing
 }
 
-newSurface :: forall b. STM (Surface b)
-newSurface = do
-  surfaceState <- newTVar (defaultSurfaceCommit DamageAll)
-  bufferUnlockFn <- newTVar (pure ())
-  downstreams <- newTVar []
-  pure Surface {
-    surfaceState,
-    bufferUnlockFn,
-    downstreams
-  }
 
-commitSurface :: Surface b -> SurfaceCommit b -> STM ()
-commitSurface surface commit = do
-  unlockFn <-
-    case commit.buffer of
-      Just buffer -> lockBuffer buffer
-      Nothing -> pure (pure ())
+---- TODO Needs to be renamed. SurfaceCache? SurfaceMultiplexer?
+---- This is only required when attaching multiple consumers to the same surface upstream.
+--data Surface b = Surface {
+--  cachedBuffer :: TVar (Buffer b),
+--  frameCallback :: TVar (Maybe (Word32 -> STM ())),
+--  -- Stores an STM action that will release the currently committed buffer.
+--  bufferUnlockFn :: TVar (STM ()),
+--  downstreams :: TVar [SurfaceDownstream b]
+--}
 
-  -- Store new unlockFn and then unlock previously used buffer
-  join $ swapTVar surface.bufferUnlockFn unlockFn
-
-  -- Even with multiple downstreams, the frame callback should only be called once
-  frameCallback <- mapM once1 commit.frameCallback
-
-  let commit' = commit { frameCallback }
-
-  downstreams <- readTVar surface.downstreams
-  -- TODO handle exceptions, remove failed downstreams
-  mapM_ (\downstream -> commitSurfaceDownstream downstream commit') downstreams
-
-instance IsSurfaceUpstream b (Surface b) where
-  connectSurfaceDownstream surface downstream = do
-    modifyTVar surface.downstreams (toSurfaceDownstream downstream:)
-    -- TODO handle exceptions
-    commitSurfaceDownstream downstream =<< readTVar surface.surfaceState
+--newSurface :: forall b. SurfaceState b -> STM (Surface b)
+--newSurface state = do
+--  surfaceState <- newTVar state
+--  bufferUnlockFn <- newTVar (pure ())
+--  downstreams <- newTVar []
+--  pure Surface {
+--    surfaceState,
+--    bufferUnlockFn,
+--    downstreams
+--  }
+--
+--commitSurface :: forall b. Surface b -> SurfaceCommit b -> STM ()
+--commitSurface surface commit = do
+--  unlockFn <-
+--    case commit.buffer of
+--      Just buffer -> lockBuffer buffer
+--      Nothing -> pure (pure ())
+--
+--  -- Store new unlockFn and then unlock previously used buffer
+--  join $ swapTVar surface.bufferUnlockFn unlockFn
+--
+--  -- Even with multiple downstreams, the frame callback should only be called once
+--  frameCallback <- mapM once1 commit.frameCallback
+--
+--  downstreams <- readTVar surface.downstreams
+--  -- TODO handle exceptions, remove failed downstreams
+--  forM_ downstreams \downstream ->
+--    commitSurfaceDownstream downstream commit { frameCallback }
+--
+--instance IsSurfaceUpstream b (Surface b) where
+--  connectSurfaceDownstream surface downstream = do
+--    modifyTVar surface.downstreams (toSurfaceDownstream downstream:)
+--    state <- readTVar surface.surfaceState
+--    let commit = SurfaceCommit {
+--      buffer = Just (state.buffer :: Buffer b),
+--      offset = Nothing,
+--      -- Initial commit, so no damage tracking is required
+--      bufferDamage = Nothing,
+--      frameCallback = state.frameCallback
+--    }
+--    -- TODO handle exceptions
+--    commitSurfaceDownstream downstream commit

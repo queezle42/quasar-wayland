@@ -172,24 +172,20 @@ instance ClientBufferBackend b => IsSurfaceDownstream b (ClientSurface b) where
   commitSurfaceDownstream = commitClientSurface
 
 commitClientSurface :: ClientBufferBackend b => ClientSurface b -> SurfaceCommit b -> STM ()
-commitClientSurface surface commit@SurfaceCommit{buffer = Nothing} = do
-  undefined -- TODO this is an invalid operation (surface unmap)
-
+commitClientSurface surface commit = do
   -- TODO catch exceptions and redirect to client owner (so the shared surface can continue to work when one backend fails)
 
-  surface.wlSurface.attach Nothing (fst commit.offset) (snd commit.offset)
-  -- TODO damage might not be required when removing a buffer?
-  addBufferDamage surface.wlSurface commit.bufferDamage
+  -- TODO wl_surface v5 offset changes
 
-  surface.wlSurface.commit
-commitClientSurface surface commit@SurfaceCommit{buffer = Just buffer} = do
-  -- TODO catch exceptions and redirect to client owner (so the shared surface can continue to work when one backend fails)
+  forM_ commit.buffer \buffer -> do
+    let offset = fromMaybe (0, 0) commit.offset
 
-  wlBuffer <- requestClientBuffer surface.surfaceManager buffer
-  -- NOTE Alternative which does not leak buffer objects (until TODOs are fixed) by never reusing buffers
-  --wlBuffer <- newSingleUseClientBuffer surface.surfaceManager buffer
-  surface.wlSurface.attach (Just wlBuffer) (fst commit.offset) (snd commit.offset)
-  addBufferDamage surface.wlSurface commit.bufferDamage
+    wlBuffer <- requestClientBuffer surface.surfaceManager buffer
+    -- NOTE Alternative which does not leak buffer objects (until TODOs are fixed) by never reusing buffers
+    --wlBuffer <- newSingleUseClientBuffer surface.surfaceManager buffer
+    surface.wlSurface.attach (Just wlBuffer) (fst offset) (snd offset)
+
+  mapM_ (addBufferDamage surface.wlSurface) commit.bufferDamage
 
   forM_ commit.frameCallback \frameCallback -> do
     wlCallback <- surface.wlSurface.frame
