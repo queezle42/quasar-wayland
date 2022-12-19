@@ -8,6 +8,7 @@ module Quasar.Wayland.Gles.Egl (
   eglCreateGLImage,
   queryDmabufFormats,
   eglExportDmabuf,
+  eglDestroyImage,
 ) where
 
 import Data.Set (Set)
@@ -41,6 +42,9 @@ C.verbatim "PFNEGLEXPORTDMABUFIMAGEMESAPROC eglExportDMABUFImageMESA;"
 
 C.verbatim "PFNEGLQUERYDMABUFFORMATSEXTPROC eglQueryDmaBufFormatsEXT;"
 C.verbatim "PFNEGLQUERYDMABUFMODIFIERSEXTPROC eglQueryDmaBufModifiersEXT;"
+
+C.verbatim "PFNEGLCREATEIMAGEKHRPROC eglCreateImageKHR;"
+C.verbatim "PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;"
 
 data Egl = Egl {
   display :: EGLDisplay,
@@ -97,6 +101,7 @@ initializeEgl = do
     requiredEglExtensions :: Set String = Set.fromList $ [
       "EGL_KHR_no_config_context",
       "EGL_MESA_image_dma_buf_export",
+      "EGL_KHR_image_base",
       "EGL_EXT_image_dma_buf_import",
       "EGL_EXT_image_dma_buf_import_modifiers"
       ] <> egl14RequiredExtensions
@@ -139,6 +144,10 @@ initializeEgl = do
       // Requires EGL_EXT_image_dma_buf_import_modifiers
       eglQueryDmaBufFormatsEXT = (PFNEGLQUERYDMABUFFORMATSEXTPROC)eglGetProcAddress("eglQueryDmaBufFormatsEXT");
       eglQueryDmaBufModifiersEXT = (PFNEGLQUERYDMABUFMODIFIERSEXTPROC)eglGetProcAddress("eglQueryDmaBufModifiersEXT");
+
+      // Requires EGL_KHR_image_base
+      eglCreateImageKHR = (PFNEGLCREATEIMAGEKHRPROC)eglGetProcAddress("eglCreateImageKHR");
+      eglDestroyImageKHR = (PFNEGLDESTROYIMAGEKHRPROC)eglGetProcAddress("eglDestroyImageKHR");
     }
   |]
 
@@ -235,10 +244,15 @@ eglTryQueryDeviceString device name = do
 eglCreateGLImage :: Egl -> GLuint -> IO EGLImage
 eglCreateGLImage Egl{display, context} glTexture = do
   -- Requires EGL_MESA_image_dma_buf_export
-  -- EGLImage requires EGL 1.5
-  -- EGLImage is available in EGL 1.4 with EGL_KHR_image_base and EGL_KHR_gl_image
-  throwErrnoIfNull "eglCreateImage"
-    [CU.exp| EGLImage { eglCreateImage($(EGLDisplay display), $(EGLContext context), EGL_GL_TEXTURE_2D, (EGLClientBuffer)(intptr_t) $(GLuint glTexture), NULL) } |]
+  -- eglCreateImage and EGLImage require EGL 1.5
+  -- eglCreateImageKHR and EGLImage are available in EGL 1.4 with EGL_KHR_image_base and EGL_KHR_gl_image
+  throwErrnoIfNull "eglCreateImageKHR"
+    [CU.exp| EGLImage { eglCreateImageKHR($(EGLDisplay display), $(EGLContext context), EGL_GL_TEXTURE_2D, (EGLClientBuffer)(intptr_t) $(GLuint glTexture), NULL) } |]
+
+eglDestroyImage :: Egl -> EGLImage -> IO ()
+eglDestroyImage Egl{display} image = do
+  throwErrnoIf_ (== 0) "eglDestroyImage"
+    [CU.exp|EGLBoolean { eglDestroyImage($(EGLDisplay display), $(EGLImage image)) }|]
 
 eglExportDmabuf :: Egl -> EGLImage -> Int32 -> Int32 -> IO Dmabuf
 eglExportDmabuf Egl{display} image width height = do
