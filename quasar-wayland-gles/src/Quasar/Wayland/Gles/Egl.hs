@@ -118,7 +118,7 @@ initializeEgl = do
   context <- throwErrnoIfNull "eglCreateContext"
     [CU.block|
       EGLContext {
-        static const EGLint attributes[] = {
+        const EGLint attributes[] = {
           EGL_CONTEXT_MAJOR_VERSION, 2,
           // terminate list
           EGL_NONE

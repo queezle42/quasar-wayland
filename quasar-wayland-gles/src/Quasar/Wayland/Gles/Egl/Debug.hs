@@ -87,7 +87,7 @@ initializeEglDebugHandler = do
   callbackPtr <- makeDebugCallbackPtr
   result <- [CU.block|
     EGLint {
-      static const EGLAttrib attributes[] = {
+      const EGLAttrib attributes[] = {
         // DEBUG_MSG_ERROR and CRITICAL are enabled by default
         EGL_DEBUG_MSG_WARN_KHR, EGL_TRUE,
         // terminate list
