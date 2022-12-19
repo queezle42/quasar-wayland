@@ -172,12 +172,15 @@ instance ClientBufferBackend b => IsSurfaceDownstream b (ClientSurface b) where
   commitSurfaceDownstream = commitClientSurface
 
 commitClientSurface :: ClientBufferBackend b => ClientSurface b -> SurfaceCommit b -> STM ()
-commitClientSurface surface (commit@SurfaceCommit{buffer = Nothing}) = do
+commitClientSurface surface commit@SurfaceCommit{buffer = Nothing} = do
+  undefined -- TODO this is an invalid operation (surface unmap)
+
   -- TODO catch exceptions and redirect to client owner (so the shared surface can continue to work when one backend fails)
 
   surface.wlSurface.attach Nothing (fst commit.offset) (snd commit.offset)
   -- TODO damage might not be required when removing a buffer?
   addBufferDamage surface.wlSurface commit.bufferDamage
+
   surface.wlSurface.commit
 commitClientSurface surface commit@SurfaceCommit{buffer = Just buffer} = do
   -- TODO catch exceptions and redirect to client owner (so the shared surface can continue to work when one backend fails)
@@ -187,6 +190,13 @@ commitClientSurface surface commit@SurfaceCommit{buffer = Just buffer} = do
   --wlBuffer <- newSingleUseClientBuffer surface.surfaceManager buffer
   surface.wlSurface.attach (Just wlBuffer) (fst commit.offset) (snd commit.offset)
   addBufferDamage surface.wlSurface commit.bufferDamage
+
+  forM_ commit.frameCallback \frameCallback -> do
+    wlCallback <- surface.wlSurface.frame
+    wlCallback `setEventHandler` EventHandler_wl_callback {
+      done = frameCallback
+    }
+
   surface.wlSurface.commit
 
 addBufferDamage :: Object 'Client Interface_wl_surface -> Damage -> STM ()

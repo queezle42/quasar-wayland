@@ -1,4 +1,7 @@
-module Quasar.Wayland.Utils.Once (once) where
+module Quasar.Wayland.Utils.Once (
+  once,
+  once1
+) where
 
 import Quasar.Prelude
 
@@ -11,6 +14,18 @@ runOnce var = do
   readTVar var >>= \case
     Left fn -> do
       result <- fn
+      writeTVar var (Right result)
+      pure result
+    Right result -> pure result
+
+once1 :: MonadSTM m => (b -> STM a) -> m (b -> STM a)
+once1 fn = runOnce1 <$> newTVar (Left fn)
+
+runOnce1 :: TVar (Either (b -> STM a) a) -> b -> STM a
+runOnce1 var arg = do
+  readTVar var >>= \case
+    Left fn -> do
+      result <- fn arg
       writeTVar var (Right result)
       pure result
     Right result -> pure result

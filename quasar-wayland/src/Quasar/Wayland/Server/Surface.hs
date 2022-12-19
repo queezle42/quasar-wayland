@@ -18,13 +18,20 @@ import Quasar.Wayland.Surface
 
 data ServerSurface b = ServerSurface {
   state :: TVar (ServerSurfaceState b),
-  lastRole :: TVar (Maybe String)
+  lastRole :: TVar (Maybe String),
+  pendingFrameCallback :: TVar (Maybe (Word32 -> STM ()))
 }
 
 data ServerSurfaceState b =
   Unmapped |
-  Pending (SurfaceDownstream b) |
+  -- | Surface role was assigned
+  Pending (PendingServerSurface b) |
+  -- | Surface role has been commited
   Mapped (MappedServerSurface b)
+
+newtype PendingServerSurface b = PendingServerSurface {
+  surfaceDownstream :: SurfaceDownstream b
+}
 
 data MappedServerSurface b = MappedServerSurface {
   surfaceDownstream :: SurfaceDownstream b,
@@ -45,48 +52,47 @@ newServerSurface :: STM (ServerSurface b)
 newServerSurface = do
   state <- newTVar Unmapped
   lastRole <- newTVar Nothing
+  pendingFrameCallback <- newTVar Nothing
 
   pure ServerSurface {
     state,
-    lastRole
+    lastRole,
+    pendingFrameCallback
   }
 
 getServerSurface :: forall b. BufferBackend b => Object 'Server Interface_wl_surface -> STM (Maybe (ServerSurface b))
 getServerSurface wlSurface = getInterfaceData @(ServerSurface b) wlSurface
 
---instance IsSurfaceUpstream b (ServerSurface b) where
---  connectSurfaceDownstream serverSurface downstream =
---    connectSurfaceDownstream serverSurface.surface downstream
-
 commitServerSurface :: ServerSurface b -> STM ()
 commitServerSurface serverSurface = do
   readTVar serverSurface.state >>= \case
     Unmapped -> throwM $ userError "Cannot commit a surface that does not have a role"
-    Pending surfaceDownstream -> do
-      mappedSurface <- mapServerSurface surfaceDownstream
+    Pending pending -> do
+      mappedSurface <- mapServerSurface pending
       writeTVar serverSurface.state (Mapped mappedSurface)
-    Mapped mappedSurface -> commitMappedServerSurface mappedSurface
+    Mapped mappedSurface -> commitMappedServerSurface serverSurface mappedSurface
 
-mapServerSurface :: SurfaceDownstream b -> STM (MappedServerSurface b)
-mapServerSurface surfaceDownstream = do
+mapServerSurface :: PendingServerSurface b -> STM (MappedServerSurface b)
+mapServerSurface pending = do
   pendingBuffer <- newTVar Nothing
   pendingOffset <- newTVar (0, 0)
   pendingBufferDamage <- newTVar mempty
   pendingSurfaceDamage <- newTVar mempty
   pure MappedServerSurface {
-    surfaceDownstream,
+    surfaceDownstream = pending.surfaceDownstream,
     pendingBuffer,
     pendingOffset,
     pendingBufferDamage,
     pendingSurfaceDamage
   }
 
-commitMappedServerSurface :: MappedServerSurface b -> STM ()
-commitMappedServerSurface mapped = do
+commitMappedServerSurface :: ServerSurface b -> MappedServerSurface b -> STM ()
+commitMappedServerSurface surface mapped = do
   serverBuffer <- swapTVar mapped.pendingBuffer Nothing
   offset <- swapTVar mapped.pendingOffset (0, 0)
   bufferDamage <- swapTVar mapped.pendingBufferDamage mempty
   surfaceDamage <- swapTVar mapped.pendingSurfaceDamage mempty
+  frameCallback <- swapTVar surface.pendingFrameCallback Nothing
   let
     convertedSurfaceDamage =
       case surfaceDamage of
@@ -102,7 +108,8 @@ commitMappedServerSurface mapped = do
   commitSurfaceDownstream mapped.surfaceDownstream SurfaceCommit {
     buffer = (.buffer) <$> serverBuffer,
     offset,
-    bufferDamage = combinedDamage
+    bufferDamage = combinedDamage,
+    frameCallback
   }
 
 
@@ -143,7 +150,7 @@ initializeServerSurface wlSurface = do
     destroy = pure (),
     attach = attachToSurface serverSurface,
     damage = appAsRect (damageSurface serverSurface),
-    frame = \callback -> pure (),
+    frame = addFrameCallback serverSurface,
     set_opaque_region = \region -> pure (),
     set_input_region = \region -> pure (),
     commit = commitServerSurface serverSurface,
@@ -152,6 +159,18 @@ initializeServerSurface wlSurface = do
     damage_buffer = appAsRect (damageBuffer serverSurface)
   }
   setInterfaceData wlSurface serverSurface
+
+addFrameCallback :: ServerSurface b -> Object 'Server Interface_wl_callback -> STM ()
+addFrameCallback serverSurface wlCallback = do
+  modifyTVar serverSurface.pendingFrameCallback \case
+    Nothing -> Just cb
+    Just oldCb -> Just (\time -> oldCb time >> cb time)
+
+  where
+    cb :: Word32 -> STM ()
+    -- NOTE The spec asks for a timestamp in milliseconds, but is specified as
+    -- a uint, which would lead to a rollover after ~50 days.
+    cb time = unlessM wlCallback.isDestroyed (wlCallback.done time)
 
 initializeWlBuffer :: forall b. BufferBackend b => NewObject 'Server Interface_wl_buffer -> Buffer b -> STM ()
 initializeWlBuffer wlBuffer buffer = do
@@ -186,9 +205,9 @@ assignSurfaceRole surface surfaceDownstream = do
     Pending _ -> throwM (ProtocolUsageError "Cannot assign wl_surface a new role, since it already has a pending role.")
     Unmapped -> pure ()
 
-  writeTVar surface.state (Pending surfaceDownstream)
+  writeTVar surface.state $ Pending PendingServerSurface { surfaceDownstream }
 
-  readTVar surface.lastRole >>= \x -> (flip ($)) x \case
+  readTVar surface.lastRole >>= \case
     Just ((== role) -> True) -> pure ()
     Just currentRole ->
       let msg = mconcat ["Cannot change wl_surface role. The last role was ", currentRole, "; new role is ", role]

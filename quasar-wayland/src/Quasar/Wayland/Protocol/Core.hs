@@ -329,6 +329,13 @@ data Object s i = IsInterfaceSide s i => Object {
   destroyed :: TVar Bool
 }
 
+instance HasField "isDestroyed" (Object s i) (STM Bool) where
+  getField = isObjectDestroyed
+
+instance HasField "isDestroyed" (SomeObject s) (STM Bool) where
+  getField (SomeObject obj) = isObjectDestroyed obj
+
+
 getMessageHandler :: IsInterfaceSide s i => Object s i -> STM (MessageHandler s i)
 getMessageHandler object = maybe (throwM (InternalError ("No message handler attached to " <> showObject object))) pure =<< readTVar object.messageHandler
 
@@ -351,12 +358,6 @@ getInterfaceData object = fromDynamic <$> readTVar object.interfaceData
 
 isObjectDestroyed :: Object s i -> STM Bool
 isObjectDestroyed object = readTVar object.destroyed
-
-instance HasField "isDestroyed" (Object s i) (STM Bool) where
-  getField obj = isObjectDestroyed obj
-
-instance HasField "isDestroyed" (SomeObject s) (STM Bool) where
-  getField (SomeObject obj) = isObjectDestroyed obj
 
 -- | Type alias to indicate an object is created with a message.
 type NewObject s i = Object s i

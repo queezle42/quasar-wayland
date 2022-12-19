@@ -29,7 +29,7 @@ import Data.Hashable (Hashable(..))
 import Data.Typeable
 import Quasar.Prelude
 import Quasar.Wayland.Region (Rectangle(..))
-import Quasar.Wayland.Utils.Once (once)
+import Quasar.Wayland.Utils.Once
 
 type BufferBackend :: Type -> Constraint
 class Typeable b => BufferBackend b where
@@ -136,7 +136,8 @@ data Surface b = Surface {
 data SurfaceCommit b = SurfaceCommit {
   buffer :: Maybe (Buffer b),
   offset :: (Int32, Int32),
-  bufferDamage :: Damage
+  bufferDamage :: Damage,
+  frameCallback :: Maybe (Word32 -> STM ())
 }
 
 --instance Semigroup (SurfaceCommit b) where
@@ -174,7 +175,8 @@ defaultSurfaceCommit :: Damage -> SurfaceCommit b
 defaultSurfaceCommit bufferDamage = SurfaceCommit {
   buffer = Nothing,
   offset = (0, 0),
-  bufferDamage
+  bufferDamage,
+  frameCallback = Nothing
 }
 
 newSurface :: forall b. STM (Surface b)
@@ -198,9 +200,14 @@ commitSurface surface commit = do
   -- Store new unlockFn and then unlock previously used buffer
   join $ swapTVar surface.bufferUnlockFn unlockFn
 
+  -- Even with multiple downstreams, the frame callback should only be called once
+  frameCallback <- mapM once1 commit.frameCallback
+
+  let commit' = commit { frameCallback }
+
   downstreams <- readTVar surface.downstreams
   -- TODO handle exceptions, remove failed downstreams
-  mapM_ (\downstream -> commitSurfaceDownstream downstream commit) downstreams
+  mapM_ (\downstream -> commitSurfaceDownstream downstream commit') downstreams
 
 instance IsSurfaceUpstream b (Surface b) where
   connectSurfaceDownstream surface downstream = do
