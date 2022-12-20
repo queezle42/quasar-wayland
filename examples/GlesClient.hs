@@ -22,9 +22,8 @@ main = do
     client <- connectWaylandClient
     traceIO "Connected"
 
-    buffer <- liftIO do
-      egl <- initializeGles
-      renderDemo egl
+    egl <- liftIO initializeGles
+    demo <- liftIO $ setupDemo egl
 
     configurationVar <- newEmptyTMVarIO
 
@@ -34,17 +33,20 @@ main = do
       setTitle tl "quasar-wayland-example-client"
       pure tl
 
-    -- Blocks until first configure event
-    configuration <- atomically $ readTMVar configurationVar
-    let width = max configuration.width 512
-    let height = max configuration.height 512
-    atomically do
-      commitWindowContent tl configuration.configureSerial defaultSurfaceCommit {
-        buffer = Just buffer
-      }
-      destroyBuffer buffer
+    forM_ [0,1..480] \i -> do
+      -- Blocks until first configure event
+      configuration <- atomically $ readTMVar configurationVar
 
-    await =<< newDelay 1000000
+      let width = max configuration.width 512
+      let height = max configuration.height 512
+      buffer <- liftIO $ renderDemo demo width height (fromIntegral i / 60)
+      atomically do
+        commitWindowContent tl configuration.configureSerial defaultSurfaceCommit {
+          buffer = Just buffer,
+          bufferDamage = Just DamageAll
+        }
+        destroyBuffer buffer
 
+      await =<< newDelay 16000
     traceIO "Closing"
   traceIO "Closed"

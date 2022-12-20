@@ -12,6 +12,11 @@ build-type: Simple
 extra-source-files:
   README.md
 
+data-dir: data
+data-files:
+  shader/*.vert
+  shader/*.frag
+
 source-repository head
   type: git
   location: https://github.com/queezle42/quasar-wayland
@@ -61,6 +66,9 @@ library
     Quasar.Wayland.Gles.Egl.Types
     Quasar.Wayland.Gles.Types
     Quasar.Wayland.Gles.Utils.InlineC
+    Paths_quasar_wayland_gles
+  autogen-modules:
+    Paths_quasar_wayland_gles
   build-depends:
     base,
     bytestring,
@@ -83,7 +91,7 @@ test-suite quasar-wayland-gles-test
   build-depends:
     --base,
     hspec,
-    --quasar-wayland,
+    --quasar-wayland-gles,
   ghc-options:
     -threaded
     -rtsopts "-with-rtsopts=-N"
