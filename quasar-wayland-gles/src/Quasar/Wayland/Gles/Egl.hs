@@ -6,9 +6,9 @@ module Quasar.Wayland.Gles.Egl (
   DmabufPlane(..),
   initializeEgl,
   eglCreateGLImage,
-  queryDmabufFormats,
-  eglExportDmabuf,
   eglDestroyImage,
+  eglExportDmabuf,
+  eglQueryDmabufFormats,
   eglImportDmabuf,
 ) where
 
@@ -152,11 +152,7 @@ initializeEgl = do
     }
   |]
 
-  let egl = Egl { display, context }
-
-  traceShowIO =<< queryDmabufFormats egl
-
-  pure egl
+  pure Egl { display, context }
 
 
 getEglDisplayDevice :: IO EGLDisplay
@@ -300,8 +296,8 @@ zipPlanes modifier fds strides offsets = packPlane <$> zipped
     packPlane (fd, stride, offset) = DmabufPlane {fd, stride, offset, modifier}
 
 
-queryDmabufFormats :: Egl -> IO [(DrmFormat, [DrmModifier])]
-queryDmabufFormats egl@Egl{display} = do
+eglQueryDmabufFormats :: Egl -> IO ([DrmFormat], [(DrmFormat, DrmModifier)])
+eglQueryDmabufFormats egl@Egl{display} = do
   -- Requires EGL_EXT_image_dma_buf_import_modifiers
 
   -- Query format count
@@ -322,9 +318,10 @@ queryDmabufFormats egl@Egl{display} = do
       count <- peek countPtr
       DrmFormat <<$>> peekArray (fromIntegral count) ptr
 
-  forM formats \format -> do
-    modifiers <- queryDmabufModifiers egl format
-    pure (format, modifiers)
+  modifiers <- forM formats \format -> do
+    (format,) <<$>> queryDmabufModifiers egl format
+
+  pure (formats, mconcat modifiers)
 
 queryDmabufModifiers :: Egl -> DrmFormat -> IO [DrmModifier]
 queryDmabufModifiers Egl{display} DrmFormat{fourcc} = do
@@ -348,8 +345,8 @@ queryDmabufModifiers Egl{display} DrmFormat{fourcc} = do
             $(uint32_t fourcc),
             $(EGLint maxCount),
             $(uint64_t* modifiersPtr),
-            // The external_only modifier can be ignored, since all textures
-            // are imported by using GL_OES_EGL_image_external
+            // The external_only data is not useful, since all textures are
+            // imported by using GL_OES_EGL_image_external
             NULL,
             $(EGLint* countPtr))
         }|]
