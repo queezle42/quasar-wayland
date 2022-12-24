@@ -1,4 +1,3 @@
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE TemplateHaskell #-}
 
 module Quasar.Wayland.Gles.Egl.Debug (
@@ -7,6 +6,7 @@ module Quasar.Wayland.Gles.Egl.Debug (
 
   EglException,
   eglGetError,
+  isEglSuccess,
 ) where
 
 import Data.List (intersperse, singleton)
@@ -72,6 +72,10 @@ toErrorMessage 0x300c = "EGL_BAD_PARAMETER"
 toErrorMessage 0x300d = "EGL_BAD_SURFACE"
 toErrorMessage 0x300e = "EGL_CONTEXT_LOST"
 toErrorMessage value = mconcat ["Invalid EGL error enum value (", show value, ")"]
+
+isEglSuccess :: EglException -> Bool
+isEglSuccess (EglException 0x3000) = True
+isEglSuccess _ = False
 
 
 initializeEglDebugHandler :: IO ()

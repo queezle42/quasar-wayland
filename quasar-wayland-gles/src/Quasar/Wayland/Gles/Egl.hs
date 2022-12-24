@@ -126,6 +126,7 @@ initializeEgl = do
       EGLContext {
         const EGLint attributes[] = {
           EGL_CONTEXT_MAJOR_VERSION, 2,
+          EGL_CONTEXT_OPENGL_DEBUG, EGL_TRUE,
           // terminate list
           EGL_NONE
         };

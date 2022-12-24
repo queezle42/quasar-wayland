@@ -8,6 +8,8 @@ module Quasar.Wayland.Gles (
 
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Foreign
 import Foreign.C
 import GHC.Float
@@ -16,6 +18,7 @@ import Language.C.Inline.Unsafe qualified as CU
 import Paths_quasar_wayland_gles (getDataFileName)
 import Quasar.Prelude
 import Quasar.Wayland.Gles.Backend
+import Quasar.Wayland.Gles.Debug
 import Quasar.Wayland.Gles.Egl
 import Quasar.Wayland.Gles.Types
 import Quasar.Wayland.Gles.Utils.InlineC
@@ -43,6 +46,18 @@ initializeGles = do
   traceIO $ "GL version: " <> version
   traceIO $ "GL shading language version: " <> shadingLanguageVersion
   traceIO $ "GL extensions: " <> extensionsString
+
+  let
+    extensions = Set.fromList (words extensionsString)
+    requiredExtensions :: Set String = Set.fromList [
+      "GL_KHR_debug"
+      ]
+    missingExtensions = Set.difference requiredExtensions extensions
+
+  unless (Set.null missingExtensions) $
+    fail $ "Missing GL extensions: " <> intercalate " " missingExtensions
+
+  initializeGlDebugHandler
 
   pure egl
 

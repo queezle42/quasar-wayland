@@ -5,6 +5,8 @@ module Quasar.Wayland.Gles.Types (
   GLint,
   GLfloat,
   GLchar,
+
+  GlDebugCallback,
 ) where
 
 import Foreign
@@ -17,3 +19,5 @@ type GLuint = Word32
 type GLint = Int32
 type GLfloat = Float
 type GLchar = CChar
+
+type GlDebugCallback = GLenum -> GLenum -> GLuint -> GLenum -> GLsizei -> CString -> Ptr () -> IO ()

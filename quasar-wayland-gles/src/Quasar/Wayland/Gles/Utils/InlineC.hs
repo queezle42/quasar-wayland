@@ -50,5 +50,6 @@ types = [
   (TypeName "GLuint", [t|GLuint|]),
   (TypeName "GLint", [t|GLint|]),
   (TypeName "GLfloat", [t|GLfloat|]),
-  (TypeName "GLchar", [t|GLchar|])
+  (TypeName "GLchar", [t|GLchar|]),
+  (TypeName "GLDEBUGPROCKHR", [t|FunPtr GlDebugCallback|])
   ]

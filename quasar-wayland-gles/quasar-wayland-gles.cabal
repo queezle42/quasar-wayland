@@ -62,6 +62,7 @@ library
     Quasar.Wayland.Gles.Dmabuf
     Quasar.Wayland.Gles.Egl
   other-modules:
+    Quasar.Wayland.Gles.Debug
     Quasar.Wayland.Gles.Egl.Debug
     Quasar.Wayland.Gles.Egl.Types
     Quasar.Wayland.Gles.Types
