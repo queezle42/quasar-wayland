@@ -144,7 +144,7 @@ doubleToFixed d = WlFixed (round (d * 256))
 --
 -- Instances and functions in this library assume UTF-8, but the original data is also available by deconstructing.
 newtype WlString = WlString BS.ByteString
-  deriving newtype (Eq, Hashable)
+  deriving newtype (Eq, Hashable, Monoid, Semigroup)
 
 instance Show WlString where
   show = show . toString
