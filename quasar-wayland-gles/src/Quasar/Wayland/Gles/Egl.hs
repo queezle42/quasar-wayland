@@ -99,19 +99,14 @@ initializeEgl = do
 
   let
     eglExtensions = Set.fromList (words eglExtensionString)
-    requiredEglExtensions :: Set String = Set.fromList $ [
+    requiredEglExtensions :: Set String = Set.fromList [
       "EGL_KHR_no_config_context",
       "EGL_MESA_image_dma_buf_export",
+      -- From 1.5 the non-KHR versions of the functions _could_ be used instead
       "EGL_KHR_image_base",
       "EGL_EXT_image_dma_buf_import",
       "EGL_EXT_image_dma_buf_import_modifiers"
-      ] <> egl14RequiredExtensions
-    egl14RequiredExtensions
-      | major == 1 && minor == 4 = [
-        "EGL_KHR_image_base",
-        "EGL_KHR_gl_image"
-        ]
-      | otherwise = []
+      ]
     missingEglExtensions = Set.difference requiredEglExtensions eglExtensions
 
   unless (Set.null missingEglExtensions) $
@@ -243,7 +238,7 @@ eglCreateGLImage :: Egl -> GLuint -> IO EGLImage
 eglCreateGLImage Egl{display, context} glTexture = do
   -- Requires EGL_MESA_image_dma_buf_export
   -- eglCreateImage and EGLImage require EGL 1.5
-  -- eglCreateImageKHR and EGLImage are available in EGL 1.4 with EGL_KHR_image_base and EGL_KHR_gl_image
+  -- eglCreateImageKHR and EGLImage are available in EGL 1.4 with EGL_KHR_image_base
   throwErrnoIfNull "eglCreateImageKHR"
     [CU.exp| EGLImage { eglCreateImageKHR($(EGLDisplay display), $(EGLContext context), EGL_GL_TEXTURE_2D, (EGLClientBuffer)(intptr_t) $(GLuint glTexture), NULL) } |]
 
