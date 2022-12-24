@@ -24,7 +24,6 @@ class BufferBackend b => IsWindow b a | a -> b where
   ackWindowConfigure :: a -> ConfigureSerial -> STM ()
 
 
-
 -- | NOTE Dummy implementation to encourage correct api design without actually implementing configure serials.
 data ConfigureSerial = ConfigureSerial
   deriving (Eq, Ord)

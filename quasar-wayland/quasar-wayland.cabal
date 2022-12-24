@@ -73,6 +73,7 @@ library
     Quasar.Wayland.Server.Surface
     Quasar.Wayland.Server.XdgShell
     Quasar.Wayland.Shared.DummyWindowManager
+    Quasar.Wayland.Shared.FnWindowManager
     Quasar.Wayland.Shared.WindowManagerApi
     Quasar.Wayland.Shm
     Quasar.Wayland.Surface
