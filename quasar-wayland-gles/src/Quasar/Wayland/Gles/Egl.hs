@@ -21,10 +21,12 @@ import Quasar.Wayland.Gles.Egl.Debug
 import Quasar.Wayland.Gles.Egl.Types
 import Quasar.Wayland.Gles.Types
 import Quasar.Wayland.Gles.Utils.InlineC
+import Quasar.Wayland.Gles.Utils.Stat
 import Language.C.Inline qualified as C
 import Language.C.Inline.Unsafe qualified as CU
 import Quasar.Prelude
 import System.Posix.Types (Fd(Fd))
+
 
 C.context ctx
 
@@ -190,16 +192,22 @@ getEglDisplayDevice = do
 
   forM_ (zip [0,1..] devices) \(i :: Int, device) -> do
     deviceExtensionString <- eglQueryDeviceString device [CU.pure|EGLint { EGL_EXTENSIONS }|]
-    traceIO $ mconcat ["Device ", show i, ": ", deviceExtensionString]
+    traceIO $ mconcat ["Device ", show i, ": device extensions: ", deviceExtensionString]
     let deviceExtensions = Set.fromList (words deviceExtensionString)
 
     when (Set.member "EGL_EXT_device_drm" deviceExtensions) do
       deviceNode <- eglTryQueryDeviceString device [CU.pure|EGLint { EGL_DRM_DEVICE_FILE_EXT }|]
-      traceIO $ mconcat ["Device ", show i, ": ", show deviceNode]
+      forM_ deviceNode \path -> do
+        traceIO $ mconcat ["Device ", show i, ": drm device: ", path]
+        devT <- statDevT path
+        traceIO $ mconcat ["Device ", show i, ": drm device dev_t: ", show devT]
 
     when (Set.member "EGL_EXT_device_drm_render_node" deviceExtensions) do
       renderNode <- eglTryQueryDeviceString device [CU.pure|EGLint { EGL_DRM_RENDER_NODE_FILE_EXT }|]
-      traceIO $ mconcat ["Device ", show i, ": ", show renderNode]
+      forM_ renderNode \path -> do
+        traceIO $ mconcat ["Device ", show i, ": render node: ", path]
+        devT <- statDevT path
+        traceIO $ mconcat ["Device ", show i, ": render node dev_t: ", show devT]
 
   -- NOTE If required the drm master fd can be accessed by querying EGL_DRM_MASTER_FD_EXT (requires EGL_EXT_device_drm)
 

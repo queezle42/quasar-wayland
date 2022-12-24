@@ -67,6 +67,7 @@ library
     Quasar.Wayland.Gles.Egl.Types
     Quasar.Wayland.Gles.Types
     Quasar.Wayland.Gles.Utils.InlineC
+    Quasar.Wayland.Gles.Utils.Stat
     Paths_quasar_wayland_gles
   autogen-modules:
     Paths_quasar_wayland_gles
