@@ -1,6 +1,7 @@
 module Quasar.Wayland.Gles.Backend (
   GlesBackend,
   GlesBuffer(..),
+  getDmabuf,
 
   -- * Client
   ClientDmabufSingleton,
@@ -38,6 +39,9 @@ instance BufferBackend GlesBackend where
 data GlesBuffer = GlesBuffer {
   dmabuf :: Dmabuf
 }
+
+getDmabuf :: GlesBuffer -> Dmabuf
+getDmabuf (GlesBuffer dmabuf) = dmabuf
 
 
 instance ClientBufferBackend GlesBackend where
