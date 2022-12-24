@@ -2,8 +2,10 @@
 
 module Quasar.Wayland.Gles (
   initializeGles,
+  Demo,
   setupDemo,
   renderDemo,
+  textureDemo,
 ) where
 
 import Data.ByteString (ByteString)
@@ -30,8 +32,11 @@ C.context ctx
 C.include "<stdint.h>"
 C.include "<unistd.h>"
 
+C.include "<EGL/egl.h>"
 C.include "<GLES2/gl2.h>"
+C.include "<GLES2/gl2ext.h>"
 
+C.verbatim "PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;"
 
 initializeGles :: IO Egl
 initializeGles = do
@@ -50,7 +55,8 @@ initializeGles = do
   let
     extensions = Set.fromList (words extensionsString)
     requiredExtensions :: Set String = Set.fromList [
-      "GL_KHR_debug"
+      "GL_KHR_debug",
+      "GL_OES_EGL_image_external"
       ]
     missingExtensions = Set.difference requiredExtensions extensions
 
@@ -59,13 +65,18 @@ initializeGles = do
 
   initializeGlDebugHandler
 
+  [CU.block|void {
+    glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+  }|]
+
   pure egl
 
 
 data Demo = Demo {
   egl :: Egl,
   framebuffer :: GLuint,
-  shaderProgram :: GLuint
+  renderShaderProgram :: GLuint,
+  copyShaderProgram :: GLuint
 }
 
 setupDemo :: Egl -> IO Demo
@@ -75,19 +86,26 @@ setupDemo egl = do
   vertexShaderSource <- BS.readFile =<< getDataFileName "shader/basic.vert"
   fragmentShaderSource <- BS.readFile =<< getDataFileName "shader/basic.frag"
 
-  shaderProgram <- maybe (fail "Failed to compile shaders") pure =<<
+  renderShaderProgram <- maybe (fail "Failed to compile shaders") pure =<<
     compileShaderProgram vertexShaderSource fragmentShaderSource
+
+  copyVertexShaderSource <- BS.readFile =<< getDataFileName "shader/copy.vert"
+  copyFragmentShaderSource <- BS.readFile =<< getDataFileName "shader/copy.frag"
+
+  copyShaderProgram <- maybe (fail "Failed to compile shaders") pure =<<
+    compileShaderProgram copyVertexShaderSource copyFragmentShaderSource
 
   [CU.block|void { glReleaseShaderCompiler(); }|]
 
   pure Demo {
     egl,
     framebuffer,
-    shaderProgram
+    renderShaderProgram,
+    copyShaderProgram
   }
 
 renderDemo :: Demo -> Int32 -> Int32 -> Double -> IO (Buffer GlesBackend)
-renderDemo Demo{egl, framebuffer, shaderProgram} width height time = do
+renderDemo Demo{egl, framebuffer, renderShaderProgram=shaderProgram} width height time = do
   -- Create buffer texture
   texture <- glGenTexture
 
@@ -118,9 +136,15 @@ renderDemo Demo{egl, framebuffer, shaderProgram} width height time = do
   [CU.block|void {
     float vertices[] = {
       0, -1,
-      -1, 1,
       1, 1,
+      -1, 1,
     };
+    //float vertices[] = {
+    //  -1, -1,
+    //  1, -1,
+    //  -1, 1,
+    //  1, 1,
+    //};
 
     glBindBuffer(GL_ARRAY_BUFFER, $(GLuint buffer));
 
@@ -153,6 +177,108 @@ renderDemo Demo{egl, framebuffer, shaderProgram} width height time = do
 
   [CU.block|void {
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 3);
+    glFinish();
+  }|]
+
+  glDeleteTexture texture
+  glDeleteBuffer buffer
+
+  dmabuf <- eglExportDmabuf egl eglImage width height
+  eglDestroyImage egl eglImage
+  let glesBuffer = GlesBuffer dmabuf
+  atomically $ newBuffer glesBuffer (traceM "TODO Should destroy dmabuf (but sending currently closes the fds)")
+
+
+textureDemo :: Demo -> Dmabuf -> IO (Buffer GlesBackend)
+textureDemo Demo{egl, framebuffer, copyShaderProgram=shaderProgram} inputDmabuf = do
+  let
+    width = inputDmabuf.width
+    height = inputDmabuf.height
+
+  -- Import dmabuf to texture
+  inputImage <- eglImportDmabuf egl inputDmabuf
+  traceM "Mapping imported dmabuf to texture"
+  inputTexture <- glGenTexture
+  [CU.block|void {
+    glBindTexture(GL_TEXTURE_2D, $(GLuint inputTexture));
+    //glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, $(GLeglImageOES inputImage));
+    //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, $(GLeglImageOES inputImage));
+    glBindTexture(GL_TEXTURE_2D, 0);
+  }|]
+  traceM "Mapped imported dmabuf to texture"
+
+  -- Create buffer texture
+  texture <- glGenTexture
+
+  -- Initialize wl_buffer texture
+  [CU.block|void {
+    glBindTexture(GL_TEXTURE_2D, $(GLuint texture));
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, $(GLsizei width), $(GLsizei height), 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glBindTexture(GL_TEXTURE_2D, 0);
+  }|]
+
+  -- Map wl_buffer texture to EGL image
+  eglImage <- eglCreateGLImage egl texture
+
+  -- Begin rendering
+  [CU.block|void {
+    glBindFramebuffer(GL_FRAMEBUFFER, $(GLuint framebuffer));
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, $(GLuint texture), 0);
+
+    glClearColor(0.1, 0.1, 0.1, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+  }|]
+  -- Framebuffer is still bound
+
+  buffer <- glGenBuffer
+
+  [CU.block|void {
+    float vertices[] = {
+      -1, -1,
+      0.9, -0.9,
+      -1, 1,
+      1, 1,
+    };
+
+    glBindBuffer(GL_ARRAY_BUFFER, $(GLuint buffer));
+
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STREAM_DRAW);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+  }|]
+
+  windowUniform <- glGetUniformLocation shaderProgram "window"
+
+  samplerUniform <- glGetUniformLocation shaderProgram "sampler"
+
+  let
+    fwidth = fromIntegral width
+    fheight = fromIntegral height
+  [CU.block|void {
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, $(GLuint inputTexture));
+
+    glViewport(0, 0, $(GLint width), $(GLint height));
+
+    glUseProgram($(GLuint shaderProgram));
+
+    glUniform2f($(GLint windowUniform), $(GLfloat fwidth), $(GLfloat fheight));
+    glUniform1i($(GLint samplerUniform), 0);
+  }|]
+
+  (valid, validationInfo) <- glValidateProgram shaderProgram
+  BS.hPutStr stderr validationInfo
+  unless valid $ fail "Shader program is in an invalid state"
+
+  [CU.block|void {
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glFinish();
   }|]
 
