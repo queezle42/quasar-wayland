@@ -128,18 +128,25 @@ type ServerDmabufParams = TVar ServerDmabufParamsState
 type ServerDmabufParamsState = Maybe (Map Word32 DmabufPlane)
 
 dmabufGlobal :: [DrmFormat] -> [(DrmFormat, DrmModifier)] -> Global
-dmabufGlobal supportedFormats supportedModifiers =
+dmabufGlobal legacyFormats legacyModifiers =
   createGlobal @Interface_zwp_linux_dmabuf_v1 3 initialize
   where
     initialize :: NewObject 'Server Interface_zwp_linux_dmabuf_v1 -> STM ()
     initialize wlLinuxDmabuf = do
       wlLinuxDmabuf `setRequestHandler` dmabufHandler
-      forM_ supportedFormats \format -> do
-        wlLinuxDmabuf.format format.fourcc
+
+      when (wlLinuxDmabuf.version <= 2) do
+        -- `format` event is not sent in version 3. This is not explicitly
+        -- documented, but was sway behaves like this. I have also observed
+        -- clients that request v2 when v3 is available, so it seems reasonable
+        -- to assume this is widespread or at least supported behavior.
+        forM_ legacyFormats \format -> do
+          wlLinuxDmabuf.format format.fourcc
 
       when (wlLinuxDmabuf.version == 3) do
-        forM_ supportedModifiers \(format, modifier) -> do
+        forM_ legacyModifiers \(format, modifier) -> do
           wlLinuxDmabuf.modifier format.fourcc modifier.hi modifier.lo
+
 
     dmabufHandler :: RequestHandler_zwp_linux_dmabuf_v1
     dmabufHandler =
