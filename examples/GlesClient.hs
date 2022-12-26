@@ -39,7 +39,7 @@ main = do
 
       let width = max configuration.width 512
       let height = max configuration.height 512
-      buffer <- liftIO $ renderDemo demo width height (fromIntegral i / 60)
+      buffer <- liftIO $ renderDemo demo width height (i / 60)
       atomically do
         commitWindowContent tl configuration.configureSerial defaultSurfaceCommit {
           buffer = Just buffer,
