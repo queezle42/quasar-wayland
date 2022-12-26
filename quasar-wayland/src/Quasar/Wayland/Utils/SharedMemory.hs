@@ -2,12 +2,13 @@
 
 module Quasar.Wayland.Utils.SharedMemory (
   memfdCreate,
-  mmap,
+  mmapReadWrite,
+  mmapReadOnly,
 ) where
 
 import Foreign
+import Foreign.C
 import Foreign.Concurrent qualified as FC
-import Foreign.C.Error
 import Language.C.Inline qualified as C
 import Language.C.Inline.Unsafe qualified as CU
 import Quasar.Prelude
@@ -38,13 +39,23 @@ memfdCreate size = Fd <$> throwErrnoIfMinus1 "memfd_create/ftruncate"
     }
   |]
 
-mmap :: Fd -> C.CSize -> IO (ForeignPtr Word8)
-mmap (Fd fd) size = do
+mmapReadWrite :: CSize -> Fd -> IO (ForeignPtr Word8)
+mmapReadWrite size (Fd fd) = do
   ptr <- fmap intPtrToPtr . throwErrnoIfMinus1 "mmap" $
-    ptrToIntPtr <$> [CU.exp| void*{ mmap(NULL, $(size_t size), PROT_READ | PROT_WRITE, MAP_SHARED, $(int fd), 0) } |]
+    ptrToIntPtr <$> [CU.exp|void*{
+      mmap(NULL, $(size_t size), PROT_READ | PROT_WRITE, MAP_SHARED, $(int fd), 0)
+    }|]
   FC.newForeignPtr ptr (munmap ptr size)
 
-munmap :: Ptr a -> C.CSize -> IO ()
+mmapReadOnly :: CSize -> Fd -> IO (ForeignPtr Word8)
+mmapReadOnly size (Fd fd) = do
+  ptr <- fmap intPtrToPtr . throwErrnoIfMinus1 "mmap" $
+    ptrToIntPtr <$> [CU.exp|void*{
+      mmap(NULL, $(size_t size), PROT_READ, MAP_PRIVATE, $(int fd), 0)
+    }|]
+  FC.newForeignPtr ptr (munmap ptr size)
+
+munmap :: Ptr a -> CSize -> IO ()
 munmap (castPtr -> ptr) size =
   throwErrnoIfMinus1_ "munmap" $
     [CU.exp| int { munmap($(void* ptr), $(size_t size)) } |]

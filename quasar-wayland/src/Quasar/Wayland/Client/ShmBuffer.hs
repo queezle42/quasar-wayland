@@ -15,9 +15,9 @@ import System.Posix.IO (closeFd)
 
 newLocalShmPool :: Int32 -> IO (ShmPool, ForeignPtr Word8)
 newLocalShmPool size = do
-  fd <- memfdCreate $ fromIntegral size
+  fd <- memfdCreate (fromIntegral size)
 
-  ptr <- mmap fd $ fromIntegral size
+  ptr <- mmapReadWrite (fromIntegral size) fd
 
   -- Passes ownership of the fd to the pool
   pool <- atomically (newShmPool fd size)
