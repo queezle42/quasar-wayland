@@ -54,7 +54,7 @@
         };
       };
 
-      quasar = quasar.overlay;
+      quasar = quasar.overlays.default;
     };
 
     devShells = forAllSystems (system:
