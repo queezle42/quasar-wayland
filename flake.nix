@@ -12,7 +12,15 @@
   with nixpkgs.lib;
   let
     systems = platforms.unix;
-    forAllSystems = genAttrs systems;
+    forAllSystems = fn: (genAttrs systems (system:
+      fn (import nixpkgs {
+        inherit system;
+        overlays = [
+          self.overlays.default
+          quasar.overlays.default
+        ];
+      })
+    ));
     getHaskellPackages = pkgs: pattern: pipe pkgs.haskell.packages [
       attrNames
       (filter (x: !isNull (strings.match pattern x)))
@@ -21,12 +29,8 @@
       head
     ];
   in {
-    packages = forAllSystems (system:
+    packages = forAllSystems (pkgs:
     let
-      pkgs = import nixpkgs { inherit system; overlays = [
-        self.overlays.default
-        quasar.overlays.default
-      ]; };
       ghc92 = getHaskellPackages pkgs "ghc92.";
     in rec {
       default = quasar-wayland-examples;
@@ -57,12 +61,8 @@
       quasar = quasar.overlays.default;
     };
 
-    devShells = forAllSystems (system:
+    devShells = forAllSystems (pkgs:
       let
-        pkgs = import nixpkgs { inherit system; overlays = [
-          self.overlays.default
-          quasar.overlays.default
-        ]; };
         haskellPackages = getHaskellPackages pkgs "ghc92.";
       in rec {
         default = haskellPackages.shellFor {
