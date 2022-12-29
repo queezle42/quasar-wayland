@@ -25,7 +25,7 @@ main = runQuasarAndExit (stderrLogger LogLevelWarning) do
 
     egl <- initializeGles
     (dmabufFormats, dmabufModifiers) <- eglQueryDmabufFormats egl
-    demo <- setupDemo egl
+    demo <- setupProxyDemo egl
 
     --clientDmabuf <- atomically $ getClientDmabufSingleton client
     --(dmabufFormats, dmabufModifiers) <- awaitSupportedFormats clientDmabuf
@@ -46,24 +46,30 @@ main = runQuasarAndExit (stderrLogger LogLevelWarning) do
     forever do
       join $ atomically (takeTMVar jobVar)
 
-mapWindowManager :: IsWindowManager GlesBackend a => Demo -> TMVar (IO ()) -> a -> FnWindowManager GlesBackend
+mapWindowManager :: IsWindowManager GlesBackend a => ProxyDemo -> TMVar (IO ()) -> a -> FnWindowManager GlesBackend
 mapWindowManager demo jobVar upstream = fnWindowManager {
   newWindowFn = \cfg -> mapWindow demo jobVar <$> fnWindowManager.newWindowFn cfg
 }
   where
     fnWindowManager = toFnWindowManager upstream
 
-mapWindow :: Demo -> TMVar (IO ()) -> FnWindow GlesBackend -> FnWindow GlesBackend
+mapWindow :: ProxyDemo -> TMVar (IO ()) -> FnWindow GlesBackend -> FnWindow GlesBackend
 mapWindow demo jobVar window = window {
   setTitleFn = \title -> setTitle window (title <> " (proxy)"),
   commitWindowContentFn = onWindowContentCommit demo jobVar window
 }
 
-onWindowContentCommit :: Demo -> TMVar (IO ()) -> FnWindow GlesBackend -> ConfigureSerial -> SurfaceCommit GlesBackend -> STM ()
+onWindowContentCommit :: ProxyDemo -> TMVar (IO ()) -> FnWindow GlesBackend -> ConfigureSerial -> SurfaceCommit GlesBackend -> STM ()
 onWindowContentCommit demo jobVar window serial commit = do
   traceM "commit"
-  putTMVar jobVar do
-    buffer <- mapM (textureDemo demo . getDmabuf . (.storage)) commit.buffer
-    atomically $ commitWindowContent window serial commit {
-      buffer
-    }
+  case commit.buffer of
+    Nothing -> commitWindowContent window serial commit
+    Just buffer -> do
+      unlockBuffer <- lockBuffer buffer
+      putTMVar jobVar do
+        newBuffer <- proxyDemo demo $ getDmabuf $ buffer.storage
+        atomically do
+          unlockBuffer
+          commitWindowContent window serial commit {
+            buffer = Just newBuffer
+          }

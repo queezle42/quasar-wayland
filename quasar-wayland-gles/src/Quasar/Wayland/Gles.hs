@@ -2,10 +2,14 @@
 
 module Quasar.Wayland.Gles (
   initializeGles,
-  Demo,
-  setupDemo,
+
+  RenderDemo,
+  setupRenderDemo,
   renderDemo,
-  textureDemo,
+
+  ProxyDemo,
+  setupProxyDemo,
+  proxyDemo,
 ) where
 
 import Data.ByteString (ByteString)
@@ -73,40 +77,56 @@ initializeGles = do
   pure egl
 
 
-data Demo = Demo {
+data RenderDemo = RenderDemo {
   egl :: Egl,
   framebuffer :: GLuint,
-  renderShaderProgram :: GLuint,
-  copyShaderProgram :: GLuint
+  shaderProgram :: GLuint
 }
 
-setupDemo :: Egl -> IO Demo
-setupDemo egl = do
+data ProxyDemo = ProxyDemo {
+  egl :: Egl,
+  framebuffer :: GLuint,
+  shaderProgram :: GLuint
+}
+
+setupRenderDemo :: Egl -> IO RenderDemo
+setupRenderDemo egl = do
   framebuffer <- glGenFramebuffer
 
   vertexShaderSource <- BS.readFile =<< getDataFileName "shader/basic.vert"
   fragmentShaderSource <- BS.readFile =<< getDataFileName "shader/basic.frag"
 
-  renderShaderProgram <- maybe (fail "Failed to compile shaders") pure =<<
+  shaderProgram <- maybe (fail "Failed to compile shaders") pure =<<
     compileShaderProgram vertexShaderSource fragmentShaderSource
+
+  [CU.block|void { glReleaseShaderCompiler(); }|]
+
+  pure RenderDemo {
+    egl,
+    framebuffer,
+    shaderProgram
+  }
+
+setupProxyDemo :: Egl -> IO ProxyDemo
+setupProxyDemo egl = do
+  framebuffer <- glGenFramebuffer
 
   copyVertexShaderSource <- BS.readFile =<< getDataFileName "shader/copy.vert"
   copyFragmentShaderSource <- BS.readFile =<< getDataFileName "shader/copy.frag"
 
-  copyShaderProgram <- maybe (fail "Failed to compile shaders") pure =<<
+  shaderProgram <- maybe (fail "Failed to compile shaders") pure =<<
     compileShaderProgram copyVertexShaderSource copyFragmentShaderSource
 
   [CU.block|void { glReleaseShaderCompiler(); }|]
 
-  pure Demo {
+  pure ProxyDemo {
     egl,
     framebuffer,
-    renderShaderProgram,
-    copyShaderProgram
+    shaderProgram
   }
 
-renderDemo :: Demo -> Int32 -> Int32 -> Double -> IO (Buffer GlesBackend)
-renderDemo Demo{egl, framebuffer, renderShaderProgram=shaderProgram} width height time = do
+renderDemo :: RenderDemo -> Int32 -> Int32 -> Double -> IO (Buffer GlesBackend)
+renderDemo RenderDemo{egl, framebuffer, shaderProgram} width height time = do
   -- Create buffer texture
   texture <- glGenTexture
 
@@ -190,8 +210,8 @@ renderDemo Demo{egl, framebuffer, renderShaderProgram=shaderProgram} width heigh
   atomically $ newBuffer glesBuffer (traceM "TODO Should destroy dmabuf (but sending currently closes the fds)")
 
 
-textureDemo :: Demo -> Dmabuf -> IO (Buffer GlesBackend)
-textureDemo Demo{egl, framebuffer, copyShaderProgram=shaderProgram} inputDmabuf = do
+proxyDemo :: ProxyDemo -> Dmabuf -> IO (Buffer GlesBackend)
+proxyDemo ProxyDemo{egl, framebuffer, shaderProgram} inputDmabuf = do
   let
     width = inputDmabuf.width
     height = inputDmabuf.height

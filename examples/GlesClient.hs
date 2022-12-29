@@ -23,7 +23,7 @@ main = do
     traceIO "Connected"
 
     egl <- liftIO initializeGles
-    demo <- liftIO $ setupDemo egl
+    demo <- liftIO $ setupRenderDemo egl
 
     configurationVar <- newEmptyTMVarIO
 
