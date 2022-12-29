@@ -56,7 +56,8 @@ initializeGles = do
     extensions = Set.fromList (words extensionsString)
     requiredExtensions :: Set String = Set.fromList [
       "GL_KHR_debug",
-      "GL_OES_EGL_image_external"
+      "GL_OES_EGL_image"
+      --"GL_OES_EGL_image_external"
       ]
     missingExtensions = Set.difference requiredExtensions extensions
 
@@ -201,10 +202,15 @@ textureDemo Demo{egl, framebuffer, copyShaderProgram=shaderProgram} inputDmabuf 
   inputTexture <- glGenTexture
   [CU.block|void {
     glBindTexture(GL_TEXTURE_2D, $(GLuint inputTexture));
-    //glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, $(GLeglImageOES inputImage));
-    //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    //glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, $(GLeglImageOES inputImage));
+
+    // load external image
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, $(GLeglImageOES inputImage));
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    // load external image (alternative using GL_TEXTURE_EXTERNAL_OES)
+    //glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, $(GLeglImageOES inputImage));
+
     glBindTexture(GL_TEXTURE_2D, 0);
   }|]
   traceM "Mapped imported dmabuf to texture"
