@@ -359,7 +359,7 @@ queryDmabufModifiers Egl{display} DrmFormat{fourcc} = do
 
 
 eglImportDmabuf :: Egl -> Dmabuf -> IO EGLImage
-eglImportDmabuf Egl{display, context} dmabuf = do
+eglImportDmabuf Egl{display} dmabuf = do
   -- Requires:
   -- - EGL_KHR_image_base
   -- - EGL_EXT_image_dma_buf_import
