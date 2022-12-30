@@ -9,6 +9,7 @@ module Quasar.Wayland.Gles (
 
   ProxyDemo,
   setupProxyDemo,
+  setupProxyDemoShader,
   proxyDemo,
 ) where
 
@@ -109,13 +110,16 @@ setupRenderDemo egl = do
 
 setupProxyDemo :: Egl -> IO ProxyDemo
 setupProxyDemo egl = do
+  vertexShader <- BS.readFile =<< getDataFileName "shader/copy.vert"
+  fragmentShader <- BS.readFile =<< getDataFileName "shader/copy.frag"
+  setupProxyDemoShader egl vertexShader fragmentShader
+
+setupProxyDemoShader :: Egl -> ByteString -> ByteString -> IO ProxyDemo
+setupProxyDemoShader egl vertexShader fragmentShader = do
   framebuffer <- glGenFramebuffer
 
-  copyVertexShaderSource <- BS.readFile =<< getDataFileName "shader/copy.vert"
-  copyFragmentShaderSource <- BS.readFile =<< getDataFileName "shader/copy.frag"
-
   shaderProgram <- maybe (fail "Failed to compile shaders") pure =<<
-    compileShaderProgram copyVertexShaderSource copyFragmentShaderSource
+    compileShaderProgram vertexShader fragmentShader
 
   [CU.block|void { glReleaseShaderCompiler(); }|]
 
