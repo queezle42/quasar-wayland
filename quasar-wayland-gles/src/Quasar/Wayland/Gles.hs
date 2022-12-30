@@ -305,11 +305,15 @@ proxyDemo ProxyDemo{egl, framebuffer, shaderProgram} inputDmabuf = do
 
   [CU.block|void {
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    glFinish();
   }|]
 
+  eglDestroyImage egl inputImage
   glDeleteTexture texture
   glDeleteBuffer buffer
+
+  [CU.block|void {
+    glFinish();
+  }|]
 
   dmabuf <- eglExportDmabuf egl eglImage width height
   eglDestroyImage egl eglImage

@@ -73,3 +73,4 @@ onWindowContentCommit demo jobVar window serial commit = do
           commitWindowContent window serial commit {
             buffer = Just newBuffer
           }
+          destroyBuffer newBuffer
