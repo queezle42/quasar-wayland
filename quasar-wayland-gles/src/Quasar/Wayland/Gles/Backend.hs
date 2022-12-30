@@ -50,12 +50,11 @@ instance ClientBufferBackend GlesBackend where
   exportWlBuffer manager buffer = exportGlesWlBuffer manager buffer.storage
 
 
-
 -- * Client
 
 data ClientDmabufSingleton = ClientDmabufSingleton {
   zwpLinuxDmabuf :: Object 'Client Interface_zwp_linux_dmabuf_v1,
-  formatsComplete :: Future (),
+  formatsComplete :: FutureE (),
   dmabufFormats :: TVar (Set DrmFormat),
   dmabufModifiers :: TVar (Set (DrmFormat, DrmModifier))
 }

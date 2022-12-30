@@ -73,7 +73,7 @@ newWaylandClient socket = do
       }
 
 
-instance HasField "sync" WaylandClient (STM (Future ())) where
+instance HasField "sync" WaylandClient (STM (FutureE ())) where
   getField client = lowLevelSyncFuture client.wlDisplay
 
 
