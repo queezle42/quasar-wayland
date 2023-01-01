@@ -20,6 +20,7 @@ class IsWindow b (Window b a) => IsWindowManager b a | a -> b where
 class BufferBackend b => IsWindow b a | a -> b where
   setTitle :: a -> WlString -> STM ()
   setAppId :: a -> WlString -> STM ()
+  setFullscreen :: a -> Bool -> STM ()
   commitWindowContent :: a -> ConfigureSerial -> SurfaceCommit b -> STM ()
   ackWindowConfigure :: a -> ConfigureSerial -> STM ()
 

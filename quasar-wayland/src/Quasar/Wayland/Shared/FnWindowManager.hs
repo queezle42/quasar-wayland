@@ -17,6 +17,7 @@ newtype FnWindowManager b = FnWindowManager {
 data FnWindow b = FnWindow {
   setTitleFn :: WlString -> STM (),
   setAppIdFn :: WlString -> STM (),
+  setFullscreenFn :: Bool -> STM (),
   commitWindowContentFn :: ConfigureSerial -> SurfaceCommit b -> STM (),
   ackWindowConfigureFn :: ConfigureSerial -> STM ()
 }
@@ -28,6 +29,7 @@ instance BufferBackend b => IsWindowManager b (FnWindowManager b) where
 instance BufferBackend b => IsWindow b (FnWindow b) where
   setTitle = (.setTitleFn)
   setAppId = (.setAppIdFn)
+  setFullscreen = (.setFullscreenFn)
   commitWindowContent = (.commitWindowContentFn)
   ackWindowConfigure = (.ackWindowConfigureFn)
 
@@ -40,6 +42,7 @@ toFnWindow :: forall b a. IsWindow b a => a -> FnWindow b
 toFnWindow upstream = FnWindow {
   setTitleFn = setTitle upstream,
   setAppIdFn = setAppId upstream,
+  setFullscreenFn = setFullscreen upstream,
   commitWindowContentFn = commitWindowContent upstream,
   ackWindowConfigureFn = ackWindowConfigure upstream
 }

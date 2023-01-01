@@ -36,6 +36,10 @@ instance ClientBufferBackend b => IsWindowManager b (ClientWindowManager b) wher
 instance ClientBufferBackend b => IsWindow b (ClientXdgToplevel b) where
   setTitle w = w.xdgToplevel.set_title
   setAppId w = w.xdgToplevel.set_app_id
+  setFullscreen w fullscreen =
+    if fullscreen
+      then w.xdgToplevel.set_fullscreen Nothing
+      else w.xdgToplevel.unset_fullscreen
   commitWindowContent = commitXdgToplevel
   ackWindowConfigure = ackToplevelConfigure
 

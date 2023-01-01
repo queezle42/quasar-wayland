@@ -140,8 +140,8 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
       set_min_size = undefined,
       set_maximized = undefined,
       unset_maximized = undefined,
-      set_fullscreen = undefined,
-      unset_fullscreen = undefined,
+      set_fullscreen = \_ -> setFullscreen window True,
+      unset_fullscreen = setFullscreen window False,
       set_minimized = undefined
     }
 
