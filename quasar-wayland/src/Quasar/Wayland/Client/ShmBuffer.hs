@@ -17,7 +17,7 @@ newLocalShmPool :: Int32 -> IO (ShmPool, ForeignPtr Word8)
 newLocalShmPool size = do
   fd <- memfdCreate (fromIntegral size)
 
-  ptr <- mmapReadWrite (fromIntegral size) fd
+  ptr <- mmap MmapReadWrite fd (fromIntegral size)
 
   -- Passes ownership of the fd to the pool
   pool <- atomically (newShmPool fd size)
