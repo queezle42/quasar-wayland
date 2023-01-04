@@ -77,11 +77,11 @@ library
     Quasar.Wayland.Shared.WindowManagerApi
     Quasar.Wayland.Shm
     Quasar.Wayland.Surface
+    Quasar.Wayland.Utils.SharedMemory
   other-modules:
     Quasar.Wayland.Protocol.Core
     Quasar.Wayland.Utils.InlineC
     Quasar.Wayland.Utils.Once
-    Quasar.Wayland.Utils.SharedMemory
     Quasar.Wayland.Utils.Socket
   build-depends:
     base,
