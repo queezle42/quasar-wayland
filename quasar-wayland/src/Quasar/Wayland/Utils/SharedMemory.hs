@@ -49,6 +49,12 @@ mmap mode fd size = do
   ptr <- mmapPtr mode fd size
   FC.newForeignPtr ptr (munmapPtr ptr size)
 
+withMmap :: MmapMode -> Fd -> CSize -> (Ptr Word8 -> IO b) -> IO b
+withMmap mode fd size =
+  bracket
+    (mmapPtr mode fd size)
+    (\ptr -> munmapPtr ptr size)
+
 mmapPtr :: MmapMode -> Fd -> CSize -> IO (Ptr Word8)
 mmapPtr MmapReadOnly (Fd fd) size =
   fmap intPtrToPtr . throwErrnoIfMinus1 "mmap" $
