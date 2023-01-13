@@ -27,7 +27,10 @@ newtype FdRc = FdRc (TVar (Maybe Fd, Word32))
 --
 -- The underlying file descriptor is closed when all `SharedFd`s created by
 -- duplication are disposed (see `disposeSharedFd` and `unshareSharedFd`).
-newtype SharedFd = SharedFd (TVar (Maybe FdRc))
+data SharedFd = SharedFd (TVar (Maybe FdRc)) String
+
+instance Show SharedFd where
+  show (SharedFd var showData) = showData
 
 newFdRc :: Fd -> IO FdRc
 newFdRc fd = do
@@ -42,14 +45,14 @@ finalizeFdRcStore (FdRc var) =
   where
     finalizer :: Fd -> IO ()
     finalizer fd = do
-      traceIO $ mconcat ["Leaked SharedFd, closing fd@", show fd]
+      traceIO $ mconcat ["Leaked SharedFd, closing Fd@", show fd]
       closeFd fd
 
 incRc :: FdRc -> STM ()
 incRc (FdRc var) = modifyTVar var \(fd, active) -> (fd, active + 1)
 
 getFdRc :: SharedFd -> STM FdRc
-getFdRc (SharedFd var) =
+getFdRc (SharedFd var _) =
   readTVar var >>= \case
     Nothing -> throwSTM (userError "SharedFd has already been disposed")
     Just x -> pure x
@@ -62,7 +65,8 @@ getFdRc (SharedFd var) =
 newSharedFd :: Fd -> IO SharedFd
 newSharedFd fd = do
   rc <- newFdRc fd
-  SharedFd <$> newTVarIO (Just rc)
+  var <- newTVarIO (Just rc)
+  pure (SharedFd var ("Fd@" <> show fd))
 
 -- | @withSharedFd fn sfd@ executes the computation @fn@, passing the underlying
 -- file descriptor of @sfd@ to @fn@.
@@ -96,11 +100,11 @@ withSharedFd (SharedFd var _) fn = mask_ do
 -- | Create a new `SharedFd` that references the same file descriptor as another
 -- SharedFd.
 duplicateSharedFd :: SharedFd -> STM SharedFd
-duplicateSharedFd fd = do
+duplicateSharedFd fd@(SharedFd _ showData) = do
   rc <- getFdRc fd
   incRc rc
   var <- newTVar (Just rc)
-  pure (SharedFd var)
+  pure (SharedFd var showData)
 
 -- | Releases the reference to the underlying file descriptor. If this was the
 -- last reference, the file descriptor is closed.
@@ -110,7 +114,7 @@ duplicateSharedFd fd = do
 --
 -- Idempotent.
 disposeSharedFd :: SharedFd -> IO ()
-disposeSharedFd (SharedFd var) = mask_ do
+disposeSharedFd (SharedFd var _) = mask_ do
   atomically (swapTVar var Nothing) >>= \case
     Just rc -> decRc closeFd (const (pure ())) rc
     Nothing -> pure ()
@@ -128,7 +132,7 @@ disposeSharedFd (SharedFd var) = mask_ do
 -- Will throw an exception if `disposeSharedFd` or `unshareSharedFd` have been
 -- called on this `SharedFd` before.
 unshareSharedFd :: SharedFd -> IO Fd
-unshareSharedFd (SharedFd var) = do
+unshareSharedFd (SharedFd var _) = do
   atomically (swapTVar var Nothing) >>= \case
     -- TODO use @dup3@ with FD_CLOEXEC?
     Just rc -> decRc pure dup rc
