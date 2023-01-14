@@ -4,6 +4,7 @@ module Quasar.Wayland.Utils.SharedFd (
   duplicateSharedFd,
 
   withSharedFd,
+  withSharedFds,
 
   disposeSharedFd,
   unshareSharedFd,
@@ -74,16 +75,13 @@ newSharedFd fd = do
 -- The file descriptor will not be closed while @fn@ is running.
 --
 -- @fn@ must not close the file descriptor.
-withSharedFd :: SharedFd -> (Fd -> IO ()) -> IO ()
+withSharedFd :: forall a. SharedFd -> (Fd -> IO a) -> IO a
 withSharedFd (SharedFd var _) fn = mask_ do
   -- This function will:
-  --
-  -- - Increment the active refcount, so disposing the `SharedFd`-object during
+  -- > Increment the active refcount, so disposing the `SharedFd`-object during
   --   `withSharedFd` does not result in a memory error.
-  --
-  -- - Call the provided `fn` function, passing the file descriptor.
-  --
-  -- - Decrement the active refcount again, disposing the fd if necessary (if
+  -- > Call the provided `fn` function, passing the file descriptor.
+  -- > Decrement the active refcount again, disposing the fd if necessary (if
   --   no `SharedFd`-object point to the file descriptor).
   join $ atomically do
     readTVar var >>= \case
@@ -94,8 +92,12 @@ withSharedFd (SharedFd var _) fn = mask_ do
           (Nothing, _) -> unreachableCodePathM -- Reference invariant violated
           (Just fd, n) -> go rc fd <$ writeTVar rcVar (Just fd, n + 1)
   where
-    go :: FdRc -> Fd -> IO ()
+    go :: FdRc -> Fd -> IO a
     go rc fd = fn fd `finally` decRc closeFd (const (pure ())) rc
+
+withSharedFds :: [SharedFd] -> ([Fd] -> IO a) -> IO a
+withSharedFds [] fn = fn []
+withSharedFds (x:xs) fn = withSharedFd x \fd -> withSharedFds xs (fn . (fd :))
 
 -- | Create a new `SharedFd` that references the same file descriptor as another
 -- SharedFd.
