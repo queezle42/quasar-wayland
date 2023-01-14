@@ -9,6 +9,7 @@ module Quasar.Wayland.Protocol.Core (
   doubleToFixed,
   WlString(..),
   toString,
+  SharedFd,
   IsSide(..),
   Side(..),
   IsInterface(..),
@@ -96,7 +97,7 @@ import Data.Void (absurd)
 import GHC.TypeLits
 import GHC.Records
 import Quasar.Prelude
-import System.Posix.Types (Fd(Fd))
+import Quasar.Wayland.Utils.SharedFd
 
 
 newtype ObjectId (j :: Symbol) = ObjectId Word32
@@ -156,7 +157,7 @@ toString :: WlString -> String
 toString (WlString bs) = BSUTF8.toString bs
 
 
-data MessagePart = MessagePart Put Int (Seq Fd)
+data MessagePart = MessagePart Put Int (Seq SharedFd)
 
 instance Semigroup MessagePart where
   (MessagePart px lx fx) <> (MessagePart py ly fy) = MessagePart (px <> py) (lx + ly) (fx <> fy)
@@ -165,7 +166,7 @@ instance Monoid MessagePart where
   mempty = MessagePart mempty 0 mempty
 
 
-class (Eq a, Show a) => WireFormat a where
+class Show a => WireFormat a where
   putArgument :: a -> Either SomeException MessagePart
   getArgument :: Get (ProtocolM s a)
   showArgument :: a -> String
@@ -221,12 +222,12 @@ instance WireFormat GenericNewId where
   getArgument = GenericNewId <<$>> getArgument <<*>> getArgument <<*>> getArgument
   showArgument (GenericNewId interface version newId) = mconcat ["new ", toString interface, "[v", show version, "]@", show newId]
 
-instance WireFormat Fd where
+instance WireFormat SharedFd where
   putArgument fd = pure (MessagePart mempty 0 (Seq.singleton fd))
   getArgument = pure getFd
-  showArgument (Fd fd) = "fd@" <> show fd
+  showArgument fd = show fd
 
-getFd :: ProtocolM s Fd
+getFd :: ProtocolM s SharedFd
 getFd =
   readProtocolVar (.inboxFdsVar) >>= \case
     (fd :<| fds) -> fd <$ writeProtocolVar (.inboxFdsVar) fds
@@ -313,6 +314,7 @@ putWireUp :: forall s i. IsInterfaceSide s i => Object s i -> WireUp s i -> Eith
 putWireUp _ = putMessage @(WireUp s i)
 
 
+-- TODO use TypeData in a future GHC (hopefully 9.6.1)
 -- | Data kind
 data Side = Client | Server
   deriving stock (Eq, Show)
@@ -401,7 +403,7 @@ instance IsObjectSide (SomeObject s) where
   describeDownMessage (SomeObject object) = describeDownMessage object
 
 
-class (Eq a, Show a) => IsMessage a where
+class Show a => IsMessage a where
   opcodeName :: Opcode -> Maybe String
   getMessage :: IsInterface i => Object s i -> Opcode -> Get (ProtocolM s a)
   putMessage :: a -> Either SomeException (Opcode, MessagePart)
@@ -479,9 +481,9 @@ data ProtocolState (s :: Side) = ProtocolState {
   bytesReceivedVar :: TVar Int64,
   bytesSentVar :: TVar Int64,
   inboxDecoderVar :: TVar (Decoder RawMessage),
-  inboxFdsVar :: TVar (Seq Fd),
+  inboxFdsVar :: TVar (Seq SharedFd),
   outboxVar :: TVar (Maybe Put),
-  outboxFdsVar :: TVar (Seq Fd),
+  outboxFdsVar :: TVar (Seq SharedFd),
   objectsVar :: TVar (HashMap GenericObjectId (SomeObject s)),
   nextIdVar :: TVar Word32,
   sendWlDisplayDeleteId :: Word32 -> STM ()
@@ -618,7 +620,7 @@ runProtocolM protocol action = either throwM (runReaderT action) =<< readTVar pr
 
 
 -- | Feed the protocol newly received data.
-feedInput :: (IsSide s, MonadIO m) => ProtocolHandle s -> ByteString -> [Fd] -> m ()
+feedInput :: (IsSide s, MonadIO m) => ProtocolHandle s -> ByteString -> [SharedFd] -> m ()
 feedInput protocol bytes fds = runProtocolTransaction protocol do
   -- Exposing MonadIO instead of STM to the outside and using `runProtocolTransaction` here enforces correct exception
   -- handling.
@@ -632,7 +634,7 @@ setException :: (Exception e, MonadIO m) => ProtocolHandle s -> e -> m ()
 setException protocol ex = runProtocolTransaction protocol $ throwM ex
 
 -- | Take data that has to be sent. Blocks until data is available.
-takeOutbox :: MonadIO m => ProtocolHandle s -> m (BSL.ByteString, [Fd])
+takeOutbox :: MonadIO m => ProtocolHandle s -> m (BSL.ByteString, [SharedFd])
 takeOutbox protocol = runProtocolTransaction protocol do
   mOutboxData <- stateProtocolVar (.outboxVar) (\mOutboxData -> (mOutboxData, Nothing))
   outboxData <- maybe (lift retry) pure mOutboxData
@@ -949,7 +951,7 @@ padding :: Integral a => a -> a
 padding size = ((4 - (size `mod` 4)) `mod` 4)
 
 
-sendRawMessage :: Put -> Seq Fd -> ProtocolM s ()
+sendRawMessage :: Put -> Seq SharedFd -> ProtocolM s ()
 sendRawMessage x fds = do
   modifyProtocolVar (.outboxVar) (Just . maybe x (<> x))
   modifyProtocolVar (.outboxFdsVar) (<> fds)

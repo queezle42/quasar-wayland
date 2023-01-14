@@ -22,6 +22,7 @@ import Quasar.Wayland.Gles.Egl.Types
 import Quasar.Wayland.Gles.Types
 import Quasar.Wayland.Gles.Utils.InlineC
 import Quasar.Wayland.Gles.Utils.Stat
+import Quasar.Wayland.Utils.SharedFd
 import Language.C.Inline qualified as C
 import Language.C.Inline.Unsafe qualified as CU
 import Quasar.Prelude
@@ -286,14 +287,15 @@ eglExportDmabuf Egl{display} image width height = do
               $(uint32_t* offsetsPtr));
           }
         |]
-      fds <- Fd <<$>> peekArray numPlanes fdsPtr
+      rawFds <- Fd <<$>> peekArray numPlanes fdsPtr
+      fds <- mapM newSharedFd rawFds
       strides <- peekArray numPlanes stridesPtr
       offsets <- peekArray numPlanes offsetsPtr
       pure (zipPlanes modifier fds strides offsets)
 
   pure Dmabuf { width, height, format, planes }
 
-zipPlanes :: DrmModifier -> [Fd] -> [Word32] -> [Word32] -> [DmabufPlane]
+zipPlanes :: DrmModifier -> [SharedFd] -> [Word32] -> [Word32] -> [DmabufPlane]
 zipPlanes modifier fds strides offsets = packPlane <$> zipped
   where
     zipped = zip3 fds strides offsets
@@ -372,8 +374,8 @@ eglImportDmabuf Egl{display} dmabuf = do
 
     importDmabufPlanes :: [DmabufPlane] -> IO EGLImage
     importDmabufPlanes [p0] = do
+      (Fd fd0) <- unshareSharedFd p0.fd
       let
-        (Fd fd0) = p0.fd
         offset0 = p0.offset
         stride0 = p0.stride
         hi0 = p0.modifier.hi
@@ -403,13 +405,13 @@ eglImportDmabuf Egl{display} dmabuf = do
       unless (isEglSuccess result) $ throwIO result
       pure image
     importDmabufPlanes [p0, p1] = do
+      (Fd fd0) <- unshareSharedFd p0.fd
+      (Fd fd1) <- unshareSharedFd p1.fd
       let
-        (Fd fd0) = p0.fd
         offset0 = p0.offset
         stride0 = p0.stride
         hi0 = p0.modifier.hi
         lo0 = p0.modifier.lo
-        (Fd fd1) = p1.fd
         offset1 = p1.offset
         stride1 = p1.stride
         hi1 = p1.modifier.hi
@@ -444,18 +446,18 @@ eglImportDmabuf Egl{display} dmabuf = do
       unless (isEglSuccess result) $ throwIO result
       pure image
     importDmabufPlanes [p0, p1, p2] = do
+      (Fd fd0) <- unshareSharedFd p0.fd
+      (Fd fd1) <- unshareSharedFd p1.fd
+      (Fd fd2) <- unshareSharedFd p2.fd
       let
-        (Fd fd0) = p0.fd
         offset0 = p0.offset
         stride0 = p0.stride
         hi0 = p0.modifier.hi
         lo0 = p0.modifier.lo
-        (Fd fd1) = p1.fd
         offset1 = p1.offset
         stride1 = p1.stride
         hi1 = p1.modifier.hi
         lo1 = p1.modifier.lo
-        (Fd fd2) = p2.fd
         offset2 = p2.offset
         stride2 = p2.stride
         hi2 = p2.modifier.hi
@@ -495,23 +497,23 @@ eglImportDmabuf Egl{display} dmabuf = do
       unless (isEglSuccess result) $ throwIO result
       pure image
     importDmabufPlanes [p0, p1, p2, p3] = do
+      (Fd fd0) <- unshareSharedFd p0.fd
+      (Fd fd1) <- unshareSharedFd p1.fd
+      (Fd fd2) <- unshareSharedFd p2.fd
+      (Fd fd3) <- unshareSharedFd p3.fd
       let
-        (Fd fd0) = p0.fd
         offset0 = p0.offset
         stride0 = p0.stride
         hi0 = p0.modifier.hi
         lo0 = p0.modifier.lo
-        (Fd fd1) = p1.fd
         offset1 = p1.offset
         stride1 = p1.stride
         hi1 = p1.modifier.hi
         lo1 = p1.modifier.lo
-        (Fd fd2) = p2.fd
         offset2 = p2.offset
         stride2 = p2.stride
         hi2 = p2.modifier.hi
         lo2 = p2.modifier.lo
-        (Fd fd3) = p3.fd
         offset3 = p3.offset
         stride3 = p3.stride
         hi3 = p3.modifier.hi

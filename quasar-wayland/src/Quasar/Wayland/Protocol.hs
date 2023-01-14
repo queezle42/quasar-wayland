@@ -19,6 +19,7 @@ module Quasar.Wayland.Protocol (
   doubleToFixed,
   WlString(..),
   toString,
+  SharedFd,
 
   -- ** Protocol execution
   ProtocolHandle,

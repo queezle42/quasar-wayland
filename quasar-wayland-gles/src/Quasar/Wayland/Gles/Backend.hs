@@ -170,7 +170,7 @@ initializeDmabufParams wlDmabufParams = do
       create_immed = initializeDmabufBuffer var
     }
 
-addDmabufPlane :: ServerDmabufParams -> Fd -> Word32 -> Word32 -> Word32 -> Word32 -> Word32 -> STM ()
+addDmabufPlane :: ServerDmabufParams -> SharedFd -> Word32 -> Word32 -> Word32 -> Word32 -> Word32 -> STM ()
 addDmabufPlane var fd planeIndex offset stride modifierHi modifierLo = do
   readTVar var >>= \case
     Nothing -> throwM $ userError "zwp_linux_buffer_params_v1::error.already_used: the dmabuf_batch object has already been used to create a wl_buffer"

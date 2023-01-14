@@ -8,7 +8,6 @@ import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Shm
 import Quasar.Wayland.Server.Surface
-import System.Posix (Fd)
 
 
 shmGlobal :: Global
@@ -27,7 +26,7 @@ initializeWlShm wlShm = do
   wlShm.format 0
   wlShm.format 1
 
-initializeWlShmPool :: NewObject 'Server Interface_wl_shm_pool -> Fd -> Int32 -> STM ()
+initializeWlShmPool :: NewObject 'Server Interface_wl_shm_pool -> SharedFd -> Int32 -> STM ()
 initializeWlShmPool wlShmPool fd size = do
   pool <- newShmPool fd size
   setRequestHandler wlShmPool RequestHandler_wl_shm_pool {

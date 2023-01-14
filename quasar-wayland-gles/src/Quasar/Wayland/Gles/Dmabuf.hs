@@ -19,8 +19,8 @@ import Data.ByteString.Internal (w2c)
 import Foreign
 import GHC.Records
 import Quasar.Prelude
+import Quasar.Wayland.Utils.SharedFd
 import Quasar.Wayland.Utils.SharedMemory
-import System.Posix.Types (Fd)
 
 data Dmabuf = Dmabuf {
   width :: Int32,
@@ -31,7 +31,7 @@ data Dmabuf = Dmabuf {
   deriving Show
 
 data DmabufPlane = DmabufPlane {
-  fd :: Fd,
+  fd :: SharedFd,
   stride :: Word32,
   offset :: Word32,
   modifier :: DrmModifier
@@ -90,7 +90,7 @@ type DmabufFormatTable = [(DrmFormat, DrmModifier)]
 -- wayland protocol) from a file descriptor.
 --
 -- Does not close the file descriptor.
-readFormatTableFd :: Fd -> Word32 -> IO DmabufFormatTable
+readFormatTableFd :: SharedFd -> Word32 -> IO DmabufFormatTable
 readFormatTableFd fd size = do
   -- From 'linux-dmabuf-unstable-v1' (version 4):
   -- "The table contains a tightly packed array of consecutive format + modifier
@@ -110,7 +110,7 @@ readFormatTableFd fd size = do
 -- @linux-dmabuf-unstable-v1@ wayland protocol) to a shared memory file.
 --
 -- The caller is responsible for managing the new file descriptor.
-writeFormatTableFd :: DmabufFormatTable -> IO (Fd, Word32)
+writeFormatTableFd :: DmabufFormatTable -> IO (SharedFd, Word32)
 writeFormatTableFd table = do
   fd <- memfdCreate (fromIntegral size)
 

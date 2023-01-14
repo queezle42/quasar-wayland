@@ -15,7 +15,6 @@ import Language.Haskell.TH
 import Language.Haskell.TH.Syntax (addDependentFile)
 import Quasar.Prelude hiding (Type)
 import Quasar.Wayland.Protocol.Core
-import System.Posix.Types (Fd)
 import Text.Read (readEither)
 import Text.XML.Light
 
@@ -436,7 +435,7 @@ messageTypeDecs name msgs = execWriterT do
     t :: Q Type
     t = conT name
     messageTypeD :: Q Dec
-    messageTypeD = dataD (pure []) name [] Nothing (con <$> msgs) [derivingEq]
+    messageTypeD = dataD (pure []) name [] Nothing (con <$> msgs) []
     con :: MessageContext -> Q Con
     con msg = normalC (msg.msgConName) (conField <$> msg.msgSpec.arguments)
       where
@@ -486,9 +485,6 @@ isMessageInstanceD t msgs = instanceD (pure []) [t|IsMessage $t|] [opcodeNameD, 
         putMessageBodyE args = [|$(listE ((\arg -> [|putArgument @($(argumentWireType arg)) $(msgArgE msg arg)|]) <$> args))|]
 
 
-derivingEq :: Q DerivClause
-derivingEq = derivClause (Just StockStrategy) [[t|Eq|]]
-
 -- | Map an argument to its high-level api type
 argumentType :: Side -> ArgumentSpec -> Q Type
 argumentType side argSpec = liftArgumentType side argSpec.argType
@@ -515,7 +511,7 @@ liftArgumentWireType (NullableObjectArgument iName) = [t|ObjectId $(litT (strTyL
 liftArgumentWireType GenericObjectArgument = [t|GenericObjectId|]
 liftArgumentWireType (NewIdArgument iName) = [t|NewId $(litT (strTyLit iName))|]
 liftArgumentWireType GenericNewIdArgument = [t|GenericNewId|]
-liftArgumentWireType FdArgument = [t|Fd|]
+liftArgumentWireType FdArgument = [t|SharedFd|]
 
 
 -- * Generic TH utilities

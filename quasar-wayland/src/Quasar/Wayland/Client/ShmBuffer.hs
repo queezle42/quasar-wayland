@@ -9,8 +9,8 @@ import Foreign
 import Quasar.Prelude
 import Quasar.Wayland.Shm
 import Quasar.Wayland.Surface
+import Quasar.Wayland.Utils.SharedFd
 import Quasar.Wayland.Utils.SharedMemory
-import System.Posix.IO (closeFd)
 
 
 newLocalShmPool :: Int32 -> IO (ShmPool, ForeignPtr Word8)
@@ -22,7 +22,7 @@ newLocalShmPool size = do
   -- Passes ownership of the fd to the pool
   pool <- atomically (newShmPool fd size)
     `onException`
-      (closeFd fd >> finalizeForeignPtr ptr)
+      (disposeSharedFd fd >> finalizeForeignPtr ptr)
 
   pure (pool, ptr)
 

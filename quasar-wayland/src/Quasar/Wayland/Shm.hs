@@ -20,7 +20,6 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Surface
 import Quasar.Wayland.Client.Surface
-import System.Posix (Fd)
 
 data ShmBufferBackend
 
@@ -36,7 +35,7 @@ releaseShmBuffer buffer = do
 -- | Wrapper for an externally managed shm pool
 data ShmPool = ShmPool {
   key :: Unique,
-  fd :: TVar (Maybe Fd),
+  fd :: TVar (Maybe SharedFd),
   size :: TVar Int32,
   bufferCount :: TVar Word32,
   destroyRequested :: TVar Bool,
@@ -67,7 +66,7 @@ data ShmBuffer = ShmBuffer {
 }
 
 -- | Create an `ShmPool` for externally managed memory. Takes ownership of the passed file descriptor.
-newShmPool :: Fd -> Int32 -> STM ShmPool
+newShmPool :: SharedFd -> Int32 -> STM ShmPool
 newShmPool fd size = do
   key <- newUniqueSTM
   fdVar <- newTVar (Just fd)

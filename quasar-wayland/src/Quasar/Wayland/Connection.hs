@@ -20,9 +20,9 @@ import Network.Socket qualified as Socket
 import Quasar
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
+import Quasar.Wayland.Utils.SharedFd
 import Quasar.Wayland.Utils.Socket
-import System.Posix.IO (closeFd)
-import System.Posix.Types (Fd(Fd))
+import System.Posix.Types (Fd)
 
 
 C.include "<sys/socket.h>"
@@ -90,11 +90,12 @@ sendThread connection = mask_ $ forever do
     do
       traceIO $ "Sending " <> show (BSL.length msg) <> " bytes" <> describeFds fds
 
-      -- TODO limit max fds
-      send (fromIntegral (BSL.length msg)) (BSL.toChunks msg) fds
+      withSharedFds fds \rawFds -> do
+        -- TODO limit max fds
+        send (fromIntegral (BSL.length msg)) (BSL.toChunks msg) rawFds
 
     do
-      mapM closeFd fds
+      mapM_ disposeSharedFd fds
   where
     send :: Int -> [BS.ByteString] -> [Fd] -> IO ()
     send remaining chunks fds = do
@@ -110,8 +111,8 @@ sendThread connection = mask_ $ forever do
     dropL :: Int -> [BS.ByteString] -> [BS.ByteString]
     dropL _ [] = []
     dropL amount (chunk:chunks) =
-      if (amount < BS.length chunk)
-        then (BS.drop amount chunk : chunks)
+      if amount < BS.length chunk
+        then BS.drop amount chunk : chunks
         else dropL (amount - BS.length chunk) chunks
 
 
@@ -120,14 +121,18 @@ receiveThread connection = forever do
   -- TODO add MSG_CMSG_CLOEXEC (not exposed by `network`)
   (chunk, cmsgs, flags) <- recvMsg connection.socket 4096 cmsgBufferSize mempty
 
-  fds <- mconcat <$> (mapM decodeFds cmsgs)
+  rawFds <- mconcat <$> mapM decodeFds cmsgs
+
+  fds <- mapM newSharedFd rawFds
 
   when (any (\cmsg -> cmsg.cmsgId /= Socket.CmsgIdFd) cmsgs) do
     -- TODO close fds
+    -- TODO send error to client (if server)
     fail "Wayland connection: Received unexpected ancillary message (only SCM_RIGHTS is supported)"
 
   when (flags .&. Socket.MSG_CTRUNC > 0) do
     -- TODO close fds
+    -- TODO send error to client (if server)
     fail "Wayland connection: Ancillary data was truncated"
 
   when (BS.null chunk) do
@@ -149,15 +154,15 @@ encodeFds :: [Fd] -> IO Socket.Cmsg
 encodeFds fds =
   Socket.Cmsg Socket.CmsgIdFd <$>
       BS.create (length fds * sizeOf' @Fd) \ptr ->
-        mapM_ (\(fd, i) -> (pokeElemOff (castPtr ptr) i fd)) (zip fds [0..])
+        mapM_ (\(fd, i) -> pokeElemOff (castPtr ptr) i fd) (zip fds [0..])
 
 sizeOf' :: forall a. Storable a => Int
 sizeOf' = sizeOf @a unreachableCodePath
 
 
-describeFds :: [Fd] -> String
+describeFds :: [SharedFd] -> String
 describeFds [] = ""
-describeFds fds = " (" <> (intercalate ", " ((\(Fd fd) -> "fd@" <> show fd) <$> fds)) <> ")"
+describeFds fds = " (" <> intercalate ", " (show <$> fds) <> ")"
 
 
 closeConnection :: WaylandConnection s -> IO ()
