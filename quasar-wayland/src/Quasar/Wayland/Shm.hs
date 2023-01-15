@@ -147,7 +147,7 @@ data ClientShmManager = ClientShmManager {
   key :: Unique,
   wlShm :: Object 'Client Interface_wl_shm,
   wlShmPools :: TVar (HashMap ShmPool (Object 'Client Interface_wl_shm_pool)),
-  formats :: FutureE (Set Word32)
+  formats :: FutureEx '[SomeException] (Set Word32)
 }
 
 instance Eq ClientShmManager where
@@ -170,7 +170,7 @@ newClientShmManager client = do
   -- Formats are emittet all at once; sync ensures the list is complete
   formatListComplete <- client.sync
   -- Create awaitable from formats
-  let formats = formatListComplete >> unsafeSTMToFutureE (readTVar formatsVar)
+  let formats = formatListComplete >> unsafeSTMToFutureEx (readTVar formatsVar)
 
   pure ClientShmManager {
     key,

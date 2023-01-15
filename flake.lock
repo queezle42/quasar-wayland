@@ -23,11 +23,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1672356629,
-        "narHash": "sha256-FiOCZmw22NI/HN5HK5m2M4xtW5d99GI8I4rMrmZyg3k=",
+        "lastModified": 1673752259,
+        "narHash": "sha256-JNXwc0kx0bVtu7IAPpMe+Nsw11mhku5ge4WOYZM9EqI=",
         "owner": "queezle42",
         "repo": "quasar",
-        "rev": "0b28c1b021763fafdc1c7bea241bbcf25efe750d",
+        "rev": "517f75dd6546f83b8002c4d926245e80b899bfd6",
         "type": "github"
       },
       "original": {

@@ -21,7 +21,7 @@ import Quasar.Wayland.Protocol.Generated
 data Registry = Registry {
   wlRegistry :: Object 'Client Interface_wl_registry,
   globalsVar :: TVar (HM.HashMap Word32 Global),
-  initialSyncComplete :: FutureE ()
+  initialSyncComplete :: FutureEx '[SomeException] ()
 }
 
 data Global = Global {

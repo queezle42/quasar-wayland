@@ -54,7 +54,7 @@ instance ClientBufferBackend GlesBackend where
 
 data ClientDmabufSingleton = ClientDmabufSingleton {
   zwpLinuxDmabuf :: Object 'Client Interface_zwp_linux_dmabuf_v1,
-  formatsComplete :: FutureE (),
+  formatsComplete :: FutureEx '[SomeException] (),
   dmabufFormats :: TVar (Set DrmFormat),
   dmabufModifiers :: TVar (Set (DrmFormat, DrmModifier))
 }
