@@ -14,6 +14,7 @@ import Control.Exception (finally, mask_)
 import Quasar.Prelude hiding (dup)
 import System.Posix.IO (closeFd, dup)
 import System.Posix.Types (Fd)
+import GHC.Stack (HasCallStack, callStack, prettyCallStack)
 
 newtype FdRc = FdRc (TVar (Maybe Fd, Word32))
 
@@ -46,7 +47,7 @@ finalizeFdRcStore (FdRc var) =
   where
     finalizer :: Fd -> IO ()
     finalizer fd = do
-      traceIO $ mconcat ["Leaked SharedFd, closing Fd@", show fd]
+      traceIO $ mconcat ["SharedFd was garbage collected, closing Fd@", show fd]
       closeFd fd
 
 incRc :: FdRc -> STM ()
@@ -133,12 +134,13 @@ disposeSharedFd (SharedFd var _) = mask_ do
 --
 -- Will throw an exception if `disposeSharedFd` or `unshareSharedFd` have been
 -- called on this `SharedFd` before.
-unshareSharedFd :: SharedFd -> IO Fd
+unshareSharedFd :: HasCallStack => SharedFd -> IO Fd
 unshareSharedFd (SharedFd var _) = do
   atomically (swapTVar var Nothing) >>= \case
     -- TODO use @dup3@ with FD_CLOEXEC?
     Just rc -> decRc pure dup rc
-    Nothing -> throwIO (userError "Failed to unshare SharedFd because it is already disposed")
+    Nothing -> do
+      throwIO (userError (unlines (["Failed to unshare SharedFd because it is already disposed", prettyCallStack callStack])))
 
 -- Decrements the refcount and passes the fd to either @lastFn@ (if the refcount
 -- was 1) or @decFn@ (if the refcount was larger).

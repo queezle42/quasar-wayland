@@ -374,187 +374,181 @@ eglImportDmabuf Egl{display} dmabuf = do
 
     importDmabufPlanes :: [DmabufPlane] -> IO EGLImage
     importDmabufPlanes [p0] = do
-      (Fd fd0) <- unshareSharedFd p0.fd
-      let
-        offset0 = p0.offset
-        stride0 = p0.stride
-        hi0 = p0.modifier.hi
-        lo0 = p0.modifier.lo
-      traceM $ mconcat ["Importing dmabuf to EGLImage: ", show dmabuf]
-      image <- [CU.block|EGLImage {
-        const EGLAttrib attributes[] = {
-          EGL_WIDTH, $(EGLint width),
-          EGL_HEIGHT, $(EGLint height),
-          EGL_LINUX_DRM_FOURCC_EXT, $(uint32_t fourcc),
-          EGL_DMA_BUF_PLANE0_FD_EXT, $(int fd0),
-          EGL_DMA_BUF_PLANE0_OFFSET_EXT, $(uint32_t offset0),
-          EGL_DMA_BUF_PLANE0_PITCH_EXT, $(uint32_t stride0),
-          EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, $(uint32_t hi0),
-          EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, $(uint32_t lo0),
-          // terminate list
-          EGL_NONE
-        };
-        return eglCreateImage(
-          $(EGLDisplay display),
-          EGL_NO_CONTEXT,
-          EGL_LINUX_DMA_BUF_EXT,
-          (EGLClientBuffer)NULL,
-          attributes);
-      }|]
-      result <- eglGetError
-      unless (isEglSuccess result) $ throwIO result
-      pure image
+      withSharedFd p0.fd \(Fd fd0) -> do
+        let
+          offset0 = p0.offset
+          stride0 = p0.stride
+          hi0 = p0.modifier.hi
+          lo0 = p0.modifier.lo
+        traceM $ mconcat ["Importing dmabuf to EGLImage: ", show dmabuf]
+        image <- [CU.block|EGLImage {
+          const EGLAttrib attributes[] = {
+            EGL_WIDTH, $(EGLint width),
+            EGL_HEIGHT, $(EGLint height),
+            EGL_LINUX_DRM_FOURCC_EXT, $(uint32_t fourcc),
+            EGL_DMA_BUF_PLANE0_FD_EXT, $(int fd0),
+            EGL_DMA_BUF_PLANE0_OFFSET_EXT, $(uint32_t offset0),
+            EGL_DMA_BUF_PLANE0_PITCH_EXT, $(uint32_t stride0),
+            EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, $(uint32_t hi0),
+            EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, $(uint32_t lo0),
+            // terminate list
+            EGL_NONE
+          };
+          return eglCreateImage(
+            $(EGLDisplay display),
+            EGL_NO_CONTEXT,
+            EGL_LINUX_DMA_BUF_EXT,
+            (EGLClientBuffer)NULL,
+            attributes);
+        }|]
+        result <- eglGetError
+        unless (isEglSuccess result) $ throwIO result
+        pure image
     importDmabufPlanes [p0, p1] = do
-      (Fd fd0) <- unshareSharedFd p0.fd
-      (Fd fd1) <- unshareSharedFd p1.fd
-      let
-        offset0 = p0.offset
-        stride0 = p0.stride
-        hi0 = p0.modifier.hi
-        lo0 = p0.modifier.lo
-        offset1 = p1.offset
-        stride1 = p1.stride
-        hi1 = p1.modifier.hi
-        lo1 = p1.modifier.lo
-      traceM $ mconcat ["Importing dmabuf to EGLImage: ", show dmabuf]
-      image <- [CU.block|EGLImage {
-        const EGLint attributes[] = {
-          EGL_WIDTH, $(EGLint width),
-          EGL_HEIGHT, $(EGLint height),
-          EGL_LINUX_DRM_FOURCC_EXT, $(uint32_t fourcc),
-          EGL_DMA_BUF_PLANE0_FD_EXT, $(int fd0),
-          EGL_DMA_BUF_PLANE0_OFFSET_EXT, $(uint32_t offset0),
-          EGL_DMA_BUF_PLANE0_PITCH_EXT, $(uint32_t stride0),
-          EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, $(uint32_t hi0),
-          EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, $(uint32_t lo0),
-          EGL_DMA_BUF_PLANE1_FD_EXT, $(int fd1),
-          EGL_DMA_BUF_PLANE1_OFFSET_EXT, $(uint32_t offset1),
-          EGL_DMA_BUF_PLANE1_PITCH_EXT, $(uint32_t stride1),
-          EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, $(uint32_t hi1),
-          EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT, $(uint32_t lo1),
-          // terminate list
-          EGL_NONE
-        };
-        return eglCreateImageKHR(
-          $(EGLDisplay display),
-          EGL_NO_CONTEXT,
-          EGL_LINUX_DMA_BUF_EXT,
-          (EGLClientBuffer)NULL,
-          attributes);
-      }|]
-      result <- eglGetError
-      unless (isEglSuccess result) $ throwIO result
-      pure image
+      withSharedFds [p0.fd, p1.fd] \[Fd fd0, Fd fd1] -> do
+        let
+          offset0 = p0.offset
+          stride0 = p0.stride
+          hi0 = p0.modifier.hi
+          lo0 = p0.modifier.lo
+          offset1 = p1.offset
+          stride1 = p1.stride
+          hi1 = p1.modifier.hi
+          lo1 = p1.modifier.lo
+        traceM $ mconcat ["Importing dmabuf to EGLImage: ", show dmabuf]
+        image <- [CU.block|EGLImage {
+          const EGLint attributes[] = {
+            EGL_WIDTH, $(EGLint width),
+            EGL_HEIGHT, $(EGLint height),
+            EGL_LINUX_DRM_FOURCC_EXT, $(uint32_t fourcc),
+            EGL_DMA_BUF_PLANE0_FD_EXT, $(int fd0),
+            EGL_DMA_BUF_PLANE0_OFFSET_EXT, $(uint32_t offset0),
+            EGL_DMA_BUF_PLANE0_PITCH_EXT, $(uint32_t stride0),
+            EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, $(uint32_t hi0),
+            EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, $(uint32_t lo0),
+            EGL_DMA_BUF_PLANE1_FD_EXT, $(int fd1),
+            EGL_DMA_BUF_PLANE1_OFFSET_EXT, $(uint32_t offset1),
+            EGL_DMA_BUF_PLANE1_PITCH_EXT, $(uint32_t stride1),
+            EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, $(uint32_t hi1),
+            EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT, $(uint32_t lo1),
+            // terminate list
+            EGL_NONE
+          };
+          return eglCreateImageKHR(
+            $(EGLDisplay display),
+            EGL_NO_CONTEXT,
+            EGL_LINUX_DMA_BUF_EXT,
+            (EGLClientBuffer)NULL,
+            attributes);
+        }|]
+        result <- eglGetError
+        unless (isEglSuccess result) $ throwIO result
+        pure image
     importDmabufPlanes [p0, p1, p2] = do
-      (Fd fd0) <- unshareSharedFd p0.fd
-      (Fd fd1) <- unshareSharedFd p1.fd
-      (Fd fd2) <- unshareSharedFd p2.fd
-      let
-        offset0 = p0.offset
-        stride0 = p0.stride
-        hi0 = p0.modifier.hi
-        lo0 = p0.modifier.lo
-        offset1 = p1.offset
-        stride1 = p1.stride
-        hi1 = p1.modifier.hi
-        lo1 = p1.modifier.lo
-        offset2 = p2.offset
-        stride2 = p2.stride
-        hi2 = p2.modifier.hi
-        lo2 = p2.modifier.lo
-      traceM $ mconcat ["Importing dmabuf to EGLImage: ", show dmabuf]
-      image <- [CU.block|EGLImage {
-        const EGLint attributes[] = {
-          EGL_WIDTH, $(EGLint width),
-          EGL_HEIGHT, $(EGLint height),
-          EGL_LINUX_DRM_FOURCC_EXT, $(uint32_t fourcc),
-          EGL_DMA_BUF_PLANE0_FD_EXT, $(int fd0),
-          EGL_DMA_BUF_PLANE0_OFFSET_EXT, $(uint32_t offset0),
-          EGL_DMA_BUF_PLANE0_PITCH_EXT, $(uint32_t stride0),
-          EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, $(uint32_t hi0),
-          EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, $(uint32_t lo0),
-          EGL_DMA_BUF_PLANE1_FD_EXT, $(int fd1),
-          EGL_DMA_BUF_PLANE1_OFFSET_EXT, $(uint32_t offset1),
-          EGL_DMA_BUF_PLANE1_PITCH_EXT, $(uint32_t stride1),
-          EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, $(uint32_t hi1),
-          EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT, $(uint32_t lo1),
-          EGL_DMA_BUF_PLANE2_FD_EXT, $(int fd2),
-          EGL_DMA_BUF_PLANE2_OFFSET_EXT, $(uint32_t offset2),
-          EGL_DMA_BUF_PLANE2_PITCH_EXT, $(uint32_t stride2),
-          EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, $(uint32_t hi2),
-          EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT, $(uint32_t lo2),
-          // terminate list
-          EGL_NONE
-        };
-        return eglCreateImageKHR(
-          $(EGLDisplay display),
-          EGL_NO_CONTEXT,
-          EGL_LINUX_DMA_BUF_EXT,
-          (EGLClientBuffer)NULL,
-          attributes);
-      }|]
-      result <- eglGetError
-      unless (isEglSuccess result) $ throwIO result
-      pure image
+      withSharedFds [p0.fd, p1.fd, p2.fd] \[Fd fd0, Fd fd1, Fd fd2] -> do
+        let
+          offset0 = p0.offset
+          stride0 = p0.stride
+          hi0 = p0.modifier.hi
+          lo0 = p0.modifier.lo
+          offset1 = p1.offset
+          stride1 = p1.stride
+          hi1 = p1.modifier.hi
+          lo1 = p1.modifier.lo
+          offset2 = p2.offset
+          stride2 = p2.stride
+          hi2 = p2.modifier.hi
+          lo2 = p2.modifier.lo
+        traceM $ mconcat ["Importing dmabuf to EGLImage: ", show dmabuf]
+        image <- [CU.block|EGLImage {
+          const EGLint attributes[] = {
+            EGL_WIDTH, $(EGLint width),
+            EGL_HEIGHT, $(EGLint height),
+            EGL_LINUX_DRM_FOURCC_EXT, $(uint32_t fourcc),
+            EGL_DMA_BUF_PLANE0_FD_EXT, $(int fd0),
+            EGL_DMA_BUF_PLANE0_OFFSET_EXT, $(uint32_t offset0),
+            EGL_DMA_BUF_PLANE0_PITCH_EXT, $(uint32_t stride0),
+            EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, $(uint32_t hi0),
+            EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, $(uint32_t lo0),
+            EGL_DMA_BUF_PLANE1_FD_EXT, $(int fd1),
+            EGL_DMA_BUF_PLANE1_OFFSET_EXT, $(uint32_t offset1),
+            EGL_DMA_BUF_PLANE1_PITCH_EXT, $(uint32_t stride1),
+            EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, $(uint32_t hi1),
+            EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT, $(uint32_t lo1),
+            EGL_DMA_BUF_PLANE2_FD_EXT, $(int fd2),
+            EGL_DMA_BUF_PLANE2_OFFSET_EXT, $(uint32_t offset2),
+            EGL_DMA_BUF_PLANE2_PITCH_EXT, $(uint32_t stride2),
+            EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, $(uint32_t hi2),
+            EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT, $(uint32_t lo2),
+            // terminate list
+            EGL_NONE
+          };
+          return eglCreateImageKHR(
+            $(EGLDisplay display),
+            EGL_NO_CONTEXT,
+            EGL_LINUX_DMA_BUF_EXT,
+            (EGLClientBuffer)NULL,
+            attributes);
+        }|]
+        result <- eglGetError
+        unless (isEglSuccess result) $ throwIO result
+        pure image
     importDmabufPlanes [p0, p1, p2, p3] = do
-      (Fd fd0) <- unshareSharedFd p0.fd
-      (Fd fd1) <- unshareSharedFd p1.fd
-      (Fd fd2) <- unshareSharedFd p2.fd
-      (Fd fd3) <- unshareSharedFd p3.fd
-      let
-        offset0 = p0.offset
-        stride0 = p0.stride
-        hi0 = p0.modifier.hi
-        lo0 = p0.modifier.lo
-        offset1 = p1.offset
-        stride1 = p1.stride
-        hi1 = p1.modifier.hi
-        lo1 = p1.modifier.lo
-        offset2 = p2.offset
-        stride2 = p2.stride
-        hi2 = p2.modifier.hi
-        lo2 = p2.modifier.lo
-        offset3 = p3.offset
-        stride3 = p3.stride
-        hi3 = p3.modifier.hi
-        lo3 = p3.modifier.lo
-      traceM $ mconcat ["Importing dmabuf to EGLImage: ", show dmabuf]
-      image <- [CU.block|EGLImage {
-        const EGLint attributes[] = {
-          EGL_WIDTH, $(EGLint width),
-          EGL_HEIGHT, $(EGLint height),
-          EGL_LINUX_DRM_FOURCC_EXT, $(uint32_t fourcc),
-          EGL_DMA_BUF_PLANE0_FD_EXT, $(int fd0),
-          EGL_DMA_BUF_PLANE0_OFFSET_EXT, $(uint32_t offset0),
-          EGL_DMA_BUF_PLANE0_PITCH_EXT, $(uint32_t stride0),
-          EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, $(uint32_t hi0),
-          EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, $(uint32_t lo0),
-          EGL_DMA_BUF_PLANE1_FD_EXT, $(int fd1),
-          EGL_DMA_BUF_PLANE1_OFFSET_EXT, $(uint32_t offset1),
-          EGL_DMA_BUF_PLANE1_PITCH_EXT, $(uint32_t stride1),
-          EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, $(uint32_t hi1),
-          EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT, $(uint32_t lo1),
-          EGL_DMA_BUF_PLANE2_FD_EXT, $(int fd2),
-          EGL_DMA_BUF_PLANE2_OFFSET_EXT, $(uint32_t offset2),
-          EGL_DMA_BUF_PLANE2_PITCH_EXT, $(uint32_t stride2),
-          EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, $(uint32_t hi2),
-          EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT, $(uint32_t lo2),
-          EGL_DMA_BUF_PLANE3_FD_EXT, $(int fd3),
-          EGL_DMA_BUF_PLANE3_OFFSET_EXT, $(uint32_t offset3),
-          EGL_DMA_BUF_PLANE3_PITCH_EXT, $(uint32_t stride3),
-          EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT, $(uint32_t hi3),
-          EGL_DMA_BUF_PLANE3_MODIFIER_LO_EXT, $(uint32_t lo3),
-          // terminate list
-          EGL_NONE
-        };
-        return eglCreateImageKHR(
-          $(EGLDisplay display),
-          EGL_NO_CONTEXT,
-          EGL_LINUX_DMA_BUF_EXT,
-          (EGLClientBuffer)NULL,
-          attributes);
-      }|]
-      result <- eglGetError
-      unless (isEglSuccess result) $ throwIO result
-      pure image
+      withSharedFds [p0.fd, p1.fd, p2.fd, p3.fd] \[Fd fd0, Fd fd1, Fd fd2, Fd fd3] -> do
+        let
+          offset0 = p0.offset
+          stride0 = p0.stride
+          hi0 = p0.modifier.hi
+          lo0 = p0.modifier.lo
+          offset1 = p1.offset
+          stride1 = p1.stride
+          hi1 = p1.modifier.hi
+          lo1 = p1.modifier.lo
+          offset2 = p2.offset
+          stride2 = p2.stride
+          hi2 = p2.modifier.hi
+          lo2 = p2.modifier.lo
+          offset3 = p3.offset
+          stride3 = p3.stride
+          hi3 = p3.modifier.hi
+          lo3 = p3.modifier.lo
+        traceM $ mconcat ["Importing dmabuf to EGLImage: ", show dmabuf]
+        image <- [CU.block|EGLImage {
+          const EGLint attributes[] = {
+            EGL_WIDTH, $(EGLint width),
+            EGL_HEIGHT, $(EGLint height),
+            EGL_LINUX_DRM_FOURCC_EXT, $(uint32_t fourcc),
+            EGL_DMA_BUF_PLANE0_FD_EXT, $(int fd0),
+            EGL_DMA_BUF_PLANE0_OFFSET_EXT, $(uint32_t offset0),
+            EGL_DMA_BUF_PLANE0_PITCH_EXT, $(uint32_t stride0),
+            EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT, $(uint32_t hi0),
+            EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT, $(uint32_t lo0),
+            EGL_DMA_BUF_PLANE1_FD_EXT, $(int fd1),
+            EGL_DMA_BUF_PLANE1_OFFSET_EXT, $(uint32_t offset1),
+            EGL_DMA_BUF_PLANE1_PITCH_EXT, $(uint32_t stride1),
+            EGL_DMA_BUF_PLANE1_MODIFIER_HI_EXT, $(uint32_t hi1),
+            EGL_DMA_BUF_PLANE1_MODIFIER_LO_EXT, $(uint32_t lo1),
+            EGL_DMA_BUF_PLANE2_FD_EXT, $(int fd2),
+            EGL_DMA_BUF_PLANE2_OFFSET_EXT, $(uint32_t offset2),
+            EGL_DMA_BUF_PLANE2_PITCH_EXT, $(uint32_t stride2),
+            EGL_DMA_BUF_PLANE2_MODIFIER_HI_EXT, $(uint32_t hi2),
+            EGL_DMA_BUF_PLANE2_MODIFIER_LO_EXT, $(uint32_t lo2),
+            EGL_DMA_BUF_PLANE3_FD_EXT, $(int fd3),
+            EGL_DMA_BUF_PLANE3_OFFSET_EXT, $(uint32_t offset3),
+            EGL_DMA_BUF_PLANE3_PITCH_EXT, $(uint32_t stride3),
+            EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT, $(uint32_t hi3),
+            EGL_DMA_BUF_PLANE3_MODIFIER_LO_EXT, $(uint32_t lo3),
+            // terminate list
+            EGL_NONE
+          };
+          return eglCreateImageKHR(
+            $(EGLDisplay display),
+            EGL_NO_CONTEXT,
+            EGL_LINUX_DMA_BUF_EXT,
+            (EGLClientBuffer)NULL,
+            attributes);
+        }|]
+        result <- eglGetError
+        unless (isEglSuccess result) $ throwIO result
+        pure image
     importDmabufPlanes planes = throwIO $ userError $ mconcat ["Unexpected number of dmabuf planes (", show (length planes), " planes)"]
