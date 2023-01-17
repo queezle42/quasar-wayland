@@ -10,6 +10,7 @@ module Quasar.Wayland.Gles.Egl (
   eglExportDmabuf,
   eglQueryDmabufFormats,
   eglImportDmabuf,
+  getDmabufFeedback,
 ) where
 
 import Data.Set (Set)
@@ -340,6 +341,15 @@ zipPlanes modifier fds strides offsets = packPlane <$> zipped
   where
     zipped = zip3 fds strides offsets
     packPlane (fd, stride, offset) = DmabufPlane {fd, stride, offset, modifier}
+
+
+getDmabufFeedback :: Egl -> IO CompiledDmabufFeedback
+getDmabufFeedback egl = do
+  case egl.deviceInfo.drmRenderNode of
+    Nothing -> fail "Failed to compile dmabuf feedback because the current device is missing a drm render node."
+    Just (_, devT) -> do
+      (_, formatTable) <- eglQueryDmabufFormats egl
+      compileDmabufFeedback devT (devT, formatTable, False)
 
 
 eglQueryDmabufFormats :: Egl -> IO ([DrmFormat], [(DrmFormat, DrmModifier)])

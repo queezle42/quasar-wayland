@@ -24,12 +24,13 @@ import Quasar.Prelude
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Gles.Dmabuf
+import Quasar.Wayland.Gles.Utils.Stat (DevT(..))
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Surface
 import Quasar.Wayland.Surface
-import System.Posix.Types (Fd)
+import Quasar.Wayland.Utils.SharedFd
 
 data GlesBackend
 
@@ -65,8 +66,7 @@ getClientDmabufSingleton client =
 
 newClientDmabufSingleton :: WaylandClient -> STM ClientDmabufSingleton
 newClientDmabufSingleton client = do
-  -- NOTE v3 for now
-  zwpLinuxDmabuf <- bindSingleton @Interface_zwp_linux_dmabuf_v1 client.registry 3
+  zwpLinuxDmabuf <- bindSingleton @Interface_zwp_linux_dmabuf_v1 client.registry 4
   dmabufFormats <- newTVar mempty
   dmabufModifiers <- newTVar mempty
   zwpLinuxDmabuf `setEventHandler` EventHandler_zwp_linux_dmabuf_v1 {
@@ -102,7 +102,7 @@ addSupportedModifier formats modifiers fourcc modifierLo modifierHi = do
 
 awaitSupportedFormats :: ClientDmabufSingleton -> IO ([DrmFormat], [(DrmFormat, DrmModifier)])
 awaitSupportedFormats dmabuf = do
-  await dmabuf.formatsComplete
+  either throwM pure =<< await dmabuf.formatsComplete
   formats <- readTVarIO dmabuf.dmabufFormats
   modifiers <- readTVarIO dmabuf.dmabufModifiers
   pure (Set.toList formats, Set.toList modifiers)
@@ -126,9 +126,9 @@ exportGlesWlBuffer dmabufSingleton buffer = do
 type ServerDmabufParams = TVar ServerDmabufParamsState
 type ServerDmabufParamsState = Maybe (Map Word32 DmabufPlane)
 
-dmabufGlobal :: [DrmFormat] -> [(DrmFormat, DrmModifier)] -> Global
-dmabufGlobal legacyFormats legacyModifiers =
-  createGlobal @Interface_zwp_linux_dmabuf_v1 3 initialize
+dmabufGlobal :: [DrmFormat] -> DmabufFormatTable -> CompiledDmabufFeedback -> Global
+dmabufGlobal version1Formats version3FormatTable feedback =
+  createGlobal @Interface_zwp_linux_dmabuf_v1 4 initialize
   where
     initialize :: NewObject 'Server Interface_zwp_linux_dmabuf_v1 -> STM ()
     initialize wlLinuxDmabuf = do
@@ -139,23 +139,47 @@ dmabufGlobal legacyFormats legacyModifiers =
         -- documented, but was sway behaves like this. I have also observed
         -- clients that request v2 when v3 is available, so it seems reasonable
         -- to assume this is widespread or at least supported behavior.
-        forM_ legacyFormats \format -> do
+        forM_ version1Formats \format -> do
           wlLinuxDmabuf.format format.fourcc
 
       when (wlLinuxDmabuf.version == 3) do
-        forM_ legacyModifiers \(format, modifier) -> do
+        forM_ version3FormatTable \(format, modifier) -> do
           wlLinuxDmabuf.modifier format.fourcc modifier.hi modifier.lo
-
 
     dmabufHandler :: RequestHandler_zwp_linux_dmabuf_v1
     dmabufHandler =
       RequestHandler_zwp_linux_dmabuf_v1 {
         destroy = pure (),
         create_params = initializeDmabufParams,
-        -- Not required in version 3
-        get_default_feedback = undefined,
-        get_surface_feedback = undefined
+        get_default_feedback = initializeDmabufFeedback feedback,
+        -- TODO "If the surface is destroyed before the wp_linux_dmabuf_feedback
+        -- object, the feedback object becomes inert."
+        -- (not relevant for static feedback)
+        get_surface_feedback = \wlFb _surface -> initializeDmabufFeedback feedback wlFb
       }
+
+initializeDmabufFeedback :: CompiledDmabufFeedback -> NewObject 'Server Interface_zwp_linux_dmabuf_feedback_v1 -> STM ()
+initializeDmabufFeedback feedback wlFeedback = do
+  wlFeedback `setRequestHandler` RequestHandler_zwp_linux_dmabuf_feedback_v1 {
+    destroy = pure ()
+  }
+  sendDmabufFeedback feedback wlFeedback
+
+sendDmabufFeedback :: CompiledDmabufFeedback -> Object 'Server Interface_zwp_linux_dmabuf_feedback_v1 -> STM ()
+sendDmabufFeedback feedback wlFeedback = do
+  let (DevT mainDevice) = feedback.mainDevice
+  wlFeedback.main_device mainDevice
+  fd <- duplicateSharedFd feedback.formatTableFd
+  wlFeedback.format_table fd feedback.formatTableSize
+
+  forM_ feedback.tranches \tranche -> do
+    let (DevT targetDevice) = tranche.targetDevice
+    wlFeedback.tranche_target_device targetDevice
+    wlFeedback.tranche_formats tranche.formats
+    when tranche.scanout $ wlFeedback.tranche_flags 1
+    wlFeedback.tranche_done
+
+  wlFeedback.done
 
 initializeDmabufParams :: NewObject 'Server Interface_zwp_linux_buffer_params_v1 -> STM ()
 initializeDmabufParams wlDmabufParams = do

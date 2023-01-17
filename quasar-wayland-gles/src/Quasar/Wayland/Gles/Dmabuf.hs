@@ -7,18 +7,22 @@ module Quasar.Wayland.Gles.Dmabuf (
   drmModNone,
   drmModInvalid,
 
-  DmabufFeedback,
-  DmabufFeedbackTranche,
+  CompiledDmabufFeedback(..),
+  CompiledDmabufFeedbackTranche(..),
   DmabufFormatTable,
+  compileDmabufFeedback,
   readFormatTableFd,
   writeFormatTableFd,
 ) where
 
+import Data.Binary.Put
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as BS
 import Data.ByteString.Internal (w2c)
 import Foreign
 import GHC.Records
 import Quasar.Prelude
+import Quasar.Wayland.Gles.Utils.Stat (DevT(..))
 import Quasar.Wayland.Utils.SharedFd
 import Quasar.Wayland.Utils.SharedMemory
 
@@ -72,19 +76,43 @@ drmModInvalid :: DrmModifier
 drmModInvalid = DrmModifier 0x00ffffffffffffff
 
 
-data DmabufFeedback = DmabufFeedback {
-  mainDevice :: ByteString,
-  tranches :: [DmabufFeedbackTranche]
+data CompiledDmabufFeedback = CompiledDmabufFeedback {
+  mainDevice :: DevT,
+  formatTableFd :: SharedFd,
+  formatTableSize :: Word32,
+  tranches :: [CompiledDmabufFeedbackTranche]
 }
 
-data DmabufFeedbackTranche = DmabufFeedbackTranche {
-  targetDevice :: ByteString,
-  formatTable :: DmabufFormatTable,
-  formats :: [Word16],
+data CompiledDmabufFeedbackTranche = CompiledDmabufFeedbackTranche {
+  targetDevice :: DevT,
+  formats :: ByteString,
   scanout :: Bool
 }
 
 type DmabufFormatTable = [(DrmFormat, DrmModifier)]
+
+compileDmabufFeedback :: DevT -> (DevT, DmabufFormatTable, Bool) -> IO CompiledDmabufFeedback
+compileDmabufFeedback mainDevice (targetDevice, formatTable, scanout) = do
+  (formatTableFd, formatTableSize) <- writeFormatTableFd formatTable
+
+  let
+    -- From linux-dmabuf-unstable-v1 (version 4):
+    -- "Each index is a 16-bit unsigned integer in native endianness."
+    compiledFormatIndices =
+      runPut (mconcat (putWord16host <$> take (length formatTable) [0..]))
+
+    tranche = CompiledDmabufFeedbackTranche {
+      targetDevice,
+      formats = BS.toStrict compiledFormatIndices,
+      scanout
+    }
+
+  pure CompiledDmabufFeedback {
+    mainDevice,
+    formatTableFd,
+    formatTableSize,
+    tranches = [tranche]
+  }
 
 -- | Read a dmabuf format table (as documented in the @linux-dmabuf-unstable-v1@
 -- wayland protocol) from a file descriptor.
@@ -98,13 +126,14 @@ readFormatTableFd fd size = do
   -- unsigned integer, followed by 4 bytes of unused padding, and a modifier as
   -- a 64-bit unsigned integer. The native endianness is used."
 
-  let count = size `div` 16
+  let count = fromIntegral (size `div` 16)
 
   withMmap MmapReadOnly fd (fromIntegral size) \ptr ->
-    forM [0,16..] \offset -> do
+    forM (take count [0,16..]) \offset -> do
       format <- peekByteOff ptr offset
       modifier <- peekByteOff ptr (offset + 8)
       pure (format, modifier)
+
 
 -- | Write a dmabuf format table (as documented in the
 -- @linux-dmabuf-unstable-v1@ wayland protocol) to a shared memory file.
@@ -112,6 +141,8 @@ readFormatTableFd fd size = do
 -- The caller is responsible for managing the new file descriptor.
 writeFormatTableFd :: DmabufFormatTable -> IO (SharedFd, Word32)
 writeFormatTableFd table = do
+  let size = fromIntegral (length table * 16)
+
   fd <- memfdCreate (fromIntegral size)
 
   withMmap MmapReadWrite fd (fromIntegral size) \ptr ->
@@ -120,7 +151,3 @@ writeFormatTableFd table = do
       pokeByteOff ptr (offset + 8) modifier
 
   pure (fd, size)
-
-  where
-    size :: Word32
-    size = fromIntegral (length table * 16)

@@ -73,6 +73,7 @@ library
     Paths_quasar_wayland_gles
   build-depends:
     base,
+    binary,
     bytestring,
     containers,
     exceptions,
