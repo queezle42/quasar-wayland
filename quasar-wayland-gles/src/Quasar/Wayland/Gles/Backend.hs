@@ -134,17 +134,13 @@ dmabufGlobal version1Formats version3FormatTable feedback =
     initialize wlLinuxDmabuf = do
       wlLinuxDmabuf `setRequestHandler` dmabufHandler
 
-      when (wlLinuxDmabuf.version <= 2) do
-        -- `format` event is not sent in version 3. This is not explicitly
-        -- documented, but was sway behaves like this. I have also observed
-        -- clients that request v2 when v3 is available, so it seems reasonable
-        -- to assume this is widespread or at least supported behavior.
+      when (wlLinuxDmabuf.version <= 3) do
         forM_ version1Formats \format -> do
           wlLinuxDmabuf.format format.fourcc
 
-      when (wlLinuxDmabuf.version == 3) do
-        forM_ version3FormatTable \(format, modifier) -> do
-          wlLinuxDmabuf.modifier format.fourcc modifier.hi modifier.lo
+        when (wlLinuxDmabuf.version == 3) do
+          forM_ version3FormatTable \(format, modifier) -> do
+            wlLinuxDmabuf.modifier format.fourcc modifier.hi modifier.lo
 
     dmabufHandler :: RequestHandler_zwp_linux_dmabuf_v1
     dmabufHandler =
@@ -152,7 +148,7 @@ dmabufGlobal version1Formats version3FormatTable feedback =
         destroy = pure (),
         create_params = initializeDmabufParams,
         get_default_feedback = initializeDmabufFeedback feedback,
-        -- TODO "If the surface is destroyed before the wp_linux_dmabuf_feedback
+        -- NOTE "If the surface is destroyed before the wp_linux_dmabuf_feedback
         -- object, the feedback object becomes inert."
         -- (not relevant for static feedback)
         get_surface_feedback = \wlFb _surface -> initializeDmabufFeedback feedback wlFb
