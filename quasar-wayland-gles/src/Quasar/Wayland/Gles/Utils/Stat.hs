@@ -1,6 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Quasar.Wayland.Gles.Utils.Stat (
+  DevT(..),
   statDevT,
 ) where
 
@@ -14,13 +15,21 @@ import Quasar.Prelude
 C.include "<stdint.h>"
 C.include "<sys/stat.h>"
 
+newtype DevT = DevT ByteString
+  -- TODO custom show instance to snow major/minor
+  deriving Show
+
+-- | Size of the kernel @dev_t@ struct.
+devTSize :: Int
+devTSize = fromIntegral [CU.pure|int { sizeof(dev_t) }|]
+
 -- | Returns the @dev_t@ device id of a special file.
 --
 -- See @man 2 stat@ for details.
-statDevT :: FilePath -> IO ByteString
-statDevT path = do
+statDevT :: FilePath -> IO DevT
+statDevT path =
   withCString path \pathPtr ->
-    allocaBytes devtSize \(devtPtr :: Ptr CChar) -> do
+    allocaBytes devTSize \(devtPtr :: Ptr CChar) -> do
       -- A void pointer is used to pass the dev_t pointer to C, since
       -- sizeof(dev_t) is defined by the kernel implementation and dev_t has no
       -- Haskell representation.
@@ -33,7 +42,4 @@ statDevT path = do
         *((dev_t*)($(void* devtVoidPtr))) = statdata.st_rdev;
         return 0;
       }|]
-      packCStringLen (devtPtr, devtSize)
-  where
-    devtSize :: Int
-    devtSize = fromIntegral [CU.pure|int { sizeof(dev_t) }|]
+      DevT <$> packCStringLen (devtPtr, devTSize)

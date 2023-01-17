@@ -52,7 +52,15 @@ C.verbatim "PFNEGLDESTROYIMAGEKHRPROC eglDestroyImageKHR;"
 
 data Egl = Egl {
   display :: EGLDisplay,
-  context :: EGLContext
+  context :: EGLContext,
+  deviceInfo :: EglDeviceInfo
+}
+
+data EglDeviceInfo = EglDeviceInfo {
+  eglDevice :: EGLDeviceEXT,
+  deviceExtensions :: Set String,
+  drmDevice :: Maybe (FilePath, DevT),
+  drmRenderNode :: Maybe (FilePath, DevT)
 }
 
 initializeEgl :: IO Egl
@@ -79,7 +87,7 @@ initializeEgl = do
 
   unless ("EGL_EXT_device_enumeration" `elem` clientExtensions && "EGL_EXT_device_query" `elem` clientExtensions) do
     fail "Missing extensions for device enumeration"
-  display <- getEglDisplayDevice
+  (display, deviceInfo) <- getEglDisplayDevice
 
   --when ("EGL_MESA_platform_surfaceless" `elem` clientExtensions) do
   --  traceIO "Surfaceless platform available"
@@ -105,7 +113,9 @@ initializeEgl = do
     requiredEglExtensions :: Set String = Set.fromList [
       "EGL_KHR_no_config_context",
       "EGL_MESA_image_dma_buf_export",
-      -- From 1.5 the non-KHR versions of the functions _could_ be used instead
+      -- From 1.5 the non-KHR versions of the functions _could_ be used instead,
+      -- but that would remove support for devices with older hardware, like the
+      -- PinePhone.
       "EGL_KHR_image_base",
       "EGL_EXT_image_dma_buf_import",
       "EGL_EXT_image_dma_buf_import_modifiers"
@@ -151,10 +161,10 @@ initializeEgl = do
     }
   |]
 
-  pure Egl { display, context }
+  pure Egl { display, context, deviceInfo }
 
 
-getEglDisplayDevice :: IO EGLDisplay
+getEglDisplayDevice :: IO (EGLDisplay, EglDeviceInfo)
 getEglDisplayDevice = do
   -- Requires EGL_EXT_device_enumeration and EGL_EXT_device_query
   [CU.block|
@@ -191,32 +201,62 @@ getEglDisplayDevice = do
       |]
     peekArray (fromIntegral deviceCount) ptr
 
-  forM_ (zip [0,1..] devices) \(i :: Int, device) -> do
-    deviceExtensionString <- eglQueryDeviceString device [CU.pure|EGLint { EGL_EXTENSIONS }|]
-    traceIO $ mconcat ["Device ", show i, ": device extensions: ", deviceExtensionString]
-    let deviceExtensions = Set.fromList (words deviceExtensionString)
+  deviceInfos <-
+    forM (zip [0,1..] devices) \(i :: Int, device) -> do
+      deviceInfo <- queryDeviceInfo device
 
-    when (Set.member "EGL_EXT_device_drm" deviceExtensions) do
-      deviceNode <- eglTryQueryDeviceString device [CU.pure|EGLint { EGL_DRM_DEVICE_FILE_EXT }|]
-      forM_ deviceNode \path -> do
+      traceIO $ mconcat ["Device ", show i, ": device extensions: ", show deviceInfo.deviceExtensions]
+
+      forM_ deviceInfo.drmDevice \(path, devT) -> do
         traceIO $ mconcat ["Device ", show i, ": drm device: ", path]
-        devT <- statDevT path
         traceIO $ mconcat ["Device ", show i, ": drm device dev_t: ", show devT]
 
-    when (Set.member "EGL_EXT_device_drm_render_node" deviceExtensions) do
-      renderNode <- eglTryQueryDeviceString device [CU.pure|EGLint { EGL_DRM_RENDER_NODE_FILE_EXT }|]
-      forM_ renderNode \path -> do
+      forM_ deviceInfo.drmRenderNode \(path, devT) -> do
         traceIO $ mconcat ["Device ", show i, ": render node: ", path]
-        devT <- statDevT path
         traceIO $ mconcat ["Device ", show i, ": render node dev_t: ", show devT]
+
+      pure deviceInfo
 
   -- NOTE If required the drm master fd can be accessed by querying EGL_DRM_MASTER_FD_EXT (requires EGL_EXT_device_drm)
 
   traceIO "Using device 0"
   (device:_) <- pure devices
+  (deviceInfo:_) <- pure deviceInfos
 
-  throwErrnoIfNull "eglGetPlatformDisplay"
+  eglDisplay <- throwErrnoIfNull "eglGetPlatformDisplay"
     [CU.exp|EGLDisplay { eglGetPlatformDisplay(EGL_PLATFORM_DEVICE_EXT, $(EGLDeviceEXT device), NULL) }|]
+
+  pure (eglDisplay, deviceInfo)
+
+
+queryDeviceInfo :: EGLDeviceEXT -> IO EglDeviceInfo
+queryDeviceInfo eglDevice = do
+  deviceExtensionString <- eglQueryDeviceString eglDevice [CU.pure|EGLint { EGL_EXTENSIONS }|]
+  let deviceExtensions = Set.fromList (words deviceExtensionString)
+
+  drmDevice <-
+    if Set.member "EGL_EXT_device_drm" deviceExtensions
+      then do
+        eglTryQueryDeviceString eglDevice [CU.pure|EGLint { EGL_DRM_DEVICE_FILE_EXT }|] >>= mapM \deviceFile -> do
+          devT <- statDevT deviceFile
+          pure (deviceFile, devT)
+      else pure Nothing
+
+  drmRenderNode <-
+    if Set.member "EGL_EXT_device_drm_render_node" deviceExtensions
+      then do
+        eglTryQueryDeviceString eglDevice [CU.pure|EGLint { EGL_DRM_RENDER_NODE_FILE_EXT }|] >>= mapM \renderNodeFile -> do
+          devT <- statDevT renderNodeFile
+          pure (renderNodeFile, devT)
+      else pure Nothing
+
+  pure EglDeviceInfo {
+    eglDevice,
+    deviceExtensions,
+    drmDevice,
+    drmRenderNode
+  }
+
 
 --getEglDisplaySurfaceless :: IO EGLDisplay
 --getEglDisplaySurfaceless = do
