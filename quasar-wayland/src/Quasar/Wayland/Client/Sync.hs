@@ -18,7 +18,7 @@ lowLevelSync wlDisplay callback = do
 
 lowLevelSyncFuture :: Object 'Client Interface_wl_display -> STM (FutureEx '[SomeException] ())
 lowLevelSyncFuture wlDisplay = do
-  var <- newPromiseSTM
+  var <- newPromise
   -- TODO fulfill promise with exception on client disconnect
-  lowLevelSync wlDisplay \_ -> fulfillPromiseSTM var (Right ())
+  lowLevelSync wlDisplay \_ -> fulfillPromise var (Right ())
   pure $ toFutureEx var

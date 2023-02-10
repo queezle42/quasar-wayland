@@ -164,19 +164,22 @@ newClientShmManager client = do
   wlShm <- bindSingleton client.registry maxVersion
   wlShmPools <- newTVar mempty
   formatsVar <- newTVar mempty
+  formats <- newPromise
   setEventHandler wlShm $ EventHandler_wl_shm {
     format = \fmt -> modifyTVar formatsVar (Set.insert fmt)
   }
   -- Formats are emittet all at once; sync ensures the list is complete
   formatListComplete <- client.sync
-  -- Create awaitable from formats
-  let formats = formatListComplete >> unsafeSTMToFutureEx (readTVar formatsVar)
+  liftSTMc do
+    void $ attachFutureCallback formatListComplete \case
+      Right () -> tryFulfillPromise_ formats . Right =<< readTVar formatsVar
+      Left ex -> tryFulfillPromise_ formats (Left ex)
 
   pure ClientShmManager {
     key,
     wlShm,
     wlShmPools,
-    formats
+    formats = toFutureEx formats
   }
 
 getClientShmPool :: ClientShmManager -> ShmPool -> STM (Object 'Client Interface_wl_shm_pool)
