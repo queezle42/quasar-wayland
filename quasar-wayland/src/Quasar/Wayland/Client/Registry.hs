@@ -3,16 +3,17 @@ module Quasar.Wayland.Client.Registry (
   createRegistry,
   bindSingleton,
   tryBindSingleton,
-  registerGlobalHandler,
+  interfaceGlobals,
   Version,
   maxVersion,
 ) where
 
 import Control.Monad.Catch
-import Data.HashMap.Strict (HashMap)
-import Data.HashMap.Strict qualified as HM
+import Data.Map.Strict qualified as Map
 import Data.String (IsString(..))
 import Quasar
+import Quasar.Observable.ObservableMap (ObservableMap, ObservableMapVar)
+import Quasar.Observable.ObservableMap qualified as ObservableMap
 import Quasar.Prelude
 import Quasar.Wayland.Client.Sync
 import Quasar.Wayland.Protocol
@@ -22,9 +23,8 @@ import Quasar.Wayland.Protocol.Generated
 
 data Registry = Registry {
   wlRegistry :: Object 'Client Interface_wl_registry,
-  globals :: TVar (HM.HashMap Word32 Global),
-  initialSyncComplete :: FutureEx '[SomeException] (),
-  bindCallbacks :: TVar (HashMap WlString [Global -> STM ()])
+  globals :: ObservableMapVar Word32 Global,
+  initialSyncComplete :: FutureEx '[SomeException] ()
 }
 
 data Global = Global {
@@ -35,8 +35,7 @@ data Global = Global {
 
 createRegistry :: Object 'Client Interface_wl_display -> STM Registry
 createRegistry wlDisplay = mfix \clientRegistry -> do
-  globals <- newTVar mempty
-  bindCallbacks <- newTVar mempty
+  globals <- ObservableMap.new
 
   wlRegistry <- wlDisplay.get_registry
   setMessageHandler wlRegistry (messageHandler clientRegistry)
@@ -47,8 +46,7 @@ createRegistry wlDisplay = mfix \clientRegistry -> do
   pure Registry {
     wlRegistry,
     globals,
-    initialSyncComplete,
-    bindCallbacks
+    initialSyncComplete
   }
   where
     messageHandler :: Registry -> EventHandler_wl_registry
@@ -57,13 +55,11 @@ createRegistry wlDisplay = mfix \clientRegistry -> do
         global :: Word32 -> WlString -> Word32 -> STM ()
         global name interface version = do
           let global' = Global { name, interface, version }
-          modifyTVar clientRegistry.globals $ HM.insert name global'
-          HM.lookup interface <$> readTVar clientRegistry.bindCallbacks >>=
-            mapM_ (mapM_ ($ global'))
+          ObservableMap.insert name global' clientRegistry.globals
 
         global_remove :: Word32 -> STM ()
         global_remove name = do
-          result <- stateTVar clientRegistry.globals (lookupDelete name)
+          result <- ObservableMap.lookupDelete name clientRegistry.globals
           case result of
             Nothing -> traceM $ "Invalid global removed by server: " <> show name
             Just _ -> pure ()
@@ -82,39 +78,23 @@ tryBindSingleton :: forall i. IsInterfaceSide 'Client i => Registry -> Version -
 tryBindSingleton registry version = do
   either throwM pure =<< awaitSTM registry.initialSyncComplete
 
-  globals <- filterInterface @i . HM.elems <$> readTVar registry.globals
+  globals <- liftSTMc $ readObservable registry.globals
 
-  case globals of
+  case filter (isInterface @i) (Map.elems globals) of
     [] -> pure $ Left $ mconcat ["No global named ", interfaceName @i, " is available"]
-    [global] -> Right <$> bindGlobal registry version global
+    [global] -> Right <$> bindGlobal registry global version
     _ -> pure $ Left $ mconcat ["Cannot bind singleton: multiple globals with type ", interfaceName @i, " are available"]
 
-filterInterface :: forall i. IsInterfaceSide 'Client i => [Global] -> [Global]
-filterInterface = filter \global -> global.interface == fromString (interfaceName @i)
+isInterface :: forall i. IsInterfaceSide 'Client i => Global -> Bool
+isInterface global = global.interface == fromString (interfaceName @i)
 
-bindGlobal :: forall i. IsInterfaceSide 'Client i => Registry -> Version -> Global -> STM (NewObject 'Client i)
-bindGlobal registry version global = do
+bindGlobal :: forall i. IsInterfaceSide 'Client i => Registry -> Global -> Version -> STM (NewObject 'Client i)
+bindGlobal registry global version = do
   let effectiveVersion = min (min global.version (interfaceVersion @i)) version
   (object, newId) <- bindNewObject registry.wlRegistry.objectProtocol effectiveVersion Nothing
   registry.wlRegistry.bind global.name newId
   pure object
 
-
-registerGlobalHandler :: forall i. IsInterfaceSide 'Client i => Registry -> Version -> (NewObject 'Client i -> STMc NoRetry '[] Disposer) -> STM ()
-registerGlobalHandler registry version callback = do
-  either throwM pure =<< awaitSTM registry.initialSyncComplete
-
-  let bindFn = bindGlobalToCallback registry version callback
-
-  globals <- filterInterface @i . HM.elems <$> readTVar registry.globals
-  mapM_ bindFn globals
-
-  modifyTVar registry.bindCallbacks $ HM.insertWith (<>) (fromString (interfaceName @i)) [bindFn]
-
-
-bindGlobalToCallback :: forall i. IsInterfaceSide 'Client i => Registry -> Version -> (NewObject 'Client i -> STMc NoRetry '[] Disposer) -> Global -> STM ()
-bindGlobalToCallback registry version callback global = do
-  wlObject <- bindGlobal registry version global
-  disposer <- liftSTMc (callback wlObject)
-  -- TODO store and use disposer
-  pure ()
+interfaceGlobals :: forall i. IsInterfaceSide 'Client i => Registry -> ObservableMap Word32 (Version -> STM (NewObject 'Client i))
+interfaceGlobals registry =
+  bindGlobal registry <$> ObservableMap.filter (isInterface @i) registry.globals
