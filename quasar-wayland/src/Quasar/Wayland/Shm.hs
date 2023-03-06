@@ -170,10 +170,9 @@ newClientShmManager client = do
   }
   -- Formats are emittet all at once; sync ensures the list is complete
   formatListComplete <- client.sync
-  liftSTMc do
-    void $ attachFutureCallback formatListComplete \case
-      Right () -> tryFulfillPromise_ formats . Right =<< readTVar formatsVar
-      Left ex -> tryFulfillPromise_ formats (Left ex)
+  callOnceCompleted_ formatListComplete \case
+    Right () -> tryFulfillPromise_ formats . Right =<< readTVar formatsVar
+    Left ex -> tryFulfillPromise_ formats (Left ex)
 
   pure ClientShmManager {
     key,

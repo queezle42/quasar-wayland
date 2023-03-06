@@ -78,7 +78,7 @@ tryBindSingleton :: forall i. IsInterfaceSide 'Client i => Registry -> Version -
 tryBindSingleton registry version = do
   either throwM pure =<< awaitSTM registry.initialSyncComplete
 
-  globals <- liftSTMc $ readObservable registry.globals
+  globals <- readObservable registry.globals
 
   case filter (isInterface @i) (Map.elems globals) of
     [] -> pure $ Left $ mconcat ["No global named ", interfaceName @i, " is available"]

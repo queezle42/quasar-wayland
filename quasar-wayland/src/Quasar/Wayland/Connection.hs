@@ -41,8 +41,8 @@ data WaylandConnection s = WaylandConnection {
   quasar :: Quasar
 }
 
-instance Resource (WaylandConnection s) where
-  toDisposer connection = toDisposer connection.quasar
+instance Disposable (WaylandConnection s) where
+  getDisposer connection = getDisposer connection.quasar
 
 data SocketClosed = SocketClosed
   deriving stock Show

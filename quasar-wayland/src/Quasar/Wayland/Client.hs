@@ -36,8 +36,8 @@ data WaylandClient = WaylandClient {
   globals :: TVar (Map SomeTypeRep Dynamic)
 }
 
-instance Resource WaylandClient where
-  toDisposer client = toDisposer client.connection
+instance Disposable WaylandClient where
+  getDisposer client = getDisposer client.connection
 
 connectWaylandClient :: (MonadIO m, MonadQuasar m) => m WaylandClient
 connectWaylandClient = liftQuasarIO $ mask_ do
