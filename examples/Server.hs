@@ -12,7 +12,7 @@ import Quasar.Wayland.Shared.DummyWindowManager
 import Quasar.Wayland.Shm
 
 main :: IO ()
-main = runQuasarAndExit (stderrLogger LogLevelWarning) do
+main = runQuasarAndExit do
   wm <- newDummyWindowManager @ShmBufferBackend
   let
     layerShellGlobal = createGlobal @Interface_zwlr_layer_shell_v1 maxVersion (\x -> setRequestHandler x layerShellHandler)

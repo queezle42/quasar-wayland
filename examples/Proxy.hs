@@ -11,7 +11,7 @@ import Quasar.Wayland.Server.XdgShell
 import Quasar.Wayland.Shm
 
 main :: IO ()
-main = runQuasarAndExit (stderrLogger LogLevelWarning) do
+main = runQuasarAndExit do
   client <- connectWaylandClient
   traceIO "Connected"
 

@@ -35,7 +35,7 @@ data Global = Global {
 
 createRegistry :: Object 'Client Interface_wl_display -> STM Registry
 createRegistry wlDisplay = mfix \clientRegistry -> do
-  globals <- ObservableMap.new
+  globals <- ObservableMap.newObservableMapVar
 
   wlRegistry <- wlDisplay.get_registry
   setMessageHandler wlRegistry (messageHandler clientRegistry)

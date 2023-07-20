@@ -17,7 +17,7 @@ import Quasar.Wayland.Surface
 import Control.Concurrent
 
 main :: IO ()
-main = runQuasarAndExit (stderrLogger LogLevelWarning) do
+main = runQuasarAndExit do
   client <- connectWaylandClient
   traceIO "Connected"
 

@@ -2,10 +2,12 @@
   inputs = {
     quasar = {
       url = github:queezle42/quasar;
-      inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    nixpkgs.url = github:NixOS/nixpkgs/nixos-unstable;
+    nixpkgs = {
+      url = github:NixOS/nixpkgs/nixos-unstable;
+      follows = "quasar/nixpkgs";
+    };
   };
 
   outputs = { self, nixpkgs, quasar }:

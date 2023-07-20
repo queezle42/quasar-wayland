@@ -14,7 +14,7 @@ import Codec.Picture
 
 main :: IO ()
 main = do
-  _ <- runQuasarAndExit (stderrLogger LogLevelWarning) do
+  _ <- runQuasarAndExit do
     traceIO "Connecting"
     client <- connectWaylandClient
     traceIO "Connected"
