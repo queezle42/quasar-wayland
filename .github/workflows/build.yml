@@ -1,0 +1,15 @@
+name: "Build"
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: "Build"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix --print-build-logs build .
