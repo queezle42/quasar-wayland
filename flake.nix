@@ -54,8 +54,6 @@
                 {
                   librarySystemDepends = [ final.libGL ];
                 };
-            # Due to a ghc bug in 9.4.3 and 9.2.5
-            ListLike = final.haskell.lib.dontCheck hprev.ListLike;
           };
         };
       };
