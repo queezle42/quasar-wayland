@@ -15,18 +15,19 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Quasar.Future
 import Quasar.Prelude
+import Quasar.Resources (TSimpleDisposer, newUnmanagedTSimpleDisposer, disposeTSimpleDisposer)
 import Quasar.Wayland.Client
+import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Surface
-import Quasar.Wayland.Client.Surface
 
 data ShmBufferBackend
 
 instance BufferBackend ShmBufferBackend where
   type BufferStorage ShmBufferBackend = ShmBuffer
 
-releaseShmBuffer :: ShmBuffer -> STM ()
+releaseShmBuffer :: ShmBuffer -> STMc NoRetry '[] ()
 releaseShmBuffer buffer = do
   modifyTVar buffer.pool.bufferCount pred
   traceM "Finalized ShmBuffer"
@@ -51,8 +52,8 @@ instance Hashable ShmPool where
   hashWithSalt salt pool = hashWithSalt salt pool.key
 
 data DownstreamShmPool = DownstreamShmPool {
-  destroy :: STM (),
-  resize :: Int32 -> STM ()
+  disposer :: TSimpleDisposer,
+  resize :: Int32 -> STMc NoRetry '[SomeException] ()
 }
 
 
@@ -66,7 +67,7 @@ data ShmBuffer = ShmBuffer {
 }
 
 -- | Create an `ShmPool` for externally managed memory. Takes ownership of the passed file descriptor.
-newShmPool :: SharedFd -> Int32 -> STM ShmPool
+newShmPool :: SharedFd -> Int32 -> STMc NoRetry '[] ShmPool
 newShmPool fd size = do
   key <- newUniqueSTM
   fdVar <- newTVar (Just fd)
@@ -86,7 +87,7 @@ newShmPool fd size = do
   }
 
 -- | Resize an externally managed shm pool.
-resizeShmPool :: ShmPool -> Int32 -> STM ()
+resizeShmPool :: ShmPool -> Int32 -> STMc NoRetry '[SomeException] ()
 resizeShmPool pool size = do
   oldSize <- readTVar pool.size
   when (oldSize > size) $ throwM $ ProtocolUsageError (mconcat ["wl_shm: Invalid resize from ", show oldSize, " to ", show size])
@@ -95,12 +96,12 @@ resizeShmPool pool size = do
   mapM_ (\downstream -> downstream.resize size) downstreams
 
 -- | Request destruction of an an externally managed shm pool. Memory shared with this pool will be deallocated after the last buffer is released.
-destroyShmPool :: ShmPool -> STM ()
+destroyShmPool :: ShmPool -> STMc NoRetry '[] ()
 destroyShmPool pool = do
   writeTVar pool.destroyRequested True
   tryFinalizeShmPool pool
 
-tryFinalizeShmPool :: ShmPool -> STM ()
+tryFinalizeShmPool :: ShmPool -> STMc NoRetry '[] ()
 tryFinalizeShmPool pool = do
   destroyRequested <- readTVar pool.destroyRequested
   bufferCount <- readTVar pool.bufferCount
@@ -108,19 +109,19 @@ tryFinalizeShmPool pool = do
     writeTVar pool.destroyed True
     fd <- swapTVar pool.fd Nothing
     downstreams <- swapTVar pool.downstreams mempty
-    mapM_ (.destroy) downstreams
+    mapM_ (disposeTSimpleDisposer . (.disposer)) downstreams
     traceM "Finalized ShmPool"
     -- TODO close fd
     forM_ fd \fd' -> traceM $ "leaking fd fd@" <> show fd' <> " (needs to be deferred to IO)"
 
-connectDownstreamShmPool :: ShmPool -> DownstreamShmPool -> STM ()
+connectDownstreamShmPool :: ShmPool -> DownstreamShmPool -> STMc NoRetry '[SomeException] ()
 connectDownstreamShmPool pool downstream = do
   whenM (readTVar pool.destroyed) $ throwM $ userError "ShmPool: Cannot attach downstream since the pool has been destroyed"
   modifyTVar pool.downstreams (downstream:)
 
 
 -- | Create a new buffer for an externally managed pool
-newShmBuffer :: ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STM (Buffer ShmBufferBackend)
+newShmBuffer :: ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STMc NoRetry '[] (Buffer ShmBufferBackend)
 newShmBuffer pool offset width height stride format = do
   -- TODO check arguments
   modifyTVar pool.bufferCount succ
@@ -136,7 +137,7 @@ instance ClientBufferBackend ShmBufferBackend where
 
   newClientBufferManager = newClientShmManager
 
-  exportWlBuffer :: ClientShmManager -> Buffer ShmBufferBackend -> STM (NewObject 'Client Interface_wl_buffer)
+  exportWlBuffer :: ClientShmManager -> Buffer ShmBufferBackend -> STMc NoRetry '[SomeException] (NewObject 'Client Interface_wl_buffer)
   exportWlBuffer client buffer = do
     let shmBuffer = buffer.storage
     wlShmPool <- getClientShmPool client shmBuffer.pool
@@ -158,7 +159,7 @@ instance Hashable ClientShmManager where
   hashWithSalt salt x = hashWithSalt salt x.key
 
 
-newClientShmManager :: WaylandClient -> STM ClientShmManager
+newClientShmManager :: WaylandClient -> STMc NoRetry '[SomeException] ClientShmManager
 newClientShmManager client = do
   key <- newUniqueSTM
   wlShm <- bindSingleton client.registry maxVersion
@@ -169,7 +170,7 @@ newClientShmManager client = do
     format = \fmt -> modifyTVar formatsVar (Set.insert fmt)
   }
   -- Formats are emittet all at once; sync ensures the list is complete
-  formatListComplete <- client.sync
+  formatListComplete <- liftSTMc client.sync
   callOnceCompleted_ formatListComplete \case
     Right () -> tryFulfillPromise_ formats . Right =<< readTVar formatsVar
     Left ex -> tryFulfillPromise_ formats (Left ex)
@@ -181,16 +182,16 @@ newClientShmManager client = do
     formats = toFutureEx formats
   }
 
-getClientShmPool :: ClientShmManager -> ShmPool -> STM (Object 'Client Interface_wl_shm_pool)
+getClientShmPool :: ClientShmManager -> ShmPool -> STMc NoRetry '[SomeException] (Object 'Client Interface_wl_shm_pool)
 getClientShmPool client pool = do
-  HM.lookup pool <$> readTVar client.wlShmPools >>= \case
+  readTVar client.wlShmPools >>= \pools -> case HM.lookup pool pools of
     Just wlShmPool -> pure wlShmPool
     Nothing -> do
       wlShmPool <- exportClientShmPool client pool
       modifyTVar client.wlShmPools (HM.insert pool wlShmPool)
       pure wlShmPool
 
-exportClientShmPool :: ClientShmManager -> ShmPool -> STM (Object 'Client Interface_wl_shm_pool)
+exportClientShmPool :: ClientShmManager -> ShmPool -> STMc NoRetry '[SomeException] (Object 'Client Interface_wl_shm_pool)
 exportClientShmPool client pool = do
   readTVar pool.fd >>= \case
     Nothing -> throwM $ userError "Cannot export finalized ShmPool"
@@ -199,8 +200,9 @@ exportClientShmPool client pool = do
       -- TODO attach downstream to propagate size changes and pool destruction
       -- TODO (then: remove downstream when client is closed)
       wlShmPool <- client.wlShm.create_pool fd size
+      disposer <- newUnmanagedTSimpleDisposer (tryCall wlShmPool.destroy)
       connectDownstreamShmPool pool DownstreamShmPool {
-        destroy = wlShmPool.destroy,
+        disposer,
         resize = wlShmPool.resize
       }
       pure wlShmPool

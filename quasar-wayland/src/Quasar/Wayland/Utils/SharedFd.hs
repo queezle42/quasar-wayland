@@ -50,10 +50,10 @@ finalizeFdRcStore (FdRc var) =
       traceIO $ mconcat ["SharedFd was garbage collected, closing Fd@", show fd]
       closeFd fd
 
-incRc :: FdRc -> STM ()
+incRc :: FdRc -> STMc NoRetry '[SomeException] ()
 incRc (FdRc var) = modifyTVar var \(fd, active) -> (fd, active + 1)
 
-getFdRc :: SharedFd -> STM FdRc
+getFdRc :: SharedFd -> STMc NoRetry '[SomeException] FdRc
 getFdRc (SharedFd var _) =
   readTVar var >>= \case
     Nothing -> throwSTM (userError "SharedFd has already been disposed")
@@ -102,7 +102,7 @@ withSharedFds (x:xs) fn = withSharedFd x \fd -> withSharedFds xs (fn . (fd :))
 
 -- | Create a new `SharedFd` that references the same file descriptor as another
 -- SharedFd.
-duplicateSharedFd :: SharedFd -> STM SharedFd
+duplicateSharedFd :: SharedFd -> STMc NoRetry '[SomeException] SharedFd
 duplicateSharedFd fd@(SharedFd _ showData) = do
   rc <- getFdRc fd
   incRc rc

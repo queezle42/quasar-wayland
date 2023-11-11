@@ -18,7 +18,7 @@ shmRequestHandler = RequestHandler_wl_shm {
   create_pool = initializeWlShmPool
 }
 
-initializeWlShm :: NewObject 'Server Interface_wl_shm -> STM ()
+initializeWlShm :: NewObject 'Server Interface_wl_shm -> STMc NoRetry '[SomeException] ()
 initializeWlShm wlShm = do
   setRequestHandler wlShm shmRequestHandler
   -- argb8888 (0) and xrgb8888 (1) are required by the spec
@@ -26,16 +26,24 @@ initializeWlShm wlShm = do
   wlShm.format 0
   wlShm.format 1
 
-initializeWlShmPool :: NewObject 'Server Interface_wl_shm_pool -> SharedFd -> Int32 -> STM ()
-initializeWlShmPool wlShmPool fd size = do
+initializeWlShmPool :: NewObject 'Server Interface_wl_shm_pool -> SharedFd -> Int32 -> STMc NoRetry '[SomeException] ()
+initializeWlShmPool wlShmPool fd size = liftSTMc do
   pool <- newShmPool fd size
   setRequestHandler wlShmPool RequestHandler_wl_shm_pool {
     create_buffer = initializeWlShmBuffer pool,
-    destroy = destroyShmPool pool,
+    destroy = liftSTMc $ destroyShmPool pool,
     resize = resizeShmPool pool
   }
 
-initializeWlShmBuffer :: ShmPool -> NewObject 'Server Interface_wl_buffer -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STM ()
-initializeWlShmBuffer pool wlBuffer offset width height stride format = do
+initializeWlShmBuffer ::
+  ShmPool ->
+  NewObject 'Server Interface_wl_buffer ->
+  Int32 ->
+  Int32 ->
+  Int32 ->
+  Int32 ->
+  Word32 ->
+  STMc NoRetry '[SomeException] ()
+initializeWlShmBuffer pool wlBuffer offset width height stride format = liftSTMc do
   buffer <- newShmBuffer pool offset width height stride format
   initializeWlBuffer @ShmBufferBackend wlBuffer buffer

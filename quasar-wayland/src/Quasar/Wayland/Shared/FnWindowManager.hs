@@ -11,15 +11,15 @@ import Quasar.Wayland.Shared.WindowManagerApi
 import Quasar.Wayland.Surface
 
 newtype FnWindowManager b = FnWindowManager {
-  newWindowFn :: (WindowConfiguration -> STM ()) -> STM (FnWindow b)
+  newWindowFn :: (WindowConfiguration -> STMc NoRetry '[SomeException] ()) -> STMc NoRetry '[SomeException] (FnWindow b)
 }
 
 data FnWindow b = FnWindow {
-  setTitleFn :: WlString -> STM (),
-  setAppIdFn :: WlString -> STM (),
-  setFullscreenFn :: Bool -> STM (),
-  commitWindowContentFn :: ConfigureSerial -> SurfaceCommit b -> STM (),
-  ackWindowConfigureFn :: ConfigureSerial -> STM ()
+  setTitleFn :: WlString -> STMc NoRetry '[SomeException] (),
+  setAppIdFn :: WlString -> STMc NoRetry '[SomeException] (),
+  setFullscreenFn :: Bool -> STMc NoRetry '[SomeException] (),
+  commitWindowContentFn :: ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] (),
+  ackWindowConfigureFn :: ConfigureSerial -> STMc NoRetry '[SomeException] ()
 }
 
 instance BufferBackend b => IsWindowManager b (FnWindowManager b) where

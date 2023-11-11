@@ -8,7 +8,6 @@ module Quasar.Wayland.Server.Registry (
   maxVersion,
 ) where
 
-import Data.Foldable (toList)
 import Data.HashMap.Strict qualified as HM
 import Data.Sequence (Seq)
 import Data.Sequence qualified as Seq
@@ -33,12 +32,14 @@ newRegistry singletons = do
   globalsVar <- newTVarIO mempty
   pure Registry { connections, singletons = Seq.fromList singletons, globalsVar }
 
+-- | An object that describes the connection from a @wl_registry@ object to a
+-- `Registry`.
 data RegistryConnection = RegistryConnection {
   registry :: Registry,
   wlRegistry :: Object 'Server Interface_wl_registry
 }
 
-createGlobal :: forall i. IsInterfaceSide 'Server i => Version -> (Object 'Server i -> STM ()) -> Global
+createGlobal :: forall i. IsInterfaceSide 'Server i => Version -> (NewObject 'Server i -> STMc NoRetry '[SomeException] ()) -> Global
 createGlobal supportedVersion bindFn =
   Global {
     interface = fromString (interfaceName @i),
@@ -49,9 +50,9 @@ createGlobal supportedVersion bindFn =
     bindObject :: GenericNewId -> ProtocolM 'Server ()
     bindObject newId = do
       object <- bindObjectFromId Nothing supportedVersion newId
-      liftSTM $ bindFn object
+      liftSTMc $ bindFn object
 
-addRegistryConnection :: Registry -> Object 'Server Interface_wl_registry -> STM ()
+addRegistryConnection :: Registry -> Object 'Server Interface_wl_registry -> STMc NoRetry '[SomeException] ()
 addRegistryConnection registry wlRegistry = do
   setMessageHandler wlRegistry messageHandler
   modifyTVar registry.connections (connection:)
@@ -63,10 +64,10 @@ addRegistryConnection registry wlRegistry = do
       bind = bindHandler registry (objectProtocol wlRegistry)
     }
 
-sendGlobal :: Object 'Server Interface_wl_registry -> (Word32, Global) -> STM ()
+sendGlobal :: Object 'Server Interface_wl_registry -> (Word32, Global) -> CallM ()
 sendGlobal wlRegistry (name, global) = wlRegistry.global name global.interface global.version
 
-bindHandler :: Registry -> ProtocolHandle 'Server -> Word32 -> GenericNewId -> STM ()
+bindHandler :: Registry -> ProtocolHandle 'Server -> Word32 -> GenericNewId -> CallbackM ()
 bindHandler registry protocolHandle name newId = do
   case Seq.lookup (fromIntegral name) registry.singletons of
     Just global -> runProtocolM protocolHandle (global.bindObject newId)

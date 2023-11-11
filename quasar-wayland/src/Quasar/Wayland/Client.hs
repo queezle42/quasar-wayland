@@ -46,7 +46,9 @@ connectWaylandClient = liftQuasarIO $ mask_ do
 
 newWaylandClient :: (MonadIO m, MonadQuasar m) => Socket -> m WaylandClient
 newWaylandClient socket = do
-  ((wlDisplay, registry), connection) <- newWaylandConnection newClientDisplay socket
+  ((wlDisplay, registryFuture), connection) <- newWaylandConnection newClientDisplay socket
+
+  registry <- liftIO $ awaitEx registryFuture
 
   globals <- newTVarIO mempty
 
@@ -57,12 +59,12 @@ newWaylandClient socket = do
     globals
   }
   where
-    newClientDisplay :: STM ((Object 'Client Interface_wl_display, Registry), ProtocolHandle 'Client)
+    newClientDisplay :: STM ((Object 'Client Interface_wl_display, FutureEx '[SomeException] Registry), ProtocolHandle 'Client)
     newClientDisplay = initializeProtocol wlDisplayEventHandler (\_ _ -> unreachableCodePathM) initalize
 
-    initalize :: Object 'Client Interface_wl_display -> STM (Object 'Client Interface_wl_display, Registry)
+    initalize :: Object 'Client Interface_wl_display -> STM (Object 'Client Interface_wl_display, FutureEx '[SomeException] Registry)
     initalize wlDisplay = do
-      registry <- createRegistry wlDisplay
+      registry <- liftSTMc $ createRegistry wlDisplay
       pure (wlDisplay, registry)
 
     wlDisplayEventHandler :: ProtocolHandle 'Client -> EventHandler_wl_display
@@ -73,19 +75,23 @@ newWaylandClient socket = do
       }
 
 
-instance HasField "sync" WaylandClient (STM (FutureEx '[SomeException] ())) where
+instance HasField "sync" WaylandClient (STMc NoRetry '[SomeException] (FutureEx '[SomeException] ())) where
   getField client = lowLevelSyncFuture client.wlDisplay
 
 
 -- | Get or create a client component; only one component of the same type will be created.
-getClientComponent :: forall a. Typeable a => STM a -> WaylandClient -> STM a
+getClientComponent ::
+  forall a m.
+  (Typeable a, MonadSTMc NoRetry '[] m) =>
+  m a ->
+  WaylandClient -> m a
 getClientComponent initFn client = do
   globals <- readTVar client.globals
   case Map.lookup key globals of
     Just dyn ->
       case fromDynamic @a dyn of
         Just global -> pure global
-        Nothing -> unreachableCodePathM
+        Nothing -> unreachableCodePath
     Nothing -> do
       global <- initFn
       writeTVar client.globals (Map.insert key (toDyn global) globals)

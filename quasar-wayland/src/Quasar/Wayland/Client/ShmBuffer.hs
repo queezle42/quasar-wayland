@@ -20,7 +20,7 @@ newLocalShmPool size = do
   ptr <- mmap MmapReadWrite fd (fromIntegral size)
 
   -- Passes ownership of the fd to the pool
-  pool <- atomically (newShmPool fd size)
+  pool <- atomicallyC (newShmPool fd size)
     `onException`
       (disposeSharedFd fd >> finalizeForeignPtr ptr)
 
@@ -34,7 +34,7 @@ newLocalShmBuffer
 newLocalShmBuffer width height = do
   (pool, ptr) <- newLocalShmPool size
 
-  atomically do
+  atomicallyC do
     buffer <- newShmBuffer pool offset width height stride pixelFormat
 
     -- Pool won't be reused

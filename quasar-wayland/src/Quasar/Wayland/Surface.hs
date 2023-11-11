@@ -30,6 +30,7 @@ module Quasar.Wayland.Surface (
 import Data.Hashable (Hashable(..))
 import Data.Typeable
 import Quasar.Prelude
+import Quasar.Resources (TSimpleDisposer, newUnmanagedTSimpleDisposer)
 import Quasar.Wayland.Region (Rectangle(..))
 import Quasar.Wayland.Utils.Once
 
@@ -42,12 +43,12 @@ data Buffer b = Buffer {
   key :: Unique,
   storage :: BufferStorage b,
   -- | Buffer has been released by all current users and can be reused by the owner.
-  releaseBufferCallback :: TVar (STM ()),
+  releaseBufferCallback :: TVar (STMc NoRetry '[] ()),
   -- | Refcount that tracks how many times the buffer is locked by consumers.
   lockCount :: TVar Int,
   destroyRequested :: TVar Bool,
   destroyed :: TVar Bool,
-  destroyedCallback :: TVar (STM ())
+  destroyedCallback :: TVar (STMc NoRetry '[] ())
 }
 
 instance Eq (Buffer b) where
@@ -57,7 +58,7 @@ instance Hashable (Buffer b) where
   hash x = hash x.key
   hashWithSalt salt x = hashWithSalt salt x.key
 
-newBuffer :: forall b. BufferStorage b -> STM () -> STM (Buffer b)
+newBuffer :: BufferStorage b -> STMc NoRetry '[] () -> STMc NoRetry '[] (Buffer b)
 newBuffer storage bufferDestroyedFn = do
   key <- newUniqueSTM
   releaseBufferCallback <- newTVar (pure ())
@@ -75,36 +76,38 @@ newBuffer storage bufferDestroyedFn = do
     destroyedCallback
   }
 
-addBufferReleaseCallback :: Buffer b -> STM () -> STM ()
+addBufferReleaseCallback :: Buffer b -> STMc NoRetry '[] () -> STMc NoRetry '[] ()
 addBufferReleaseCallback buffer releaseFn =
   modifyTVar buffer.releaseBufferCallback (>> releaseFn)
 
-addBufferDestroyedCallback :: Buffer b -> STM () -> STM ()
+addBufferDestroyedCallback :: Buffer b -> STMc NoRetry '[] () -> STMc NoRetry '[] ()
 addBufferDestroyedCallback buffer callback =
   modifyTVar buffer.destroyedCallback (>> callback)
 
 -- | Prevents the buffer from being released. Returns an unlock action.
-lockBuffer :: Buffer b -> STM (STM ())
+lockBuffer :: Buffer b -> STMc NoRetry '[] TSimpleDisposer
 lockBuffer buffer = do
   modifyTVar buffer.lockCount succ
-  once unlockBuffer
+  newUnmanagedTSimpleDisposer unlockBuffer
   where
-    unlockBuffer :: STM ()
+    unlockBuffer :: STMc NoRetry '[] ()
     unlockBuffer = do
       lockCount <- stateTVar buffer.lockCount (dup . pred)
       when (lockCount == 0) do
         join $ swapTVar buffer.releaseBufferCallback (pure ())
         tryFinalizeBuffer buffer
 
--- | Request destruction of the buffer. Since the buffer might still be in use downstream, the backing storage must not be changed until all downstreams release the buffer (signalled finalization, e.g. `addBufferDestroyedCallback`).
-destroyBuffer :: Buffer b -> STM ()
+-- | Request destruction of the buffer. Since the buffer might still be in use
+-- downstream, the backing storage must not be changed until all downstreams
+-- release the buffer (see `addBufferDestroyedCallback`).
+destroyBuffer :: Buffer b -> STMc NoRetry '[] ()
 destroyBuffer buffer = do
   alreadyRequested <- readTVar buffer.destroyRequested
   unless alreadyRequested do
     writeTVar buffer.destroyRequested True
     tryFinalizeBuffer buffer
 
-tryFinalizeBuffer :: Buffer b -> STM ()
+tryFinalizeBuffer :: Buffer b -> STMc NoRetry '[] ()
 tryFinalizeBuffer buffer = do
   destroyRequested <- readTVar buffer.destroyRequested
   lockCount <- readTVar buffer.lockCount
@@ -113,7 +116,7 @@ tryFinalizeBuffer buffer = do
     -- Run callbacks
     join $ swapTVar buffer.destroyedCallback (pure ())
 
-isBufferDestroyed :: Buffer b -> STM Bool
+isBufferDestroyed :: Buffer b -> STMc NoRetry '[] Bool
 isBufferDestroyed buffer = readTVar buffer.destroyed
 
 
@@ -138,7 +141,7 @@ data SurfaceCommit b = SurfaceCommit {
   offset :: Maybe (Int32, Int32),
   -- | May be empty on the first commit.
   bufferDamage :: Maybe Damage,
-  frameCallback :: Maybe (Word32 -> STM ())
+  frameCallback :: Maybe (Word32 -> STMc NoRetry '[] ())
 }
 
 
@@ -147,7 +150,8 @@ data SurfaceDownstream b = forall a. IsSurfaceDownstream b a => SurfaceDownstrea
 class IsSurfaceDownstream b a | a -> b where
   toSurfaceDownstream :: a -> SurfaceDownstream b
   toSurfaceDownstream = SurfaceDownstream
-  commitSurfaceDownstream :: a -> SurfaceCommit b -> STM ()
+  -- TODO Don't allow exceptions or limit allowed exception types. Currently implementations of this leak exceptions across a responsibility bondary.
+  commitSurfaceDownstream :: a -> SurfaceCommit b -> STMc NoRetry '[SomeException] ()
 
 instance IsSurfaceDownstream b (SurfaceDownstream b) where
   toSurfaceDownstream = id

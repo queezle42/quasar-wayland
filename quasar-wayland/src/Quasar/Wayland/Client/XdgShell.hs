@@ -53,7 +53,7 @@ data ClientXdgToplevel b = ClientXdgToplevel {
 }
 
 
-newClientWindowManager :: WaylandClient -> STM (ClientWindowManager b)
+newClientWindowManager :: WaylandClient -> STMc NoRetry '[SomeException] (ClientWindowManager b)
 newClientWindowManager client = do
   wlXdgWmBase <- bindSingleton client.registry maxVersion
   setEventHandler wlXdgWmBase EventHandler_xdg_wm_base {
@@ -61,11 +61,16 @@ newClientWindowManager client = do
   }
   pure ClientWindowManager { client, wlXdgWmBase }
 
-getClientWindowManager :: forall b. ClientBufferBackend b => WaylandClient -> STM (ClientWindowManager b)
+getClientWindowManager :: forall b. ClientBufferBackend b => WaylandClient -> STMc NoRetry '[SomeException] (ClientWindowManager b)
 getClientWindowManager client = getClientComponent (newClientWindowManager @b client) client
 
 
-newClientXdgToplevel :: forall b. ClientBufferBackend b => ClientWindowManager b -> (WindowConfiguration -> STM ()) -> STM (ClientXdgToplevel b)
+newClientXdgToplevel ::
+  forall b.
+  ClientBufferBackend b =>
+  ClientWindowManager b ->
+  (WindowConfiguration ->
+  STMc NoRetry '[SomeException] ()) -> STMc NoRetry '[SomeException] (ClientXdgToplevel b)
 newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} configureCallback = do
   nextConfigureSerial <- newTVar Nothing
   configurationAccumulator <- newTVar defaultWindowConfiguration
@@ -97,12 +102,12 @@ newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} configureCallback 
     configurationAccumulator
   }
 
-commitXdgToplevel :: forall b. ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> SurfaceCommit b -> STM ()
+commitXdgToplevel :: forall b. ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] ()
 commitXdgToplevel toplevel configureSerial surfaceCommit = do
   ackWindowConfigure @b toplevel configureSerial
   commitSurfaceDownstream toplevel.clientSurface surfaceCommit
 
-ackToplevelConfigure :: ClientXdgToplevel b -> ConfigureSerial -> STM ()
+ackToplevelConfigure :: ClientXdgToplevel b -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
 ackToplevelConfigure toplevel _configureSerial = do
   -- NOTE Dummy implementation to encourage correct api design without actually implementing configure serials.
   swapTVar toplevel.nextConfigureSerial Nothing >>= \case

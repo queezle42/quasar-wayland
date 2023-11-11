@@ -5,7 +5,6 @@ module Quasar.Wayland.Protocol.TH (
   generateWaylandProcols,
 ) where
 
-import Control.Monad.STM
 import Control.Monad.Writer
 import Data.ByteString qualified as BS
 import Data.List (intersperse, singleton)
@@ -116,7 +115,7 @@ generateWaylandProcol protocolFile = do
   addDependentFile protocolFile
   xml <- liftIO (BS.readFile protocolFile)
   protocol <- parseProtocol xml
-  (public, internals) <- unzip <$> mapM interfaceDecs protocol.interfaces
+  (public, internals) <- mapAndUnzipM interfaceDecs protocol.interfaces
   pure $ mconcat public <> mconcat internals
 
 generateWaylandProcols :: [FilePath] -> Q [Dec]
@@ -124,7 +123,7 @@ generateWaylandProcols protocolFiles = do
   mapM_ addDependentFile protocolFiles
   xmls <- mapM (liftIO . BS.readFile) protocolFiles
   protocol <- mconcat <$> mapM parseProtocol xmls
-  (public, internals) <- unzip <$> mapM interfaceDecs protocol.interfaces
+  (public, internals) <- mapAndUnzipM interfaceDecs protocol.interfaces
   pure $ mconcat public <> mconcat internals
 
 
@@ -152,13 +151,13 @@ interfaceDecs interface = do
     -- IsInterfaceSide instance
     tellQs interfaceSideInstanceDs
 
-    when (length interface.requests > 0) do
+    unless (null interface.requests) do
       -- Requests record
       tellQ requestCallbackRecordD
       -- Request proxies
       tellQs requestProxyInstanceDecs
 
-    when (length interface.events > 0) do
+    unless (null interface.events) do
       -- Events record
       tellQ eventCallbackRecordD
       -- Event proxies
@@ -166,11 +165,11 @@ interfaceDecs interface = do
 
   internals <- execWriterT do
     -- Request wire type
-    when (length interface.requests > 0) do
+    unless (null interface.requests) do
       tellQs $ messageTypeDecs rTypeName wireRequestContexts
 
     -- Event wire type
-    when (length interface.events > 0) do
+    unless (null interface.events) do
       tellQs $ messageTypeDecs eTypeName wireEventContexts
 
   pure (public, internals)
@@ -179,13 +178,13 @@ interfaceDecs interface = do
     iName = interfaceN interface
     iT = interfaceT interface
     wireRequestT :: Q Type
-    wireRequestT = if length interface.requests > 0 then conT rTypeName else [t|Void|]
+    wireRequestT = if not (null interface.requests) then conT rTypeName else [t|Void|]
     rTypeName :: Name
     rTypeName = mkName $ "WireRequest_" <> interface.name
     rConName :: RequestSpec -> Name
     rConName (RequestSpec request) = mkName $ "WireRequest_" <> interface.name <> "__" <> request.name
     wireEventT :: Q Type
-    wireEventT = if length interface.events > 0 then conT eTypeName else [t|Void|]
+    wireEventT = if not (null interface.events) then conT eTypeName else [t|Void|]
     eTypeName :: Name
     eTypeName = mkName $ "WireEvent_" <> interface.name
     eConName :: EventSpec -> Name
@@ -267,7 +266,7 @@ interfaceDecs interface = do
           | msg.msgSpec.isDestructor = [|handleDestructor $objectE $msgE|]
           | otherwise = msgE
         msgE :: Q Exp
-        msgE = [|$(applyMsgArgs msgHandlerE) >>= lift|]
+        msgE = [|$(applyMsgArgs msgHandlerE) >>= runCallbackM|]
 
         applyMsgArgs :: Q Exp -> Q Exp
         applyMsgArgs base = applyA base (argE <$> msg.msgSpec.arguments)
@@ -297,7 +296,7 @@ messageProxyInstanceDecs side messageContexts = mapM messageProxyInstanceD messa
         objectT :: Q Type
         objectT = [t|Object $(sideT side) $(msg.msgInterfaceT)|]
         proxyT :: Q Type
-        proxyT = [t|$(applyArgTypes [t|STM $returnT|])|]
+        proxyT = [t|$(applyArgTypes [t|CallM $returnT|])|]
         returnT :: Q Type
         returnT = maybe [t|()|] (argumentType side) (proxyReturnArgument msg.msgSpec)
         applyArgTypes :: Q Type -> Q Type
@@ -360,7 +359,7 @@ messageHandlerRecordD side name messageContexts = dataD (cxt []) name [] Nothing
   where
     con = recC name (recField <$> messageContexts)
     recField :: MessageContext -> Q VarBangType
-    recField msg = varDefaultBangType (messageFieldName msg) [t|$(applyArgTypes [t|STM ()|])|]
+    recField msg = varDefaultBangType (messageFieldName msg) [t|$(applyArgTypes [t|CallbackM ()|])|]
       where
         applyArgTypes :: Q Type -> Q Type
         applyArgTypes xt = foldr (\x y -> [t|$x -> $y|]) xt (argumentType side <$> msg.msgSpec.arguments)

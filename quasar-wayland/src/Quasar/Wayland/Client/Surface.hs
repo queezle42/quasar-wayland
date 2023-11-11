@@ -16,6 +16,7 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Typeable (Typeable)
 import Quasar.Prelude
+import Quasar.Resources (TSimpleDisposer, disposeTSimpleDisposer)
 import Quasar.Wayland.Client
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
@@ -25,19 +26,19 @@ import Quasar.Wayland.Surface
 
 class (BufferBackend b, Typeable (ClientBufferManager b)) => ClientBufferBackend b where
   type ClientBufferManager b
-  newClientBufferManager :: WaylandClient -> STM (ClientBufferManager b)
+  newClientBufferManager :: WaylandClient -> STMc NoRetry '[SomeException] (ClientBufferManager b)
   -- | Called by the `Surface`-implementation when a buffer should be created on a wayland client.
   -- The caller takes ownership of the resulting wl_buffer and will attach the event handler.
-  exportWlBuffer :: ClientBufferManager b -> Buffer b -> STM (NewObject 'Client Interface_wl_buffer)
+  exportWlBuffer :: ClientBufferManager b -> Buffer b -> STMc NoRetry '[SomeException] (NewObject 'Client Interface_wl_buffer)
 
-getClientBufferManager :: forall b. ClientBufferBackend b => WaylandClient -> STM (ClientBufferManager b)
+getClientBufferManager :: forall b. ClientBufferBackend b => WaylandClient -> STMc NoRetry '[SomeException] (ClientBufferManager b)
 getClientBufferManager client =
   getClientComponent (newClientBufferManager @b client) client
 
 
 
 -- | Requests a wl_buffer for a `Buffer` and changes it's state to attached.
-requestClientBuffer :: ClientBufferBackend b => ClientSurfaceManager b -> Buffer b -> STM (Object 'Client Interface_wl_buffer)
+requestClientBuffer :: ClientBufferBackend b => ClientSurfaceManager b -> Buffer b -> STMc NoRetry '[SomeException] (Object 'Client Interface_wl_buffer)
 requestClientBuffer client buffer = do
   buffers <- readTVar client.bufferMap
   case HM.lookup buffer buffers of
@@ -51,17 +52,17 @@ requestClientBuffer client buffer = do
       writeTVar client.bufferMap (HM.insert buffer clientBuffer buffers)
       useClientBuffer clientBuffer
   where
-    useClientBuffer :: ClientBuffer b -> STM (Object 'Client Interface_wl_buffer)
+    useClientBuffer :: ClientBuffer b -> STMc NoRetry '[SomeException] (Object 'Client Interface_wl_buffer)
     useClientBuffer clientBuffer = do
-      unlockFn <- lockBuffer buffer
-      writeTVar clientBuffer.state (Attached unlockFn)
+      lockDisposer <- liftSTMc (lockBuffer buffer)
+      writeTVar clientBuffer.state (Attached lockDisposer)
       pure clientBuffer.wlBuffer
 
 
 -- | Create a reusable client buffer.
-newClientBuffer :: ClientBufferBackend b => ClientSurfaceManager b -> Buffer b -> STM (ClientBuffer b)
+newClientBuffer :: ClientBufferBackend b => ClientSurfaceManager b -> Buffer b -> STMc NoRetry '[SomeException] (ClientBuffer b)
 newClientBuffer client buffer = do
-  whenM (isBufferDestroyed buffer) $ throwM (userError "newClientBuffer was called with a destroyed buffer")
+  whenM (liftSTMc (isBufferDestroyed buffer)) $ throwM (userError "newClientBuffer was called with a destroyed buffer")
 
   state <- newTVar Released
   wlBuffer <- exportWlBuffer client.bufferManager buffer
@@ -76,19 +77,19 @@ newClientBuffer client buffer = do
   setEventHandler wlBuffer EventHandler_wl_buffer {
     release = releaseClientBuffer clientBuffer
   }
-  addBufferDestroyedCallback buffer (destroyClientBuffer clientBuffer)
+  liftSTMc $ addBufferDestroyedCallback buffer (destroyClientBuffer clientBuffer)
   pure clientBuffer
 
-releaseClientBuffer :: ClientBuffer b -> STM ()
+releaseClientBuffer :: ClientBuffer b -> STMc NoRetry '[SomeException] ()
 releaseClientBuffer clientBuffer = do
   swapTVar clientBuffer.state Released >>= \case
-    Attached releaseFn -> releaseFn
+    Attached lockDisposer -> disposeTSimpleDisposer lockDisposer
     Released -> traceM "ClientBuffer: Duplicate release"
 
-destroyClientBuffer :: ClientBuffer b -> STM ()
+destroyClientBuffer :: ClientBuffer b -> STMc NoRetry '[] ()
 destroyClientBuffer clientBuffer = do
   writeTVar clientBuffer.destroyed True
-  clientBuffer.wlBuffer.destroy
+  tryCall clientBuffer.wlBuffer.destroy
 
 
 -- | Since `release` is undefined when a buffer is attached to multiple surfaces,
@@ -96,12 +97,12 @@ destroyClientBuffer clientBuffer = do
 --
 -- This function creates single-use buffers, that is, buffers that are destroyed
 -- as soon as they receive a `release`-event.
-newSingleUseClientBuffer :: ClientBufferBackend b => ClientSurfaceManager b -> Buffer b -> STM (Object 'Client Interface_wl_buffer)
+newSingleUseClientBuffer :: ClientBufferBackend b => ClientSurfaceManager b -> Buffer b -> STMc NoRetry '[SomeException] (Object 'Client Interface_wl_buffer)
 newSingleUseClientBuffer surfaceManager buffer = do
-  unlockFn <- lockBuffer buffer
+  lockDisposer <- liftSTMc $ lockBuffer buffer
   wlBuffer <- exportWlBuffer surfaceManager.bufferManager buffer
   setEventHandler wlBuffer EventHandler_wl_buffer {
-    release = wlBuffer.destroy >> unlockFn
+    release = wlBuffer.destroy >> disposeTSimpleDisposer lockDisposer
   }
   -- TODO register finalizer to release lock when client is disconnected
   pure wlBuffer
@@ -118,7 +119,7 @@ data ClientSurface b = ClientSurface {
   wlSurface :: Object 'Client Interface_wl_surface
 }
 
-data ClientBufferState = Attached (STM ()) | Released
+data ClientBufferState = Attached TSimpleDisposer | Released
 
 data ClientBuffer b = ClientBuffer {
   wlBuffer :: Object 'Client Interface_wl_buffer,
@@ -126,14 +127,14 @@ data ClientBuffer b = ClientBuffer {
   destroyed :: TVar Bool
 }
 
-getClientSurfaceManager :: ClientBufferBackend b => WaylandClient -> STM (ClientSurfaceManager b)
+getClientSurfaceManager :: ClientBufferBackend b => WaylandClient -> STMc NoRetry '[SomeException] (ClientSurfaceManager b)
 getClientSurfaceManager client =
   getClientComponent (newClientSurfaceManager client) client
 
-newClientSurfaceManager :: forall b. ClientBufferBackend b => WaylandClient -> STM (ClientSurfaceManager b)
+newClientSurfaceManager :: forall b. ClientBufferBackend b => WaylandClient -> STMc NoRetry '[SomeException] (ClientSurfaceManager b)
 newClientSurfaceManager client = do
   bufferManager <- getClientBufferManager @b client
-  wlCompositor <- getClientComponent @(Object 'Client Interface_wl_compositor) (newWlCompositor client) client
+  wlCompositor <- getClientComponent @(Object 'Client Interface_wl_compositor) (liftSTMc (newWlCompositor client)) client
   bufferMap <- newTVar mempty
   pure ClientSurfaceManager {
     bufferManager,
@@ -141,7 +142,7 @@ newClientSurfaceManager client = do
     bufferMap
   }
 
-newWlCompositor :: WaylandClient -> STM (Object 'Client Interface_wl_compositor)
+newWlCompositor :: WaylandClient -> STMc NoRetry '[SomeException] (Object 'Client Interface_wl_compositor)
 newWlCompositor client = do
   wlCompositor <- bindSingleton client.registry maxVersion
   -- wl_compositor does not have any events. Setting `()` as the event handler will produce a type error if that changes in the future.
@@ -149,10 +150,15 @@ newWlCompositor client = do
   pure wlCompositor
 
 
-newClientSurface :: forall b a. ClientBufferBackend b => WaylandClient -> (Object 'Client Interface_wl_surface -> STM a) -> STM (ClientSurface b, a)
+newClientSurface ::
+  forall b a.
+  ClientBufferBackend b =>
+  WaylandClient ->
+  (Object 'Client Interface_wl_surface -> STMc NoRetry '[SomeException] a) ->
+  STMc NoRetry '[SomeException] (ClientSurface b, a)
 newClientSurface client initializeSurfaceRoleFn = do
   surfaceManager <- getClientSurfaceManager @b client
-  wlSurface <- surfaceManager.wlCompositor.create_surface
+  wlSurface <- liftSTMc surfaceManager.wlCompositor.create_surface
 
   -- TODO: add finalizer, so that the surface is destroyed with the wlSurface
   -- TODO event handling
@@ -163,7 +169,7 @@ newClientSurface client initializeSurfaceRoleFn = do
   fnResult <- initializeSurfaceRoleFn wlSurface
 
   -- Commit role
-  wlSurface.commit
+  liftSTMc wlSurface.commit
 
   let clientSurface = ClientSurface { surfaceManager, wlSurface }
   pure (clientSurface, fnResult)
@@ -171,7 +177,7 @@ newClientSurface client initializeSurfaceRoleFn = do
 instance ClientBufferBackend b => IsSurfaceDownstream b (ClientSurface b) where
   commitSurfaceDownstream = commitClientSurface
 
-commitClientSurface :: ClientBufferBackend b => ClientSurface b -> SurfaceCommit b -> STM ()
+commitClientSurface :: ClientBufferBackend b => ClientSurface b -> SurfaceCommit b -> STMc NoRetry '[SomeException] ()
 commitClientSurface surface commit = do
   -- TODO catch exceptions and redirect to client owner (so the shared surface can continue to work when one backend fails)
 
@@ -190,11 +196,11 @@ commitClientSurface surface commit = do
   forM_ commit.frameCallback \frameCallback -> do
     wlCallback <- surface.wlSurface.frame
     wlCallback `setEventHandler` EventHandler_wl_callback {
-      done = frameCallback
+      done = \serial -> liftSTMc $ frameCallback serial
     }
 
   surface.wlSurface.commit
 
-addBufferDamage :: Object 'Client Interface_wl_surface -> Damage -> STM ()
+addBufferDamage :: Object 'Client Interface_wl_surface -> Damage -> STMc NoRetry '[SomeException] ()
 addBufferDamage wlSurface DamageAll = wlSurface.damage_buffer (minBound `div` 2) (minBound `div` 2) maxBound maxBound
 addBufferDamage wlSurface (DamageList xs) = mapM_ (appRect wlSurface.damage_buffer) xs

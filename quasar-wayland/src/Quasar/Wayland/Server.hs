@@ -67,11 +67,11 @@ listenAt socketPath server = disposeOnError do
 compositorGlobal :: forall b. BufferBackend b => Global
 compositorGlobal = createGlobal @Interface_wl_compositor maxVersion bindCompositor
   where
-    bindCompositor :: Object 'Server Interface_wl_compositor -> STM ()
+    bindCompositor :: Object 'Server Interface_wl_compositor -> STMc NoRetry '[SomeException] ()
     bindCompositor wlCompositor = setMessageHandler wlCompositor handler
 
     handler :: RequestHandler_wl_compositor
     handler = RequestHandler_wl_compositor {
-      create_surface = initializeServerSurface @b,
-      create_region = initializeServerRegion
+      create_surface = \wlSurface -> liftSTMc $ initializeServerSurface @b wlSurface,
+      create_region = \wlRegion -> liftSTMc $ initializeServerRegion wlRegion
     }

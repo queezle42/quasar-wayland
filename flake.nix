@@ -1,11 +1,9 @@
 {
   inputs = {
-    quasar = {
-      url = github:queezle42/quasar;
-    };
+    quasar.url = "github:queezle42/quasar";
 
     nixpkgs = {
-      url = github:NixOS/nixpkgs/nixos-unstable;
+      url = "github:NixOS/nixpkgs/nixos-unstable";
       follows = "quasar/nixpkgs";
     };
   };

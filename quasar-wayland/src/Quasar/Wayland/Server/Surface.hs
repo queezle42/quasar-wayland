@@ -19,7 +19,7 @@ import Quasar.Wayland.Surface
 data ServerSurface b = ServerSurface {
   state :: TVar (ServerSurfaceState b),
   lastRole :: TVar (Maybe String),
-  pendingFrameCallback :: TVar (Maybe (Word32 -> STM ()))
+  pendingFrameCallback :: TVar (Maybe (Word32 -> STMc NoRetry '[] ()))
 }
 
 data ServerSurfaceState b =
@@ -48,7 +48,7 @@ data ServerBuffer b = ServerBuffer {
   wlBuffer :: Object 'Server Interface_wl_buffer
 }
 
-newServerSurface :: STM (ServerSurface b)
+newServerSurface :: STMc NoRetry '[] (ServerSurface b)
 newServerSurface = do
   state <- newTVar Unmapped
   lastRole <- newTVar Nothing
@@ -60,19 +60,19 @@ newServerSurface = do
     pendingFrameCallback
   }
 
-getServerSurface :: forall b. BufferBackend b => Object 'Server Interface_wl_surface -> STM (Maybe (ServerSurface b))
+getServerSurface :: forall b. BufferBackend b => Object 'Server Interface_wl_surface -> STMc NoRetry '[] (Maybe (ServerSurface b))
 getServerSurface wlSurface = getInterfaceData @(ServerSurface b) wlSurface
 
-commitServerSurface :: ServerSurface b -> STM ()
+commitServerSurface :: ServerSurface b -> STMc NoRetry '[SomeException] ()
 commitServerSurface serverSurface = do
   readTVar serverSurface.state >>= \case
     Unmapped -> throwM $ userError "Cannot commit a surface that does not have a role"
     Pending pending -> do
-      mappedSurface <- mapServerSurface pending
+      mappedSurface <- liftSTMc $ mapServerSurface pending
       writeTVar serverSurface.state (Mapped mappedSurface)
-    Mapped mappedSurface -> commitMappedServerSurface serverSurface mappedSurface
+    Mapped mappedSurface -> liftSTMc $ commitMappedServerSurface serverSurface mappedSurface
 
-mapServerSurface :: PendingServerSurface b -> STM (MappedServerSurface b)
+mapServerSurface :: PendingServerSurface b -> STMc NoRetry '[] (MappedServerSurface b)
 mapServerSurface pending = do
   pendingBuffer <- newTVar Nothing
   pendingOffset <- newTVar Nothing
@@ -86,7 +86,7 @@ mapServerSurface pending = do
     pendingSurfaceDamage
   }
 
-commitMappedServerSurface :: ServerSurface b -> MappedServerSurface b -> STM ()
+commitMappedServerSurface :: ServerSurface b -> MappedServerSurface b -> STMc NoRetry '[SomeException] ()
 commitMappedServerSurface surface mapped = do
   serverBuffer <- swapTVar mapped.pendingBuffer Nothing
   offset <- swapTVar mapped.pendingOffset Nothing
@@ -103,9 +103,9 @@ commitMappedServerSurface surface mapped = do
 
   -- Attach callback for wl_buffer.release
   forM_ serverBuffer \sb ->
-    addBufferReleaseCallback sb.buffer sb.wlBuffer.release
+    liftSTMc $ addBufferReleaseCallback sb.buffer (tryCall sb.wlBuffer.release)
 
-  commitSurfaceDownstream mapped.surfaceDownstream SurfaceCommit {
+  liftSTMc $ commitSurfaceDownstream mapped.surfaceDownstream SurfaceCommit {
     buffer = (.buffer) <$> serverBuffer,
     offset,
     bufferDamage = combinedDamage,
@@ -113,14 +113,20 @@ commitMappedServerSurface surface mapped = do
   }
 
 
-requireMappedSurface :: ServerSurface b -> STM (MappedServerSurface b)
+requireMappedSurface :: ServerSurface b -> STMc NoRetry '[SomeException] (MappedServerSurface b)
 requireMappedSurface serverSurface = do
   readTVar serverSurface.state >>= \case
     Mapped mapped -> pure mapped
     -- TODO improve exception / propagate error to the client
     _ -> throwM $ userError "Requested operation requires a mapped surface"
 
-attachToSurface :: forall b. BufferBackend b => ServerSurface b -> Maybe (Object 'Server Interface_wl_buffer) -> Int32 -> Int32 -> STM ()
+attachToSurface ::
+  forall b. BufferBackend b =>
+  ServerSurface b ->
+  Maybe (Object 'Server Interface_wl_buffer) ->
+  Int32 ->
+  Int32 ->
+  STMc NoRetry '[SomeException] ()
 attachToSurface serverSurface wlBuffer x y = do
   mappedSurface <- requireMappedSurface serverSurface
   buffer <- mapM (getServerBuffer @b) wlBuffer
@@ -128,18 +134,18 @@ attachToSurface serverSurface wlBuffer x y = do
   -- TODO ensure (x == 0 && y == 0) for wl_surface v5
   writeTVar mappedSurface.pendingOffset (Just (x, y))
 
-damageSurface :: ServerSurface b -> Rectangle -> STM ()
+damageSurface :: ServerSurface b -> Rectangle -> STMc NoRetry '[SomeException] ()
 damageSurface serverSurface rect = do
   mappedSurface <- requireMappedSurface serverSurface
   modifyTVar mappedSurface.pendingSurfaceDamage (rect:)
 
-damageBuffer :: ServerSurface b -> Rectangle -> STM ()
+damageBuffer :: ServerSurface b -> Rectangle -> STMc NoRetry '[SomeException] ()
 damageBuffer serverSurface rect = do
   mappedSurface <- requireMappedSurface serverSurface
   modifyTVar mappedSurface.pendingBufferDamage (addDamage rect)
 
 
-initializeServerSurface :: forall b. BufferBackend b => Object 'Server Interface_wl_surface -> STM ()
+initializeServerSurface :: forall b. BufferBackend b => NewObject 'Server Interface_wl_surface -> STMc NoRetry '[] ()
 initializeServerSurface wlSurface = do
   serverSurface <- newServerSurface @b
   -- TODO missing requests
@@ -152,26 +158,27 @@ initializeServerSurface wlSurface = do
     frame = addFrameCallback serverSurface,
     set_opaque_region = \region -> pure (),
     set_input_region = \region -> pure (),
-    commit = commitServerSurface serverSurface,
+    commit = liftSTMc $ commitServerSurface serverSurface,
     set_buffer_transform = \transform -> pure (),
     set_buffer_scale = \scale -> pure (),
     damage_buffer = appAsRect (damageBuffer serverSurface)
   }
   setInterfaceData wlSurface serverSurface
 
-addFrameCallback :: ServerSurface b -> Object 'Server Interface_wl_callback -> STM ()
+addFrameCallback :: ServerSurface b -> Object 'Server Interface_wl_callback -> STMc NoRetry '[SomeException] ()
 addFrameCallback serverSurface wlCallback = do
   modifyTVar serverSurface.pendingFrameCallback \case
     Nothing -> Just cb
     Just oldCb -> Just (\time -> oldCb time >> cb time)
 
   where
-    cb :: Word32 -> STM ()
+    cb :: Word32 -> STMc NoRetry '[] ()
     -- NOTE The spec asks for a timestamp in milliseconds, but is specified as
     -- a uint, which would lead to a rollover after ~50 days.
-    cb time = unlessM wlCallback.isDestroyed (wlCallback.done time)
+    -- TODO improve error handling
+    cb time = unlessM wlCallback.isDestroyed (tryCall (wlCallback.done time))
 
-initializeWlBuffer :: forall b. BufferBackend b => NewObject 'Server Interface_wl_buffer -> Buffer b -> STM ()
+initializeWlBuffer :: forall b. BufferBackend b => NewObject 'Server Interface_wl_buffer -> Buffer b -> STMc NoRetry '[] ()
 initializeWlBuffer wlBuffer buffer = do
   let serverBuffer = ServerBuffer {
     buffer,
@@ -180,22 +187,22 @@ initializeWlBuffer wlBuffer buffer = do
   setInterfaceData wlBuffer serverBuffer
   setRequestHandler wlBuffer RequestHandler_wl_buffer {
     -- TODO propagate buffer destruction
-    destroy = destroyBuffer buffer
+    destroy = liftSTMc $ destroyBuffer buffer
   }
 
 
-getServerBuffer :: forall b. BufferBackend b => Object 'Server Interface_wl_buffer -> STM (ServerBuffer b)
+getServerBuffer :: forall b. BufferBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (ServerBuffer b)
 getServerBuffer wlBuffer = do
   ifd <- getInterfaceData @(ServerBuffer b) wlBuffer
   case ifd of
     Just buffer -> pure buffer
     Nothing -> throwM $ InternalError ("Missing interface data on " <> show wlBuffer)
 
-getBuffer :: forall b. BufferBackend b => Object 'Server Interface_wl_buffer -> STM (Buffer b)
+getBuffer :: forall b. BufferBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (Buffer b)
 getBuffer wlBuffer = (.buffer) <$> getServerBuffer wlBuffer
 
 
-assignSurfaceRole :: forall i b. IsInterfaceSide 'Server i => ServerSurface b -> SurfaceDownstream b -> STM ()
+assignSurfaceRole :: forall i b. IsInterfaceSide 'Server i => ServerSurface b -> SurfaceDownstream b -> STMc NoRetry '[SomeException] ()
 assignSurfaceRole surface surfaceDownstream = do
   let role = interfaceName @i
 
@@ -213,5 +220,5 @@ assignSurfaceRole surface surfaceDownstream = do
       in throwM (ProtocolUsageError msg)
     Nothing -> writeTVar surface.lastRole (Just role)
 
-removeSurfaceRole :: ServerSurface b -> STM ()
+removeSurfaceRole :: ServerSurface b -> STMc NoRetry '[] ()
 removeSurfaceRole surface = undefined

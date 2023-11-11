@@ -15,14 +15,14 @@ import Quasar.Wayland.Surface
 
 class IsWindow b (Window b a) => IsWindowManager b a | a -> b where
   type Window b a
-  newWindow :: a -> (WindowConfiguration -> STM ()) -> STM (Window b a)
+  newWindow :: a -> (WindowConfiguration -> STMc NoRetry '[SomeException] ()) -> STMc NoRetry '[SomeException] (Window b a)
 
 class BufferBackend b => IsWindow b a | a -> b where
-  setTitle :: a -> WlString -> STM ()
-  setAppId :: a -> WlString -> STM ()
-  setFullscreen :: a -> Bool -> STM ()
-  commitWindowContent :: a -> ConfigureSerial -> SurfaceCommit b -> STM ()
-  ackWindowConfigure :: a -> ConfigureSerial -> STM ()
+  setTitle :: a -> WlString -> STMc NoRetry '[SomeException] ()
+  setAppId :: a -> WlString -> STMc NoRetry '[SomeException] ()
+  setFullscreen :: a -> Bool -> STMc NoRetry '[SomeException] ()
+  commitWindowContent :: a -> ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] ()
+  ackWindowConfigure :: a -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
 
 
 -- | NOTE Dummy implementation to encourage correct api design without actually implementing configure serials.

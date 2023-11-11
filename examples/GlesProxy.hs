@@ -32,8 +32,8 @@ main = runQuasarAndExit do
     --clientDmabuf <- atomically $ getClientDmabufSingleton client
     --(dmabufFormats, dmabufModifiers) <- awaitSupportedFormats clientDmabuf
 
-    jobVar <- newEmptyTMVarIO
-    windowManager <- atomically $ mapWindowManager demo jobVar <$> getClientWindowManager @GlesBackend client
+    jobQueue <- newTQueueIO
+    windowManager <- atomicallyC $ mapWindowManager demo jobQueue <$> getClientWindowManager @GlesBackend client
 
     registry <- newRegistry [
       compositorGlobal @GlesBackend,
@@ -46,33 +46,33 @@ main = runQuasarAndExit do
       listenAt "example.socket" server
 
     forever do
-      join $ atomically (takeTMVar jobVar)
+      join $ atomically (readTQueue jobQueue)
 
-mapWindowManager :: IsWindowManager GlesBackend a => ProxyDemo -> TMVar (IO ()) -> a -> FnWindowManager GlesBackend
-mapWindowManager demo jobVar upstream = fnWindowManager {
-  newWindowFn = \cfg -> mapWindow demo jobVar <$> fnWindowManager.newWindowFn cfg
+mapWindowManager :: IsWindowManager GlesBackend a => ProxyDemo -> TQueue (IO ()) -> a -> FnWindowManager GlesBackend
+mapWindowManager demo jobQueue upstream = fnWindowManager {
+  newWindowFn = \cfg -> mapWindow demo jobQueue <$> fnWindowManager.newWindowFn cfg
 }
   where
     fnWindowManager = toFnWindowManager upstream
 
-mapWindow :: ProxyDemo -> TMVar (IO ()) -> FnWindow GlesBackend -> FnWindow GlesBackend
-mapWindow demo jobVar window = window {
+mapWindow :: ProxyDemo -> TQueue (IO ()) -> FnWindow GlesBackend -> FnWindow GlesBackend
+mapWindow demo jobQueue window = window {
   setTitleFn = \title -> setTitle window (title <> " (proxy)"),
-  commitWindowContentFn = onWindowContentCommit demo jobVar window
+  commitWindowContentFn = onWindowContentCommit demo jobQueue window
 }
 
-onWindowContentCommit :: ProxyDemo -> TMVar (IO ()) -> FnWindow GlesBackend -> ConfigureSerial -> SurfaceCommit GlesBackend -> STM ()
-onWindowContentCommit demo jobVar window serial commit = do
+onWindowContentCommit :: ProxyDemo -> TQueue (IO ()) -> FnWindow GlesBackend -> ConfigureSerial -> SurfaceCommit GlesBackend -> STMc NoRetry '[SomeException] ()
+onWindowContentCommit demo jobQueue window serial commit = do
   traceM "commit"
   case commit.buffer of
     Nothing -> commitWindowContent window serial commit
     Just buffer -> do
-      unlockBuffer <- lockBuffer buffer
-      putTMVar jobVar do
-        newBuffer <- proxyDemo demo $ getDmabuf $ buffer.storage
-        atomically do
-          unlockBuffer
+      disposer <- liftSTMc $ lockBuffer buffer
+      writeTQueue jobQueue do
+        b <- proxyDemo demo $ getDmabuf $ buffer.storage
+        atomicallyC do
+          disposeTSimpleDisposer disposer
           commitWindowContent window serial commit {
-            buffer = Just newBuffer
+            buffer = Just b
           }
-          destroyBuffer newBuffer
+          liftSTMc $ destroyBuffer b

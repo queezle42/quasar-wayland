@@ -10,7 +10,7 @@ import Quasar.Wayland.Server.Registry
 dummyOutputGlobal :: Global
 dummyOutputGlobal = createGlobal maxVersion initializeDummyOutput
 
-initializeDummyOutput :: NewObject 'Server Interface_wl_output -> STM ()
+initializeDummyOutput :: NewObject 'Server Interface_wl_output -> STMc NoRetry '[SomeException] ()
 initializeDummyOutput wlOutput = do
   wlOutput `setRequestHandler` RequestHandler_wl_output {
     release = pure ()

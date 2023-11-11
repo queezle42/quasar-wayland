@@ -22,7 +22,7 @@ data XdgWmBase b wm = IsWindowManager b wm => XdgWmBase {
 initializeXdgWmBase ::
   forall b a.
   IsWindowManager b a =>
-  a -> Object 'Server Interface_xdg_wm_base -> STM ()
+  a -> Object 'Server Interface_xdg_wm_base -> STMc NoRetry '[SomeException] ()
 initializeXdgWmBase wm wlXdgWm = do
   let xdgWmBase = XdgWmBase { wm }
   setRequestHandler wlXdgWm RequestHandler_xdg_wm_base {
@@ -48,10 +48,10 @@ initializeXdgSurface ::
   XdgWmBase b wm ->
   NewObject 'Server Interface_xdg_surface ->
   Object 'Server Interface_wl_surface ->
-  STM ()
+  STMc NoRetry '[SomeException] ()
 initializeXdgSurface wm wlXdgSurface wlSurface = do
-  getServerSurface wlSurface >>= \case
-    Just serverSurface -> initializeXdgSurface' wm wlXdgSurface serverSurface
+  liftSTMc (getServerSurface wlSurface) >>= \case
+    Just serverSurface -> liftSTMc $ initializeXdgSurface' wm wlXdgSurface serverSurface
     Nothing -> throwM (userError "Invalid server surface")
 
 initializeXdgSurface' ::
@@ -60,7 +60,7 @@ initializeXdgSurface' ::
   XdgWmBase b wm ->
   NewObject 'Server Interface_xdg_surface ->
   ServerSurface b ->
-  STM ()
+  STMc NoRetry '[] ()
 initializeXdgSurface' xdgWmBase wlXdgSurface serverSurface = do
   -- The spec states that "It is illegal to create an xdg_surface for a
   -- wl_surface which already has an assigned role and this will result in a
@@ -86,14 +86,15 @@ initializeXdgSurface' xdgWmBase wlXdgSurface serverSurface = do
 
   setRequestHandler wlXdgSurface RequestHandler_xdg_surface {
     destroy = destroyXdgSurface xdgSurface,
-    get_toplevel = initializeXdgToplevel xdgSurface,
+    get_toplevel = \newToplevel -> liftSTMc $ initializeXdgToplevel xdgSurface newToplevel,
     get_popup = undefined,
-    set_window_geometry = undefined,
+    -- TODO
+    set_window_geometry = \x y w h -> pure (),
     -- TODO
     ack_configure = \_serial -> pure ()
   }
 
-destroyXdgSurface :: XdgSurface b wm -> STM ()
+destroyXdgSurface :: XdgSurface b wm -> STMc NoRetry '[SomeException] ()
 destroyXdgSurface xdgSurface =
   whenM (readTVar xdgSurface.hasRoleObject) do
     -- TODO convert to server error that is relayed to the client
@@ -107,9 +108,9 @@ data XdgToplevel b wm = XdgToplevel {
 
 instance IsWindowManager b wm => IsSurfaceDownstream b (XdgToplevel b wm) where
   commitSurfaceDownstream xdgToplevel surfaceCommit =
-    commitWindowContent xdgToplevel.window unsafeConfigureSerial surfaceCommit
+    liftSTMc $ commitWindowContent xdgToplevel.window unsafeConfigureSerial surfaceCommit
 
-initializeXdgToplevel :: forall b wm. IsWindowManager b wm => XdgSurface b wm -> NewObject 'Server Interface_xdg_toplevel -> STM ()
+initializeXdgToplevel :: forall b wm. IsWindowManager b wm => XdgSurface b wm -> NewObject 'Server Interface_xdg_toplevel -> STMc NoRetry '[SomeException] ()
 initializeXdgToplevel xdgSurface wlXdgToplevel = do
   writeTVar xdgSurface.hasRoleObject True
 
@@ -129,10 +130,10 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
       (toSurfaceDownstream xdgToplevel)
 
     setRequestHandler wlXdgToplevel RequestHandler_xdg_toplevel {
-      destroy = destroyXdgToplevel xdgToplevel,
+      destroy = liftSTMc $ destroyXdgToplevel xdgToplevel,
       set_parent = undefined,
-      set_title = setTitle window,
-      set_app_id = setAppId window,
+      set_title = \title -> liftSTMc $ setTitle window title,
+      set_app_id = \appId -> liftSTMc $ setAppId window appId,
       show_window_menu = undefined,
       move = undefined,
       resize = undefined,
@@ -140,8 +141,8 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
       set_min_size = undefined,
       set_maximized = undefined,
       unset_maximized = undefined,
-      set_fullscreen = \_ -> setFullscreen window True,
-      unset_fullscreen = setFullscreen window False,
+      set_fullscreen = \_ -> liftSTMc $ setFullscreen window True,
+      unset_fullscreen = liftSTMc $ setFullscreen window False,
       set_minimized = undefined
     }
 
@@ -149,7 +150,7 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
     -- should be created after request handlers are attached.
     newWindow xdgSurface.xdgWmBase.wm (sendConfigureEvent xdgToplevel)
 
-sendConfigureEvent :: XdgToplevel b wm -> WindowConfiguration -> STM ()
+sendConfigureEvent :: XdgToplevel b wm -> WindowConfiguration -> STMc NoRetry '[SomeException] ()
 sendConfigureEvent xdgToplevel windowConfiguration = do
   traceM "Sending window configuration"
 
@@ -159,7 +160,7 @@ sendConfigureEvent xdgToplevel windowConfiguration = do
 onNullSurfaceCommit :: XdgToplevel b wm -> STM ()
 onNullSurfaceCommit = undefined -- TODO unmap surface
 
-destroyXdgToplevel :: XdgToplevel b wm -> STM ()
+destroyXdgToplevel :: XdgToplevel b wm -> STMc NoRetry '[] ()
 destroyXdgToplevel xdgToplevel = do
   removeSurfaceRole xdgToplevel.xdgSurface.serverSurface
   writeTVar xdgToplevel.xdgSurface.hasRoleObject False

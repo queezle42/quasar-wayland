@@ -60,11 +60,11 @@ data ClientDmabufSingleton = ClientDmabufSingleton {
   dmabufModifiers :: TVar (Set (DrmFormat, DrmModifier))
 }
 
-getClientDmabufSingleton :: WaylandClient -> STM ClientDmabufSingleton
+getClientDmabufSingleton :: WaylandClient -> STMc NoRetry '[SomeException] ClientDmabufSingleton
 getClientDmabufSingleton client =
   getClientComponent (newClientDmabufSingleton client) client
 
-newClientDmabufSingleton :: WaylandClient -> STM ClientDmabufSingleton
+newClientDmabufSingleton :: WaylandClient -> STMc NoRetry '[SomeException] ClientDmabufSingleton
 newClientDmabufSingleton client = do
   zwpLinuxDmabuf <- bindSingleton @Interface_zwp_linux_dmabuf_v1 client.registry 4
   dmabufFormats <- newTVar mempty
@@ -86,10 +86,10 @@ newClientDmabufSingleton client = do
     dmabufModifiers
   }
 
-addSupportedFormat :: TVar (Set DrmFormat) -> Word32 -> STM ()
+addSupportedFormat :: TVar (Set DrmFormat) -> Word32 -> STMc NoRetry '[SomeException] ()
 addSupportedFormat var fourcc = modifyTVar var (Set.insert (DrmFormat fourcc))
 
-addSupportedModifier :: TVar (Set DrmFormat) -> TVar (Set (DrmFormat, DrmModifier)) -> Word32 -> Word32 -> Word32 -> STM ()
+addSupportedModifier :: TVar (Set DrmFormat) -> TVar (Set (DrmFormat, DrmModifier)) -> Word32 -> Word32 -> Word32 -> STMc NoRetry '[SomeException] ()
 addSupportedModifier formats modifiers fourcc modifierLo modifierHi = do
   -- I am not sure if formats should only be added under certain circumstances,
   -- since modifiers are not communicated to the client in v1/v2.
@@ -107,7 +107,7 @@ awaitSupportedFormats dmabuf = do
   modifiers <- readTVarIO dmabuf.dmabufModifiers
   pure (Set.toList formats, Set.toList modifiers)
 
-exportGlesWlBuffer :: ClientDmabufSingleton -> GlesBuffer -> STM (NewObject 'Client Interface_wl_buffer)
+exportGlesWlBuffer :: ClientDmabufSingleton -> GlesBuffer -> STMc NoRetry '[SomeException] (NewObject 'Client Interface_wl_buffer)
 exportGlesWlBuffer dmabufSingleton buffer = do
   bufferParams <- dmabufSingleton.zwpLinuxDmabuf.create_params
   setMessageHandler bufferParams EventHandler_zwp_linux_buffer_params_v1 {
@@ -130,7 +130,7 @@ dmabufGlobal :: [DrmFormat] -> DmabufFormatTable -> CompiledDmabufFeedback -> Gl
 dmabufGlobal version1Formats version3FormatTable feedback =
   createGlobal @Interface_zwp_linux_dmabuf_v1 4 initialize
   where
-    initialize :: NewObject 'Server Interface_zwp_linux_dmabuf_v1 -> STM ()
+    initialize :: NewObject 'Server Interface_zwp_linux_dmabuf_v1 -> STMc NoRetry '[SomeException] ()
     initialize wlLinuxDmabuf = do
       wlLinuxDmabuf `setRequestHandler` dmabufHandler
 
@@ -154,14 +154,14 @@ dmabufGlobal version1Formats version3FormatTable feedback =
         get_surface_feedback = \wlFb _surface -> initializeDmabufFeedback feedback wlFb
       }
 
-initializeDmabufFeedback :: CompiledDmabufFeedback -> NewObject 'Server Interface_zwp_linux_dmabuf_feedback_v1 -> STM ()
+initializeDmabufFeedback :: CompiledDmabufFeedback -> NewObject 'Server Interface_zwp_linux_dmabuf_feedback_v1 -> STMc NoRetry '[SomeException] ()
 initializeDmabufFeedback feedback wlFeedback = do
   wlFeedback `setRequestHandler` RequestHandler_zwp_linux_dmabuf_feedback_v1 {
     destroy = pure ()
   }
   sendDmabufFeedback feedback wlFeedback
 
-sendDmabufFeedback :: CompiledDmabufFeedback -> Object 'Server Interface_zwp_linux_dmabuf_feedback_v1 -> STM ()
+sendDmabufFeedback :: CompiledDmabufFeedback -> Object 'Server Interface_zwp_linux_dmabuf_feedback_v1 -> STMc NoRetry '[SomeException] ()
 sendDmabufFeedback feedback wlFeedback = do
   let (DevT mainDevice) = feedback.mainDevice
   wlFeedback.main_device mainDevice
@@ -177,7 +177,7 @@ sendDmabufFeedback feedback wlFeedback = do
 
   wlFeedback.done
 
-initializeDmabufParams :: NewObject 'Server Interface_zwp_linux_buffer_params_v1 -> STM ()
+initializeDmabufParams :: NewObject 'Server Interface_zwp_linux_buffer_params_v1 -> STMc NoRetry '[SomeException] ()
 initializeDmabufParams wlDmabufParams = do
   var <- newTVar (Just mempty)
   wlDmabufParams `setRequestHandler` dmabufParamsHandler var
@@ -190,7 +190,7 @@ initializeDmabufParams wlDmabufParams = do
       create_immed = initializeDmabufBuffer var
     }
 
-addDmabufPlane :: ServerDmabufParams -> SharedFd -> Word32 -> Word32 -> Word32 -> Word32 -> Word32 -> STM ()
+addDmabufPlane :: ServerDmabufParams -> SharedFd -> Word32 -> Word32 -> Word32 -> Word32 -> Word32 -> STMc NoRetry '[SomeException] ()
 addDmabufPlane var fd planeIndex offset stride modifierHi modifierLo = do
   readTVar var >>= \case
     Nothing -> throwM $ userError "zwp_linux_buffer_params_v1::error.already_used: the dmabuf_batch object has already been used to create a wl_buffer"
@@ -200,11 +200,11 @@ addDmabufPlane var fd planeIndex offset stride modifierHi modifierLo = do
     modifier :: DrmModifier
     modifier = createDrmModifier modifierHi modifierLo
 
-    addPlane :: Maybe DmabufPlane -> STM (Maybe DmabufPlane)
+    addPlane :: Maybe DmabufPlane -> STMc NoRetry '[SomeException] (Maybe DmabufPlane)
     addPlane Nothing = pure (Just (DmabufPlane {fd, offset, stride, modifier}))
     addPlane (Just _) = throwM $ userError "zwp_linux_buffer_params_v1::error.plane_set: the plane index was already set"
 
-importDmabufServerBuffer :: ServerDmabufParams -> Int32 -> Int32 -> Word32 -> Word32 -> STM Dmabuf
+importDmabufServerBuffer :: ServerDmabufParams -> Int32 -> Int32 -> Word32 -> Word32 -> STMc NoRetry '[SomeException] Dmabuf
 importDmabufServerBuffer var width height (DrmFormat -> format) _flags@0 = do
   readTVar var >>= \case
     Nothing -> throwM $ userError "zwp_linux_buffer_params_v1::error.already_used: the dmabuf_batch object has already been used to create a wl_buffer"
@@ -217,9 +217,10 @@ importDmabufServerBuffer var width height (DrmFormat -> format) _flags@0 = do
       pure $ Dmabuf { width, height, format, planes }
 importDmabufServerBuffer _ _ _ _ _ = throwM $ userError "zwp_linux_buffer_params_v1 flags (inverted, interlaced) are not supported"
 
-initializeDmabufBuffer :: ServerDmabufParams -> NewObject 'Server Interface_wl_buffer -> Int32 -> Int32 -> Word32 -> Word32 -> STM ()
+initializeDmabufBuffer :: ServerDmabufParams -> NewObject 'Server Interface_wl_buffer -> Int32 -> Int32 -> Word32 -> Word32 -> STMc NoRetry '[SomeException] ()
 initializeDmabufBuffer var wlBuffer width height format flags = do
   dmabuf <- importDmabufServerBuffer var width height format flags
-  -- Second arg is the destroy callback
-  buffer <- newBuffer @GlesBackend (GlesBuffer dmabuf) (pure ())
-  initializeWlBuffer wlBuffer buffer
+  liftSTMc do
+    -- Second arg is the destroy callback
+    buffer <- newBuffer @GlesBackend (GlesBuffer dmabuf) (pure ())
+    initializeWlBuffer wlBuffer buffer

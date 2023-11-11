@@ -15,18 +15,9 @@ import System.Posix.Types (COff(..))
 ctx :: Context
 ctx = baseCtx <> extraTypesCtx
 
-emptyCtx :: Context
-emptyCtx = Context {
-  ctxTypesTable = mempty,
-  ctxAntiQuoters = mempty,
-  ctxOutput = mempty,
-  ctxForeignSrcLang = Nothing,
-  ctxEnableCpp = False
-}
-
 extraTypesCtx :: Context
 extraTypesCtx =
-  emptyCtx {
+  mempty {
     ctxTypesTable = Map.fromList types
   }
 

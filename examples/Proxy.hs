@@ -15,7 +15,7 @@ main = runQuasarAndExit do
   client <- connectWaylandClient
   traceIO "Connected"
 
-  windowManager <- atomically $ getClientWindowManager @ShmBufferBackend client
+  windowManager <- atomicallyC $ getClientWindowManager @ShmBufferBackend client
 
   registry <- newRegistry [
     compositorGlobal @ShmBufferBackend,

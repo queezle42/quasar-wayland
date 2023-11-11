@@ -20,18 +20,18 @@ import GHC.Records
 
 
 type IsRegion a = (
-  HasField "destroy" a (STM ()),
-  HasField "add" a (Int32 -> Int32 -> Int32 -> Int32 -> STM ()),
-  HasField "subtract" a (Int32 -> Int32 -> Int32 -> Int32 -> STM ())
+  HasField "destroy" a (STMc NoRetry '[] ()),
+  HasField "add" a (Int32 -> Int32 -> Int32 -> Int32 -> STMc NoRetry '[SomeException] ()),
+  HasField "subtract" a (Int32 -> Int32 -> Int32 -> Int32 -> STMc NoRetry '[SomeException] ())
   )
 
 data SomeRegion = forall a. IsRegion a => SomeRegion a
 
-instance HasField "destroy" SomeRegion (STM ()) where
+instance HasField "destroy" SomeRegion (STMc NoRetry '[] ()) where
   getField (SomeRegion region) = region.destroy
-instance HasField "add" SomeRegion (Int32 -> Int32 -> Int32 -> Int32 -> STM ()) where
+instance HasField "add" SomeRegion (Int32 -> Int32 -> Int32 -> Int32 -> STMc NoRetry '[SomeException] ()) where
   getField (SomeRegion region) = region.add
-instance HasField "subtract" SomeRegion (Int32 -> Int32 -> Int32 -> Int32 -> STM ()) where
+instance HasField "subtract" SomeRegion (Int32 -> Int32 -> Int32 -> Int32 -> STMc NoRetry '[SomeException] ()) where
   getField (SomeRegion region) = region.subtract
 
 data Region = Region {
@@ -40,21 +40,21 @@ data Region = Region {
   isDestroyed :: TVar Bool
 }
 
-initializeServerRegion :: Object 'Server Interface_wl_region -> STM ()
+initializeServerRegion :: NewObject 'Server Interface_wl_region -> STMc NoRetry '[] ()
 initializeServerRegion wlRegion = do
   region <- newRegion
   setMessageHandler wlRegion RequestHandler_wl_region {
-    destroy = region.destroy,
+    destroy = liftSTMc region.destroy,
     add = region.add,
     subtract = region.subtract
   }
   setInterfaceData wlRegion region
 
-instance HasField "destroy" Region (STM ()) where
+instance HasField "destroy" Region (STMc NoRetry '[] ()) where
   getField = destroyRegion
-instance HasField "add" Region (Int32 -> Int32 -> Int32 -> Int32 -> STM ()) where
+instance HasField "add" Region (Int32 -> Int32 -> Int32 -> Int32 -> STMc NoRetry '[SomeException] ()) where
   getField region x y width height = addToRegion region (Rectangle x y width height)
-instance HasField "subtract" Region (Int32 -> Int32 -> Int32 -> Int32 -> STM ()) where
+instance HasField "subtract" Region (Int32 -> Int32 -> Int32 -> Int32 -> STMc NoRetry '[SomeException] ()) where
   getField region x y width height = subtractFromRegion region (Rectangle x y width height)
 
 data RegionOperation = Add Rectangle | Subtract Rectangle
@@ -73,20 +73,24 @@ contains (Rectangle x0 y0 width0 height0) (Rectangle x1 y1 width1 height1) =
   x0 + width0 >= x1 + width1 &&
   y0 + height0 >= y1 + height1
 
-newRegion :: STM Region
+newRegion :: STMc NoRetry '[] Region
 newRegion = Region <$> newTVar mempty <*> newTVar mempty <*> newTVar False
 
-addDownstream :: IsRegion a => Region -> a -> STM ()
+addDownstream :: IsRegion a => Region -> a -> STMc NoRetry '[] ()
 addDownstream region (SomeRegion -> downstream) = do
-  modifyTVar region.downstreams (downstream:)
   -- Replay operations for new downstream
-  applyOperations downstream =<< readTVar region.operations
+  result <- tryAllSTMc (applyOperations downstream =<< readTVar region.operations)
+
+  case result of
+    Left _ex -> pure () -- Drop downstream if it is broken (e.g. disconnected)
+    -- Attach downstream
+    Right () -> modifyTVar region.downstreams (downstream:)
 
 
-applyOperations :: SomeRegion -> [RegionOperation] -> STM ()
+applyOperations :: SomeRegion -> [RegionOperation] -> STMc NoRetry '[SomeException] ()
 applyOperations region ops = mapM_ (applyOperation region) (reverse ops)
 
-applyOperation :: SomeRegion -> RegionOperation -> STM ()
+applyOperation :: SomeRegion -> RegionOperation -> STMc NoRetry '[SomeException] ()
 applyOperation region (Add rect) = region.add `appRect` rect
 applyOperation region (Subtract rect) = region.subtract `appRect` rect
 
@@ -96,19 +100,19 @@ appRect fn (Rectangle x y width height) = fn x y width height
 appAsRect :: (Rectangle -> a) -> Int32 -> Int32 -> Int32 -> Int32 -> a
 appAsRect fn x y width height = fn (Rectangle x y width height)
 
-callDownstreams :: (SomeRegion -> STM ()) -> Region -> STM ()
+callDownstreams :: (SomeRegion -> STMc NoRetry '[SomeException] ()) -> Region -> STMc NoRetry '[] ()
 callDownstreams fn region = do
   downstreams <- readTVar region.downstreams
   -- Filter broken (e.g. disconnected) downstreams
-  newDownstreams <- mapM (\downstream -> ((Just downstream <$ fn downstream) `catchAll` \_ -> pure Nothing) ) downstreams
+  newDownstreams <- mapM (\downstream -> (Just downstream <$ fn downstream) `catchAllSTMc` \_ -> pure Nothing) downstreams
   writeTVar region.downstreams (catMaybes newDownstreams)
 
-addToRegion :: Region -> Rectangle -> STM ()
+addToRegion :: Region -> Rectangle -> STMc NoRetry '[SomeException] ()
 addToRegion region rect = do
   whenM (readTVar region.isDestroyed) (throwM (ProtocolUsageError "`add` called on destroyed Region"))
   whenM (addIsRequired rect <$> readTVar region.operations) do
     modifyTVar region.operations (addNormalized rect)
-    callDownstreams (\downstream -> downstream.add `appRect` rect) region
+    liftSTMc $ callDownstreams (\downstream -> downstream.add `appRect` rect) region
 
 addIsRequired :: Rectangle -> [RegionOperation] -> Bool
 addIsRequired rect (Add top:_) = not (top `contains` rect)
@@ -124,12 +128,12 @@ addNormalized rect old@(Subtract top:others)
   | otherwise = Add rect : old
 
 
-subtractFromRegion :: Region -> Rectangle -> STM ()
+subtractFromRegion :: Region -> Rectangle -> STMc NoRetry '[SomeException] ()
 subtractFromRegion region rect = do
   whenM (readTVar region.isDestroyed) (throwM (ProtocolUsageError "`subtract` called on destroyed Region"))
   whenM (subtractIsRequired rect <$> readTVar region.operations) do
     modifyTVar region.operations (subtractNormalized rect)
-    callDownstreams (\downstream -> downstream.subtract `appRect` rect) region
+    liftSTMc $ callDownstreams (\downstream -> downstream.subtract `appRect` rect) region
 
 subtractIsRequired :: Rectangle -> [RegionOperation] -> Bool
 subtractIsRequired rect (Subtract top:_) = not (top `contains` rect)
@@ -145,8 +149,9 @@ subtractNormalized rect old@(Subtract top:others)
   | otherwise = Subtract rect : old
 
 
-destroyRegion :: Region -> STM ()
+destroyRegion :: Region -> STMc NoRetry '[] ()
 destroyRegion region = do
   unlessM (swapTVar region.isDestroyed True) do
-    callDownstreams (.destroy) region
+    downstreams <- readTVar region.downstreams
+    mapM_ (.destroy) downstreams
     writeTVar region.downstreams mempty

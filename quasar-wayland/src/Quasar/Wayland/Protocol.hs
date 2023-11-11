@@ -5,6 +5,9 @@ module Quasar.Wayland.Protocol (
 
   Object(objectProtocol, version),
   NewObject,
+  CallM,
+  tryCall,
+  CallbackM,
   setEventHandler,
   setRequestHandler,
   setMessageHandler,

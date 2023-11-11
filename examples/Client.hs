@@ -21,7 +21,7 @@ main = do
 
     configurationVar <- newEmptyTMVarIO
 
-    tl <- atomically do
+    tl <- atomicallyC do
       windowManager <- getClientWindowManager @ShmBufferBackend client
       --windowManager <- newDummyWindowManager @ShmBufferBackend
       tl <- newWindow windowManager (writeTMVar configurationVar)
@@ -34,11 +34,11 @@ main = do
       let width = max configuration.width 512
       let height = max configuration.height 512
       buffer <- liftIO $ toImageBuffer (mkImage width height img)
-      atomically do
+      atomicallyC do
         commitWindowContent tl configuration.configureSerial defaultSurfaceCommit {
           buffer = Just buffer
         }
-        destroyBuffer buffer
+        liftSTMc $ destroyBuffer buffer
 
       await =<< newDelay 1000000
 

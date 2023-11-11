@@ -31,6 +31,11 @@ module Quasar.Wayland.Protocol.Core (
   IsMessage(..),
   ProtocolHandle,
   ProtocolM,
+  CallM,
+  runCallM,
+  tryCall,
+  CallbackM,
+  runCallbackM,
 
   -- * Protocol IO
   initializeProtocol,
@@ -84,7 +89,6 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.UTF8 qualified as BSUTF8
 import Data.Dynamic (Dynamic, toDyn, fromDynamic)
-import Data.Foldable (toList)
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Hashable (Hashable(hash, hashWithSalt))
@@ -284,8 +288,8 @@ instance IsSide 'Server where
     handleDestructorPre object
     msgFn
     when (oid <= maximumId @'Client) do
-      sendWlDisplayDeleteId :: Word32 -> STM () <- asks (.sendWlDisplayDeleteId)
-      liftSTM $ sendWlDisplayDeleteId oid
+      sendWlDisplayDeleteId :: Word32 -> CallM () <- asks (.sendWlDisplayDeleteId)
+      runCallM $ sendWlDisplayDeleteId oid
     where
       oid :: Word32
       oid = objectIdValue object.objectId
@@ -331,34 +335,37 @@ data Object s i = IsInterfaceSide s i => Object {
   destroyed :: TVar Bool
 }
 
-instance HasField "isDestroyed" (Object s i) (STM Bool) where
+instance HasField "isDestroyed" (Object s i) (STMc NoRetry '[] Bool) where
   getField = isObjectDestroyed
 
-instance HasField "isDestroyed" (SomeObject s) (STM Bool) where
+instance HasField "isDestroyed" (SomeObject s) (STMc NoRetry '[] Bool) where
   getField (SomeObject obj) = isObjectDestroyed obj
 
 
-getMessageHandler :: IsInterfaceSide s i => Object s i -> STM (MessageHandler s i)
-getMessageHandler object = maybe (throwM (InternalError ("No message handler attached to " <> showObject object))) pure =<< readTVar object.messageHandler
+getMessageHandler :: (IsInterfaceSide s i, MonadSTMc NoRetry '[SomeException] m) => Object s i -> m (MessageHandler s i)
+getMessageHandler object = liftSTMc @NoRetry @'[SomeException] do
+  readTVar object.messageHandler >>= \case
+    Just handler -> pure handler
+    Nothing -> throwM (InternalError ("No message handler attached to " <> showObject object))
 
-setMessageHandler :: Object s i -> MessageHandler s i -> STM ()
+setMessageHandler :: MonadSTMc NoRetry '[] m => Object s i -> MessageHandler s i -> m ()
 setMessageHandler object = writeTVar object.messageHandler . Just
 
-setRequestHandler :: Object 'Server i -> RequestHandler i -> STM ()
+setRequestHandler :: MonadSTMc NoRetry '[] m => Object 'Server i -> RequestHandler i -> m ()
 setRequestHandler = setMessageHandler
 
-setEventHandler :: Object 'Client i -> EventHandler i -> STM ()
+setEventHandler :: MonadSTMc NoRetry '[] m => Object 'Client i -> EventHandler i -> m ()
 setEventHandler = setMessageHandler
 
 -- | Attach interface-specific data to the object. Should only be used by the primary interface implementation.
-setInterfaceData :: Typeable a => Object s i -> a -> STM ()
+setInterfaceData :: (Typeable a, MonadSTMc NoRetry '[] m) => Object s i -> a -> m ()
 setInterfaceData object value = writeTVar object.interfaceData (toDyn value)
 
 -- | Get interface-specific data that was attached to the object.
-getInterfaceData :: Typeable a => Object s i -> STM (Maybe a)
+getInterfaceData :: (Typeable a, MonadSTMc NoRetry '[] m) => Object s i -> m (Maybe a)
 getInterfaceData object = fromDynamic <$> readTVar object.interfaceData
 
-isObjectDestroyed :: Object s i -> STM Bool
+isObjectDestroyed :: MonadSTMc NoRetry '[] m => Object s i -> m Bool
 isObjectDestroyed object = readTVar object.destroyed
 
 -- | Type alias to indicate an object is created with a message.
@@ -486,10 +493,39 @@ data ProtocolState (s :: Side) = ProtocolState {
   outboxFdsVar :: TVar (Seq SharedFd),
   objectsVar :: TVar (HashMap GenericObjectId (SomeObject s)),
   nextIdVar :: TVar Word32,
-  sendWlDisplayDeleteId :: Word32 -> STM ()
+  sendWlDisplayDeleteId :: Word32 -> CallM ()
 }
 
-type ProtocolM s a = ReaderT (ProtocolState s) STM a
+type ProtocolM s a = ReaderT (ProtocolState s) (STMc NoRetry '[SomeException]) a
+
+-- | A type alias for a monad that is used for wayland request- and event proxy
+-- functions.
+type CallM a = STMc NoRetry '[SomeException] a
+
+runCallM :: CallM a -> ProtocolM s a
+runCallM = liftSTMc
+
+-- | Try to send an request or an event and ignore all exceptions.
+--
+-- Intended to be used for destructors (including @wl_callback.done@), since
+-- they are often called in exception-free contexts, are a no-op when the object
+-- is destroyed or disconnected, and usually do not throw exceptions during
+-- message serialisation.
+--
+-- TODO Should maybe abort the connection if an unexpected exception occurs,
+-- i.e. exceptions other than destroyed or disconnected states.
+tryCall :: CallM () -> STMc NoRetry '[] ()
+tryCall call = do
+  tryAllSTMc call >>= \case
+    Left ex -> traceM "TODO handle exception during tryCall"
+    Right () -> pure ()
+
+-- | A type alias for a monad that is used for wayland request- and event
+-- callbacks.
+type CallbackM a = STMc NoRetry '[SomeException] a
+
+runCallbackM :: CallM a -> ProtocolM s a
+runCallbackM = liftSTMc
 
 askProtocol :: ProtocolM s (ProtocolHandle s)
 askProtocol = asks (.protocolHandle)
@@ -524,15 +560,17 @@ swapProtocolVar fn x = do
   state <- ask
   lift $ swapTVar (fn state) x
 
-initializeProtocol
-  :: forall s wl_display a. (IsInterfaceSide s wl_display)
-  => (ProtocolHandle s -> MessageHandler s wl_display)
-  -- FIXME only required for server code
-  -> (Object s wl_display -> Word32 -> STM ())
-  -- ^ Send a wl_display.delete_id message. Because this is part of the core protocol but generated from the xml it has
+initializeProtocol ::
+  forall s wl_display m a.
+  (IsInterfaceSide s wl_display, MonadSTMc NoRetry '[] m) =>
+  (ProtocolHandle s -> MessageHandler s wl_display) ->
+  -- | Send a wl_display.delete_id message. Because this is part of the core protocol but generated from the xml it has
   -- to be provided by the main server module.
-  -> (Object s wl_display -> STM a)
-  -> STM (a, ProtocolHandle s)
+  --
+  -- FIXME only required for server code
+  (Object s wl_display -> Word32 -> CallM ()) ->
+  (Object s wl_display -> m a) ->
+  m (a, ProtocolHandle s)
 initializeProtocol wlDisplayMessageHandler sendWlDisplayDeleteId initializationAction = do
   protocolKey <- newUniqueSTM
 
@@ -575,7 +613,7 @@ initializeProtocol wlDisplayMessageHandler sendWlDisplayDeleteId initializationA
     outboxFdsVar,
     objectsVar,
     nextIdVar,
-    sendWlDisplayDeleteId = (sendWlDisplayDeleteId wlDisplay)
+    sendWlDisplayDeleteId = sendWlDisplayDeleteId wlDisplay
   }
   writeTVar stateVar (Right state)
 
@@ -592,14 +630,22 @@ initializeProtocol wlDisplayMessageHandler sendWlDisplayDeleteId initializationA
 --
 -- Throws an exception, if the protocol is already in a failed state.
 runProtocolTransaction :: MonadIO m => ProtocolHandle s -> ProtocolM s a -> m a
-runProtocolTransaction ProtocolHandle{stateVar} action = do
+runProtocolTransaction protocol action =
+  disconnectOnException protocol (liftSTMc . runReaderT action)
+
+-- | Run a protocol action in 'IO'. If an exception occurs, it is stored as a protocol failure and is then
+-- re-thrown.
+--
+-- Throws an exception, if the protocol is already in a failed state.
+disconnectOnException :: MonadIO m => ProtocolHandle s -> (ProtocolState s -> STM a) -> m a
+disconnectOnException ProtocolHandle{stateVar} action = do
   result <- liftIO $ atomically do
     readTVar stateVar >>= \case
       -- Protocol is already in a failed state
       Left ex -> throwM ex
       Right state -> do
         -- Run action, catch exceptions
-        runReaderT (try action) state >>= \case
+        try (action state) >>= \case
           Left ex -> do
             -- Action failed, change protocol state to failed
             writeTVar stateVar (Left ex)
@@ -615,8 +661,8 @@ runProtocolTransaction ProtocolHandle{stateVar} action = do
 -- Throws an exception, if the protocol is already in a failed state.
 --
 -- Exceptions are not handled (i.e. they usually reset the STM transaction and are not stored as a protocol failure).
-runProtocolM :: ProtocolHandle s -> ProtocolM s a -> STM a
-runProtocolM protocol action = either throwM (runReaderT action) =<< readTVar protocol.stateVar
+runProtocolM :: ProtocolHandle s -> ProtocolM s a -> STMc NoRetry '[SomeException] a
+runProtocolM protocol action = either throwM (liftSTMc . runReaderT action) =<< readTVar protocol.stateVar
 
 
 -- | Feed the protocol newly received data.
@@ -635,12 +681,12 @@ setException protocol ex = runProtocolTransaction protocol $ throwM ex
 
 -- | Take data that has to be sent. Blocks until data is available.
 takeOutbox :: MonadIO m => ProtocolHandle s -> m (BSL.ByteString, [SharedFd])
-takeOutbox protocol = runProtocolTransaction protocol do
-  mOutboxData <- stateProtocolVar (.outboxVar) (\mOutboxData -> (mOutboxData, Nothing))
-  outboxData <- maybe (lift retry) pure mOutboxData
+takeOutbox protocol = disconnectOnException protocol \state -> do
+  mOutboxData <- swapTVar state.outboxVar Nothing
+  outboxData <- maybe retry pure mOutboxData
   let sendData = runPut outboxData
-  modifyProtocolVar' (.bytesSentVar) (+ BSL.length sendData)
-  fds <- swapProtocolVar (.outboxFdsVar) mempty
+  modifyTVar' state.bytesSentVar (+ BSL.length sendData)
+  fds <- swapTVar state.outboxFdsVar mempty
   pure (sendData, toList fds)
 
 
@@ -700,7 +746,6 @@ newObjectFromId messageHandler version (NewId oId) = do
   pure object
 
 
-
 -- | Create an object. The caller is responsible for sending the 'NewId' immediately (exactly once and before using the
 -- object).
 --
@@ -710,7 +755,7 @@ bindNewObject
   => ProtocolHandle 'Client
   -> Version
   -> Maybe (MessageHandler 'Client i)
-  -> STM (Object 'Client i, GenericNewId)
+  -> STMc NoRetry '[SomeException] (Object 'Client i, GenericNewId)
 bindNewObject protocol version messageHandler =
   runProtocolM protocol do
     (object, NewId (ObjectId newId)) <- newObject messageHandler version
@@ -777,14 +822,14 @@ getNullableObject oId = Just <$> getObject oId
 
 -- | Handle a wl_display.error message. Because this is part of the core protocol but generated from the xml it has to
 -- be called from the client module.
-handleWlDisplayError :: ProtocolHandle 'Client -> GenericObjectId -> Word32 -> WlString -> STM ()
+handleWlDisplayError :: ProtocolHandle 'Client -> GenericObjectId -> Word32 -> WlString -> STMc NoRetry '[SomeException] ()
 handleWlDisplayError _protocol _oId code message =
   -- TODO lookup object id
   throwM $ ServerError code (toString message)
 
 -- | Handle a wl_display.delete_id message. Because this is part of the core protocol but generated from the xml it has
 -- to be called from the client module.
-handleWlDisplayDeleteId :: ProtocolHandle 'Client -> Word32 -> STM ()
+handleWlDisplayDeleteId :: ProtocolHandle 'Client -> Word32 -> STMc NoRetry '[SomeException] ()
 handleWlDisplayDeleteId protocol oId = runProtocolM protocol do
   -- TODO mark as deleted
   modifyProtocolVar (.objectsVar) $ HM.delete (GenericObjectId oId)
@@ -823,7 +868,7 @@ sendMessage object message = do
   (opcode, MessagePart putBody bodyLength fds) <- either throwM pure $ putWireUp object message
 
   when (bodyLength > fromIntegral (maxBound :: Word16)) $
-    throwM $ ProtocolUsageError $ "Tried to send message larger than 2^16 bytes"
+    throwM $ ProtocolUsageError "Tried to send message larger than 2^16 bytes"
 
   traceM $ "-> " <> showObjectMessage object message
   sendRawMessage (putHeader opcode (8 + bodyLength) >> putBody) fds
@@ -834,7 +879,7 @@ sendMessage object message = do
       putWord32host objectIdWord
       putWord32host $ (fromIntegral msgSize `shiftL` 16) .|. fromIntegral opcode
 
-enterObject :: forall s i a. Object s i -> ProtocolM s a -> STM a
+enterObject :: forall s i a. Object s i -> ProtocolM s a -> CallM a
 enterObject object action = runProtocolM object.objectProtocol action
 
 
@@ -911,7 +956,7 @@ getWaylandArray = do
 putWaylandString :: MonadThrow m => BS.ByteString -> m MessagePart
 putWaylandString blob = do
   when (len > fromIntegral (maxBound :: Word16)) $
-    throwM $ ProtocolUsageError $ "Tried to send string larger than 2^16 bytes"
+    throwM $ ProtocolUsageError "Tried to send string larger than 2^16 bytes"
 
   pure $ MessagePart putBlob (4 + len + pad) mempty
   where
@@ -928,7 +973,7 @@ putWaylandString blob = do
 putWaylandArray :: MonadThrow m => BS.ByteString -> m MessagePart
 putWaylandArray blob = do
   when (len > fromIntegral (maxBound :: Word16)) $
-    throwM $ ProtocolUsageError $ "Tried to send array larger than 2^16 bytes"
+    throwM $ ProtocolUsageError "Tried to send array larger than 2^16 bytes"
 
   pure $ MessagePart putBlob (4 + len + pad) mempty
   where
@@ -948,7 +993,7 @@ skipPadding = do
   skip $ fromIntegral (padding bytes)
 
 padding :: Integral a => a -> a
-padding size = ((4 - (size `mod` 4)) `mod` 4)
+padding size = (4 - (size `mod` 4)) `mod` 4
 
 
 sendRawMessage :: Put -> Seq SharedFd -> ProtocolM s ()
