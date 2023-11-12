@@ -365,8 +365,13 @@ setInterfaceData object value = writeTVar object.interfaceData (toDyn value)
 getInterfaceData :: (Typeable a, MonadSTMc NoRetry '[] m) => Object s i -> m (Maybe a)
 getInterfaceData object = fromDynamic <$> readTVar object.interfaceData
 
+-- | Returns true if the object is destroyed, or the underlying wayland connection has been closed.
 isObjectDestroyed :: MonadSTMc NoRetry '[] m => Object s i -> m Bool
-isObjectDestroyed object = readTVar object.destroyed
+isObjectDestroyed object = liftSTMc do
+  destroyed <- readTVar object.destroyed
+  if destroyed
+    then pure True
+    else isDisconnected object.objectProtocol
 
 -- | Type alias to indicate an object is created with a message.
 type NewObject s i = Object s i
@@ -495,6 +500,12 @@ data ProtocolState (s :: Side) = ProtocolState {
   nextIdVar :: TVar Word32,
   sendWlDisplayDeleteId :: Word32 -> CallM ()
 }
+
+isDisconnected :: ProtocolHandle s -> STMc NoRetry '[] Bool
+isDisconnected protocol =
+  readTVar protocol.stateVar <&> \case
+    Left _ -> True
+    Right _ -> False
 
 type ProtocolM s a = ReaderT (ProtocolState s) (STMc NoRetry '[SomeException]) a
 
