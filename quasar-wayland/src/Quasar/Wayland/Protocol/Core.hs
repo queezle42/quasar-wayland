@@ -26,6 +26,7 @@ module Quasar.Wayland.Protocol.Core (
   setInterfaceData,
   getInterfaceData,
   isObjectDestroyed,
+  attachFinalizer,
   NewObject,
   IsObject,
   IsMessage(..),
@@ -34,6 +35,7 @@ module Quasar.Wayland.Protocol.Core (
   CallM,
   runCallM,
   tryCall,
+  close,
   CallbackM,
   runCallbackM,
 
@@ -98,8 +100,8 @@ import Data.Sequence qualified as Seq
 import Data.String (IsString(..))
 import Data.Typeable (Typeable, cast)
 import Data.Void (absurd)
-import GHC.TypeLits
 import GHC.Records
+import GHC.TypeLits
 import Quasar.Prelude
 import Quasar.Wayland.Utils.SharedFd
 
@@ -276,7 +278,10 @@ instance IsSide 'Client where
   -- Id #1 is reserved for wl_display
   initialId = 2
   maximumId = 0xfeffffff
-  handleDestructor object msgFn = handleDestructorPre object >> msgFn
+  handleDestructor object msgFn = do
+    liftSTMc $ handleDestructorPre object
+    msgFn
+    liftSTMc $ handleDestructorPost object
 
 instance IsSide 'Server where
   type MessageHandler 'Server i = RequestHandler i
@@ -285,20 +290,30 @@ instance IsSide 'Server where
   initialId = 0xff000000
   maximumId = 0xffffffff
   handleDestructor object msgFn = do
-    handleDestructorPre object
+    liftSTMc $ handleDestructorPre object
     msgFn
     when (oid <= maximumId @'Client) do
       sendWlDisplayDeleteId :: Word32 -> CallM () <- asks (.sendWlDisplayDeleteId)
       runCallM $ sendWlDisplayDeleteId oid
+    liftSTMc $ handleDestructorPost object
     where
       oid :: Word32
       oid = objectIdValue object.objectId
 
 -- Shared destructor code for client and server
-handleDestructorPre :: IsInterfaceSide s i => Object s i -> ProtocolM s ()
+handleDestructorPre :: IsInterfaceSide s i => Object s i -> STMc NoRetry '[] ()
 handleDestructorPre object = do
   traceM $ "Destroying " <> showObject object
-  lift $ writeTVar object.destroyed True
+  writeTVar object.destroyed True
+
+-- Shared destructor code for client and server
+handleDestructorPost :: IsInterfaceSide s i => Object s i -> STMc NoRetry '[]  ()
+handleDestructorPost object = liftSTMc do
+  finalizers <- swapTVar object.finalizers []
+  unless (null finalizers) do
+    traceM $ "Running finalizers for " <> showObject object
+    sequence_ finalizers
+  traceM $ "Destroyed " <> showObject object
 
 
 class (
@@ -332,6 +347,7 @@ data Object s i = IsInterfaceSide s i => Object {
   messageHandler :: TVar (Maybe (MessageHandler s i)),
   -- FIXME type-safe variant for `interfaceData`?
   interfaceData :: TVar Dynamic,
+  finalizers :: TVar [STMc NoRetry '[] ()],
   destroyed :: TVar Bool
 }
 
@@ -372,6 +388,11 @@ isObjectDestroyed object = liftSTMc do
   if destroyed
     then pure True
     else isDisconnected object.objectProtocol
+
+-- | Attach a finalizer to an object that is run when the object is destroyed
+-- or the wayland connection is closed.
+attachFinalizer :: MonadSTMc NoRetry '[] m => Object s i -> STMc NoRetry '[] () -> m ()
+attachFinalizer object finalizer = modifyTVar object.finalizers (finalizer:)
 
 -- | Type alias to indicate an object is created with a message.
 type NewObject s i = Object s i
@@ -528,7 +549,7 @@ runCallM = liftSTMc
 tryCall :: CallM () -> STMc NoRetry '[] ()
 tryCall call = do
   tryAllSTMc call >>= \case
-    Left ex -> traceM "TODO handle exception during tryCall"
+    Left ex -> traceM $ "TODO handle exception during tryCall; exception is: " <> show ex
     Right () -> pure ()
 
 -- | A type alias for a monad that is used for wayland request- and event
@@ -604,6 +625,7 @@ initializeProtocol wlDisplayMessageHandler sendWlDisplayDeleteId initializationA
 
   messageHandlerVar <- newTVar (Just (wlDisplayMessageHandler protocol))
   interfaceData <- newTVar (toDyn ())
+  finalizers <- newTVar mempty
   destroyed <- newTVar False
   let wlDisplay = Object {
         objectProtocol = protocol,
@@ -611,6 +633,7 @@ initializeProtocol wlDisplayMessageHandler sendWlDisplayDeleteId initializationA
         version = 1,
         messageHandler = messageHandlerVar,
         interfaceData,
+        finalizers,
         destroyed
       }
 
@@ -649,9 +672,9 @@ runProtocolTransaction protocol action =
 --
 -- Throws an exception, if the protocol is already in a failed state.
 disconnectOnException :: MonadIO m => ProtocolHandle s -> (ProtocolState s -> STM a) -> m a
-disconnectOnException ProtocolHandle{stateVar} action = do
+disconnectOnException protocol action = do
   result <- liftIO $ atomically do
-    readTVar stateVar >>= \case
+    readTVar protocol.stateVar >>= \case
       -- Protocol is already in a failed state
       Left ex -> throwM ex
       Right state -> do
@@ -659,12 +682,26 @@ disconnectOnException ProtocolHandle{stateVar} action = do
         try (action state) >>= \case
           Left ex -> do
             -- Action failed, change protocol state to failed
-            writeTVar stateVar (Left ex)
+            close protocol ex
+            writeTVar protocol.stateVar (Left ex)
             pure (Left ex)
           Right result -> do
             pure (Right result)
   -- Transaction is committed, rethrow exception if the action failed
   either (liftIO . throwM) pure result
+
+close :: MonadSTMc NoRetry '[] m => ProtocolHandle s -> SomeException -> m ()
+close protocol exception = liftSTMc do
+  readTVar protocol.stateVar >>= \case
+    Left _ -> pure ()
+    Right state -> do
+      writeTVar protocol.stateVar (Left exception)
+      objects <- readTVar state.objectsVar
+      forM_ objects \(SomeObject object) -> do
+        finalizers <- readTVar object.finalizers
+        unless (null finalizers) do
+          traceM $ "Running finalizers for " <> showObject object
+          sequence_ finalizers
 
 
 -- | Run a 'ProtocolM'-action inside 'STM'.
@@ -740,9 +777,10 @@ newObjectFromId
 newObjectFromId messageHandler version (NewId oId) = do
   -- TODO verify (version <= interfaceVersion @i)
   protocol <- askProtocol
-  messageHandlerVar <- lift $ newTVar messageHandler
-  interfaceDataVar <- lift $ newTVar (toDyn ())
-  destroyed <- lift $ newTVar False
+  messageHandlerVar <- newTVar messageHandler
+  interfaceDataVar <- newTVar (toDyn ())
+  finalizers <- newTVar mempty
+  destroyed <- newTVar False
   let
     object = Object {
       objectProtocol = protocol,
@@ -750,6 +788,7 @@ newObjectFromId messageHandler version (NewId oId) = do
       version,
       messageHandler = messageHandlerVar,
       interfaceData = interfaceDataVar,
+      finalizers,
       destroyed
     }
     someObject = SomeObject object
