@@ -47,6 +47,7 @@ requestClientBuffer client buffer = do
         Released -> useClientBuffer clientBuffer
         -- TODO using (z)wp_linux_buffer_release a buffer could be attached to multiple surfaces
         Attached _ -> newSingleUseClientBuffer client buffer
+        Destroyed -> throwM (userError "ClientBuffer.requestClientBuffer called on a destroyed ClientBuffer")
     Nothing -> do
       clientBuffer <- newClientBuffer client buffer
       writeTVar client.bufferMap (HM.insert buffer clientBuffer buffers)
@@ -66,14 +67,19 @@ newClientBuffer client buffer = do
 
   state <- newTVar Released
   wlBuffer <- exportWlBuffer client.bufferManager buffer
-  -- TODO register finalizer on wl_buffer to unlock `Buffer` if the client is disconnected before release
-  -- TODO in both cases, the `ClientBuffer` should be removed from the `bufferMap`
-  destroyed <- newTVar False
   let clientBuffer = ClientBuffer {
     wlBuffer,
-    state,
-    destroyed
+    state
   }
+  -- TODO `ClientBuffer` should be removed from the `bufferMap` during cleanup
+  attachFinalizer wlBuffer do
+    readTVar clientBuffer.state >>= \case
+      Attached lockDisposer -> do
+        writeTVar clientBuffer.state Destroyed
+        disposeTSimpleDisposer lockDisposer
+      Released -> pure ()
+      Destroyed -> pure ()
+
   setEventHandler wlBuffer EventHandler_wl_buffer {
     release = releaseClientBuffer clientBuffer
   }
@@ -82,13 +88,15 @@ newClientBuffer client buffer = do
 
 releaseClientBuffer :: ClientBuffer b -> STMc NoRetry '[SomeException] ()
 releaseClientBuffer clientBuffer = do
-  swapTVar clientBuffer.state Released >>= \case
-    Attached lockDisposer -> disposeTSimpleDisposer lockDisposer
+  readTVar clientBuffer.state >>= \case
+    Attached lockDisposer -> do
+      writeTVar clientBuffer.state Released
+      disposeTSimpleDisposer lockDisposer
     Released -> traceM "ClientBuffer: Duplicate release"
+    Destroyed -> traceM "ClientBuffer: Release called but is already destroyed"
 
 destroyClientBuffer :: ClientBuffer b -> STMc NoRetry '[] ()
 destroyClientBuffer clientBuffer = do
-  writeTVar clientBuffer.destroyed True
   tryCall clientBuffer.wlBuffer.destroy
 
 
@@ -101,10 +109,12 @@ newSingleUseClientBuffer :: ClientBufferBackend b => ClientSurfaceManager b -> B
 newSingleUseClientBuffer surfaceManager buffer = do
   lockDisposer <- liftSTMc $ lockBuffer buffer
   wlBuffer <- exportWlBuffer surfaceManager.bufferManager buffer
+
+  attachFinalizer wlBuffer (disposeTSimpleDisposer lockDisposer)
+
   setEventHandler wlBuffer EventHandler_wl_buffer {
-    release = wlBuffer.destroy >> disposeTSimpleDisposer lockDisposer
+    release = wlBuffer.destroy
   }
-  -- TODO register finalizer to release lock when client is disconnected
   pure wlBuffer
 
 
@@ -119,12 +129,11 @@ data ClientSurface b = ClientSurface {
   wlSurface :: Object 'Client Interface_wl_surface
 }
 
-data ClientBufferState = Attached TSimpleDisposer | Released
+data ClientBufferState = Attached TSimpleDisposer | Released | Destroyed
 
 data ClientBuffer b = ClientBuffer {
   wlBuffer :: Object 'Client Interface_wl_buffer,
-  state :: TVar ClientBufferState,
-  destroyed :: TVar Bool
+  state :: TVar ClientBufferState
 }
 
 getClientSurfaceManager :: ClientBufferBackend b => WaylandClient -> STMc NoRetry '[SomeException] (ClientSurfaceManager b)
