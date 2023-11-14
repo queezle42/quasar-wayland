@@ -20,6 +20,7 @@ import Network.Socket qualified as Socket
 import Quasar
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
+import Quasar.Wayland.Protocol.Core (close)
 import Quasar.Wayland.Utils.SharedFd
 import Quasar.Wayland.Utils.Socket
 import System.Posix.Types (Fd)
@@ -81,7 +82,10 @@ connectionThread connection work = asyncWithUnmask' \unmask -> unmask work `catc
     traceAndDisposeConnection :: SomeException -> IO ()
     traceAndDisposeConnection (isCancelAsync -> True) = pure ()
     -- NOTE this logs- and then discards exceptions (might need to be reworked later)
-    traceAndDisposeConnection ex = traceIO (displayException ex) >> disposeEventuallyIO_ connection
+    traceAndDisposeConnection ex = do
+      traceIO (displayException ex)
+      atomically $ close connection.protocolHandle ex
+      disposeEventuallyIO_ connection
 
 sendThread :: WaylandConnection s -> IO ()
 sendThread connection = mask_ $ forever do
@@ -99,7 +103,7 @@ sendThread connection = mask_ $ forever do
   where
     send :: Int -> [BS.ByteString] -> [Fd] -> IO ()
     send remaining chunks fds = do
-      -- TODO add MSG_NOSIGNAL (not exposed by `network`)
+      -- TODO add MSG_NOSIGNAL (not exposed by `network` library)
       cmsgs <- case fds of
         [] -> pure []
         _ -> singleton <$> encodeFds fds
@@ -118,7 +122,7 @@ sendThread connection = mask_ $ forever do
 
 receiveThread :: IsSide s => WaylandConnection s -> IO ()
 receiveThread connection = forever do
-  -- TODO add MSG_CMSG_CLOEXEC (not exposed by `network`)
+  -- TODO add MSG_CMSG_CLOEXEC (not exposed by `network` library)
   (chunk, cmsgs, flags) <- recvMsg connection.socket 4096 cmsgBufferSize mempty
 
   rawFds <- mconcat <$> mapM decodeFds cmsgs
