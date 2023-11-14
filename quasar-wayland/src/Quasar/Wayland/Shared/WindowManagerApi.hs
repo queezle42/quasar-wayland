@@ -10,6 +10,7 @@ module Quasar.Wayland.Shared.WindowManagerApi (
 
 import Data.ByteString qualified as BS
 import Quasar.Prelude
+import Quasar.Resources (Disposable)
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Surface
 
@@ -17,7 +18,7 @@ class IsWindow b (Window b a) => IsWindowManager b a | a -> b where
   type Window b a
   newWindow :: a -> (WindowConfiguration -> STMc NoRetry '[SomeException] ()) -> STMc NoRetry '[SomeException] (Window b a)
 
-class BufferBackend b => IsWindow b a | a -> b where
+class (BufferBackend b, Disposable a) => IsWindow b a | a -> b where
   setTitle :: a -> WlString -> STMc NoRetry '[SomeException] ()
   setAppId :: a -> WlString -> STMc NoRetry '[SomeException] ()
   setFullscreen :: a -> Bool -> STMc NoRetry '[SomeException] ()

@@ -9,6 +9,7 @@ import Quasar.Prelude
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Shared.WindowManagerApi
 import Quasar.Wayland.Surface
+import Quasar.Resources (Disposer, Disposable(getDisposer))
 
 newtype FnWindowManager b = FnWindowManager {
   newWindowFn :: (WindowConfiguration -> STMc NoRetry '[SomeException] ()) -> STMc NoRetry '[SomeException] (FnWindow b)
@@ -19,7 +20,8 @@ data FnWindow b = FnWindow {
   setAppIdFn :: WlString -> STMc NoRetry '[SomeException] (),
   setFullscreenFn :: Bool -> STMc NoRetry '[SomeException] (),
   commitWindowContentFn :: ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] (),
-  ackWindowConfigureFn :: ConfigureSerial -> STMc NoRetry '[SomeException] ()
+  ackWindowConfigureFn :: ConfigureSerial -> STMc NoRetry '[SomeException] (),
+  disposer :: Disposer
 }
 
 instance BufferBackend b => IsWindowManager b (FnWindowManager b) where
@@ -33,6 +35,9 @@ instance BufferBackend b => IsWindow b (FnWindow b) where
   commitWindowContent = (.commitWindowContentFn)
   ackWindowConfigure = (.ackWindowConfigureFn)
 
+instance Disposable (FnWindow b) where
+  getDisposer = (.disposer)
+
 toFnWindowManager :: forall b a. IsWindowManager b a => a -> FnWindowManager b
 toFnWindowManager upstream = FnWindowManager {
   newWindowFn = \windowConfiguration -> toFnWindow <$> newWindow upstream windowConfiguration
@@ -44,5 +49,6 @@ toFnWindow upstream = FnWindow {
   setAppIdFn = setAppId upstream,
   setFullscreenFn = setFullscreen upstream,
   commitWindowContentFn = commitWindowContent upstream,
-  ackWindowConfigureFn = ackWindowConfigure upstream
+  ackWindowConfigureFn = ackWindowConfigure upstream,
+  disposer = getDisposer upstream
 }

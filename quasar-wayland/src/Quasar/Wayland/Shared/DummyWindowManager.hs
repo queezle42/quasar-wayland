@@ -8,6 +8,7 @@ import Quasar.Prelude
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Shared.WindowManagerApi
 import Quasar.Wayland.Surface
+import Quasar.Resources (Disposable (getDisposer))
 
 data DummyWindowManager b = DummyWindowManager
 
@@ -29,3 +30,6 @@ instance BufferBackend b => IsWindow b (DummyWindow b) where
   setFullscreen _window _fullscreen = pure ()
   commitWindowContent _window _configureSerial _commit = traceM "Window comitted"
   ackWindowConfigure _window _configureSerial = traceM "Window configure acked"
+
+instance Disposable (DummyWindow b) where
+  getDisposer _ = mempty

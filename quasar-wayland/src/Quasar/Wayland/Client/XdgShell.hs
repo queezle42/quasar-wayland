@@ -11,16 +11,18 @@ module Quasar.Wayland.Client.XdgShell (
   -- ** Window configuration
   WindowConfiguration(..),
   ConfigureSerial,
-  commitXdgToplevel,
+  commitClientXdgToplevel,
 ) where
 
 import Quasar.Prelude
+import Quasar.Resources (Disposable (getDisposer))
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Shared.WindowManagerApi
 import Quasar.Wayland.Surface
+import Quasar.Resources.DisposableTVar
 
 
 type ClientWindowManager :: Type -> Type
@@ -33,24 +35,41 @@ instance ClientBufferBackend b => IsWindowManager b (ClientWindowManager b) wher
   type Window b (ClientWindowManager b) = ClientXdgToplevel b
   newWindow = newClientXdgToplevel
 
-instance ClientBufferBackend b => IsWindow b (ClientXdgToplevel b) where
-  setTitle w = w.xdgToplevel.set_title
-  setAppId w = w.xdgToplevel.set_app_id
-  setFullscreen w fullscreen =
-    if fullscreen
-      then w.xdgToplevel.set_fullscreen Nothing
-      else w.xdgToplevel.unset_fullscreen
-  commitWindowContent = commitXdgToplevel
-  ackWindowConfigure = ackToplevelConfigure
-
-
-data ClientXdgToplevel b = ClientXdgToplevel {
+data ClientXdgToplevelState b = ClientXdgToplevelState {
   clientSurface :: ClientSurface b,
   xdgSurface :: Object 'Client Interface_xdg_surface,
   xdgToplevel :: Object 'Client Interface_xdg_toplevel,
   nextConfigureSerial :: TVar (Maybe Word32),
   configurationAccumulator :: TVar WindowConfiguration
 }
+
+newtype ClientXdgToplevel b = ClientXdgToplevel (DisposableTVar (ClientXdgToplevelState b))
+
+instance ClientBufferBackend b => IsWindow b (ClientXdgToplevel b) where
+  setTitle w title =
+    withState w \state -> state.xdgToplevel.set_title title
+  setAppId w appId =
+    withState w \state -> state.xdgToplevel.set_app_id appId
+  setFullscreen w fullscreen =
+    withState w \state ->
+      if fullscreen
+        then state.xdgToplevel.set_fullscreen Nothing
+        else state.xdgToplevel.unset_fullscreen
+  commitWindowContent = commitClientXdgToplevel
+  ackWindowConfigure = ackToplevelConfigure
+
+instance Disposable (ClientXdgToplevel b) where
+  getDisposer (ClientXdgToplevel disposableVar) = getDisposer disposableVar
+
+disposeClientXdgToplevel :: ClientXdgToplevelState b -> STMc NoRetry '[] ()
+disposeClientXdgToplevel state = do
+  tryCall state.xdgToplevel.destroy
+  tryCall state.xdgSurface.destroy
+  -- TODO do we have to release a buffer?
+
+withState :: MonadSTMc NoRetry '[] m => ClientXdgToplevel b -> (ClientXdgToplevelState b -> m ()) -> m ()
+withState (ClientXdgToplevel var) action = tryReadDisposableTVar var >>= mapM_ action
+
 
 
 newClientWindowManager :: WaylandClient -> STMc NoRetry '[SomeException] (ClientWindowManager b)
@@ -94,7 +113,7 @@ newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} configureCallback 
 
     pure (xdgSurface, xdgToplevel)
 
-  pure ClientXdgToplevel {
+  let state = ClientXdgToplevelState {
     clientSurface,
     xdgSurface,
     xdgToplevel,
@@ -102,14 +121,18 @@ newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} configureCallback 
     configurationAccumulator
   }
 
-commitXdgToplevel :: forall b. ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] ()
-commitXdgToplevel toplevel configureSerial surfaceCommit = do
+  ClientXdgToplevel <$> newDisposableTVar state disposeClientXdgToplevel
+
+commitClientXdgToplevel :: forall b. ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] ()
+commitClientXdgToplevel toplevel configureSerial surfaceCommit = do
   ackWindowConfigure @b toplevel configureSerial
-  commitSurfaceDownstream toplevel.clientSurface surfaceCommit
+  withState toplevel \state ->
+    commitSurfaceDownstream state.clientSurface surfaceCommit
 
 ackToplevelConfigure :: ClientXdgToplevel b -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
 ackToplevelConfigure toplevel _configureSerial = do
-  -- NOTE Dummy implementation to encourage correct api design without actually implementing configure serials.
-  swapTVar toplevel.nextConfigureSerial Nothing >>= \case
-    Nothing -> pure ()
-    Just serial -> toplevel.xdgSurface.ack_configure serial
+  withState toplevel \state ->
+    -- NOTE Dummy implementation to encourage correct api design without actually implementing configure serials.
+    swapTVar state.nextConfigureSerial Nothing >>= \case
+      Nothing -> pure ()
+      Just serial -> state.xdgSurface.ack_configure serial

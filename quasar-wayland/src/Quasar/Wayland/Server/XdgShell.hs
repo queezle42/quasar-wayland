@@ -10,6 +10,7 @@ import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Surface
 import Quasar.Wayland.Shared.WindowManagerApi
 import Quasar.Wayland.Surface
+import Quasar.Resources (disposeEventually)
 
 xdgShellGlobal :: forall b wm. IsWindowManager b wm => wm -> Global
 xdgShellGlobal wm =
@@ -128,6 +129,9 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
       @Interface_xdg_toplevel
       xdgSurface.serverSurface
       (toSurfaceDownstream xdgToplevel)
+
+    attachFinalizer wlXdgToplevel do
+      void $ disposeEventually window
 
     setRequestHandler wlXdgToplevel RequestHandler_xdg_toplevel {
       destroy = liftSTMc $ destroyXdgToplevel xdgToplevel,
