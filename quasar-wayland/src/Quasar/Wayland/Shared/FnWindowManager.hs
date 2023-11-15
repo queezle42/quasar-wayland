@@ -7,7 +7,7 @@ module Quasar.Wayland.Shared.FnWindowManager (
 
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
-import Quasar.Wayland.Shared.WindowManagerApi
+import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Surface
 import Quasar.Resources (Disposer, Disposable(getDisposer))
 

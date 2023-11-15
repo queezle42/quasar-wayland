@@ -6,7 +6,7 @@ module Quasar.Wayland.Shared.DummyWindowManager (
 
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
-import Quasar.Wayland.Shared.WindowManagerApi
+import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Surface
 import Quasar.Resources (Disposable (getDisposer))
 

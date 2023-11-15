@@ -1,4 +1,4 @@
-module Quasar.Wayland.Shared.WindowManagerApi (
+module Quasar.Wayland.Shared.WindowApi (
   IsWindowManager(..),
   IsWindow(..),
 

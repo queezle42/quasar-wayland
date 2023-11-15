@@ -8,7 +8,7 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Surface
-import Quasar.Wayland.Shared.WindowManagerApi
+import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Surface
 import Quasar.Resources (disposeEventually)
 

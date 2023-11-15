@@ -25,7 +25,7 @@ import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
-import Quasar.Wayland.Shared.WindowManagerApi
+import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Surface
 import Quasar.Resources.DisposableTVar
 
