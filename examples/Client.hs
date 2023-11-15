@@ -24,7 +24,7 @@ main = do
     tl <- atomicallyC do
       windowManager <- getClientWindowManager @ShmBufferBackend client
       --windowManager <- newDummyWindowManager @ShmBufferBackend
-      tl <- newWindow windowManager (writeTMVar configurationVar)
+      tl <- newWindow windowManager (writeTMVar configurationVar) undefined
       setTitle tl "quasar-wayland-example-client"
       pure tl
 

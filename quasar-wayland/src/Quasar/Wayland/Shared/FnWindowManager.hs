@@ -12,7 +12,7 @@ import Quasar.Wayland.Surface
 import Quasar.Resources (Disposer, Disposable(getDisposer))
 
 newtype FnWindowManager b = FnWindowManager {
-  newWindowFn :: (WindowConfiguration -> STMc NoRetry '[SomeException] ()) -> STMc NoRetry '[SomeException] (FnWindow b)
+  newWindowFn :: WindowConfigurationCallback -> WindowRequestCallback -> STMc NoRetry '[SomeException] (FnWindow b)
 }
 
 data FnWindow b = FnWindow {
@@ -40,7 +40,7 @@ instance Disposable (FnWindow b) where
 
 toFnWindowManager :: forall b a. IsWindowManager b a => a -> FnWindowManager b
 toFnWindowManager upstream = FnWindowManager {
-  newWindowFn = \windowConfiguration -> toFnWindow <$> newWindow upstream windowConfiguration
+  newWindowFn = \confCB reqCB -> toFnWindow <$> newWindow upstream confCB reqCB
 }
 
 toFnWindow :: forall b a. IsWindow b a => a -> FnWindow b

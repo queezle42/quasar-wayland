@@ -152,7 +152,7 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
 
     -- `newWindow` might call the configure callback immediately, so the window
     -- should be created after request handlers are attached.
-    newWindow xdgSurface.xdgWmBase.wm (sendConfigureEvent xdgToplevel)
+    newWindow xdgSurface.xdgWmBase.wm (sendConfigureEvent xdgToplevel) (sendWindowRequest xdgToplevel)
 
 sendConfigureEvent :: XdgToplevel b wm -> WindowConfiguration -> STMc NoRetry '[SomeException] ()
 sendConfigureEvent xdgToplevel windowConfiguration = do
@@ -160,6 +160,12 @@ sendConfigureEvent xdgToplevel windowConfiguration = do
 
   xdgToplevel.wlXdgToplevel.configure windowConfiguration.width windowConfiguration.height windowConfiguration.states
   xdgToplevel.xdgSurface.wlXdgSurface.configure 0
+
+sendWindowRequest :: XdgToplevel b wm -> WindowRequest -> STMc NoRetry '[SomeException] ()
+sendWindowRequest xdgToplevel WindowRequestClose = do
+  traceM "Sending window close request"
+
+  xdgToplevel.wlXdgToplevel.close
 
 onNullSurfaceCommit :: XdgToplevel b wm -> STM ()
 onNullSurfaceCommit = undefined -- TODO unmap surface

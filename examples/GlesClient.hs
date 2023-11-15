@@ -27,13 +27,19 @@ main = do
 
     configurationVar <- newEmptyTMVarIO
 
+    shouldClose <- newTVarIO False
+
     tl <- atomicallyC do
       windowManager <- getClientWindowManager @GlesBackend client
-      tl <- newWindow windowManager (writeTMVar configurationVar)
+      tl <- newWindow windowManager (writeTMVar configurationVar) (\WindowRequestClose -> writeTVar shouldClose True)
       setTitle tl "quasar-wayland-example-client"
       pure tl
 
-    forM_ [0,1..480] \i -> do
+    frameId <- newTVarIO 0
+
+    whileM (not <$> readTVarIO shouldClose) do
+      i <- atomically $ stateTVar frameId (\i -> (i, i + 1))
+
       -- Blocks until first configure event
       configuration <- atomically $ readTMVar configurationVar
 
@@ -48,5 +54,10 @@ main = do
         liftSTMc $ destroyBuffer buffer
 
       await =<< newDelay 16000
+      pure ()
+
     traceIO "Closing"
   traceIO "Closed"
+
+whileM :: Monad m => m Bool -> m () -> m ()
+whileM pred action = whenM pred (action >> whileM pred action)

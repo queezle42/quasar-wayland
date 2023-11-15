@@ -10,8 +10,13 @@ module Quasar.Wayland.Client.XdgShell (
 
   -- ** Window configuration
   WindowConfiguration(..),
+  WindowConfigurationCallback,
   ConfigureSerial,
   commitClientXdgToplevel,
+
+  -- ** Window request
+  WindowRequest(..),
+  WindowRequestCallback,
 ) where
 
 import Quasar.Prelude
@@ -88,9 +93,10 @@ newClientXdgToplevel ::
   forall b.
   ClientBufferBackend b =>
   ClientWindowManager b ->
-  (WindowConfiguration ->
-  STMc NoRetry '[SomeException] ()) -> STMc NoRetry '[SomeException] (ClientXdgToplevel b)
-newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} configureCallback = do
+  WindowConfigurationCallback ->
+  WindowRequestCallback ->
+  STMc NoRetry '[SomeException] (ClientXdgToplevel b)
+newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} configureCallback requestCallback = do
   nextConfigureSerial <- newTVar Nothing
   configurationAccumulator <- newTVar defaultWindowConfiguration
 
@@ -108,7 +114,7 @@ newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} configureCallback 
     xdgToplevel <- xdgSurface.get_toplevel
     setEventHandler xdgToplevel EventHandler_xdg_toplevel {
       configure = \width height states -> modifyTVar configurationAccumulator \x -> x { width = width, height = height, states = states },
-      close = pure () -- TODO
+      close = liftSTMc $ requestCallback WindowRequestClose
     }
 
     pure (xdgSurface, xdgToplevel)

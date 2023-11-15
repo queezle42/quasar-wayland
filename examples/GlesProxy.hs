@@ -50,7 +50,7 @@ main = runQuasarAndExit do
 
 mapWindowManager :: IsWindowManager GlesBackend a => ProxyDemo -> TQueue (IO ()) -> a -> FnWindowManager GlesBackend
 mapWindowManager demo jobQueue upstream = fnWindowManager {
-  newWindowFn = \cfg -> mapWindow demo jobQueue <$> fnWindowManager.newWindowFn cfg
+  newWindowFn = \cfg req -> mapWindow demo jobQueue <$> fnWindowManager.newWindowFn cfg req
 }
   where
     fnWindowManager = toFnWindowManager upstream
@@ -69,7 +69,7 @@ onWindowContentCommit demo jobQueue window serial commit = do
     Just buffer -> do
       disposer <- liftSTMc $ lockBuffer buffer
       writeTQueue jobQueue do
-        b <- proxyDemo demo $ getDmabuf $ buffer.storage
+        b <- proxyDemo demo $ getDmabuf buffer.storage
         atomicallyC do
           disposeTSimpleDisposer disposer
           commitWindowContent window serial commit {

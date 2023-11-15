@@ -3,7 +3,10 @@ module Quasar.Wayland.Shared.WindowManagerApi (
   IsWindow(..),
 
   WindowConfiguration(..),
+  WindowConfigurationCallback,
   defaultWindowConfiguration,
+  WindowRequest(..),
+  WindowRequestCallback,
   ConfigureSerial,
   unsafeConfigureSerial,
 ) where
@@ -16,7 +19,7 @@ import Quasar.Wayland.Surface
 
 class IsWindow b (Window b a) => IsWindowManager b a | a -> b where
   type Window b a
-  newWindow :: a -> (WindowConfiguration -> STMc NoRetry '[SomeException] ()) -> STMc NoRetry '[SomeException] (Window b a)
+  newWindow :: a -> WindowConfigurationCallback -> WindowRequestCallback -> STMc NoRetry '[SomeException] (Window b a)
 
 class (BufferBackend b, Disposable a) => IsWindow b a | a -> b where
   setTitle :: a -> WlString -> STMc NoRetry '[SomeException] ()
@@ -43,6 +46,12 @@ data WindowConfiguration = WindowConfiguration {
   --boundsHeight :: Int32
 }
   deriving Eq
+
+type WindowConfigurationCallback = WindowConfiguration -> STMc NoRetry '[SomeException] ()
+
+data WindowRequest = WindowRequestClose
+
+type WindowRequestCallback = WindowRequest -> STMc NoRetry '[SomeException] ()
 
 -- Default values as defined by the xdg-shell protocol
 defaultWindowConfiguration :: WindowConfiguration
