@@ -20,9 +20,8 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Surface
 import Quasar.Observable.Core (Observable, NoLoad)
 
-class IsWindow b (Window b a) => IsWindowManager b a | a -> b where
-  type Window b a
-  newWindow :: a -> WindowProperties -> WindowConfigurationCallback -> WindowRequestCallback -> STMc NoRetry '[SomeException] (Window b a)
+class IsWindow b w => IsWindowManager b w a | a -> b, a -> w where
+  newWindow :: a -> WindowProperties -> WindowConfigurationCallback -> WindowRequestCallback -> STMc NoRetry '[SomeException] w
 
 class (BufferBackend b, Disposable a) => IsWindow b a | a -> b where
   setFullscreen :: a -> Bool -> STMc NoRetry '[SomeException] ()

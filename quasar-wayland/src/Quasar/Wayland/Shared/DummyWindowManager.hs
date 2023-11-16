@@ -16,8 +16,7 @@ newDummyWindowManager = pure DummyWindowManager
 
 data DummyWindow b = DummyWindow
 
-instance BufferBackend b => IsWindowManager b (DummyWindowManager b) where
-  type Window b (DummyWindowManager b) = DummyWindow b
+instance BufferBackend b => IsWindowManager b (DummyWindow b) (DummyWindowManager b) where
   newWindow _wm _properties configCallback _requestCallback = do
     traceM "New window created"
     configCallback defaultWindowConfiguration

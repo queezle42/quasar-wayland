@@ -37,8 +37,7 @@ data ClientWindowManager b = ClientWindowManager {
   wlXdgWmBase :: Object 'Client Interface_xdg_wm_base
 }
 
-instance ClientBufferBackend b => IsWindowManager b (ClientWindowManager b) where
-  type Window b (ClientWindowManager b) = ClientXdgToplevel b
+instance ClientBufferBackend b => IsWindowManager b (ClientXdgToplevel b) (ClientWindowManager b) where
   newWindow = newClientXdgToplevel
 
 data ClientXdgToplevelState b = ClientXdgToplevelState {

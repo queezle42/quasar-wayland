@@ -49,7 +49,7 @@ main = runQuasarAndExit do
     forever do
       join $ atomically (readTQueue jobQueue)
 
-mapWindowManager :: IsWindowManager GlesBackend a => ProxyDemo -> TQueue (IO ()) -> a -> FnWindowManager GlesBackend
+mapWindowManager :: IsWindowManager GlesBackend w a => ProxyDemo -> TQueue (IO ()) -> a -> FnWindowManager GlesBackend
 mapWindowManager demo jobQueue upstream = fnWindowManager {
   newWindowFn = \props cfg req -> mapWindow demo jobQueue <$> fnWindowManager.newWindowFn (mapProperties props) cfg req
 }

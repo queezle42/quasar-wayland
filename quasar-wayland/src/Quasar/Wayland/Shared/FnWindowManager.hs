@@ -21,8 +21,7 @@ data FnWindow b = FnWindow {
   disposer :: Disposer
 }
 
-instance BufferBackend b => IsWindowManager b (FnWindowManager b) where
-  type Window b (FnWindowManager b) = FnWindow b
+instance BufferBackend b => IsWindowManager b (FnWindow b) (FnWindowManager b) where
   newWindow = (.newWindowFn)
 
 instance BufferBackend b => IsWindow b (FnWindow b) where
@@ -33,7 +32,7 @@ instance BufferBackend b => IsWindow b (FnWindow b) where
 instance Disposable (FnWindow b) where
   getDisposer = (.disposer)
 
-toFnWindowManager :: forall b a. IsWindowManager b a => a -> FnWindowManager b
+toFnWindowManager :: forall b w a. IsWindowManager b w a => a -> FnWindowManager b
 toFnWindowManager upstream = FnWindowManager {
   newWindowFn = \props confCB reqCB -> toFnWindow <$> newWindow upstream props confCB reqCB
 }

@@ -14,17 +14,17 @@ import Quasar.Wayland.Server.Surface
 import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Surface
 
-xdgShellGlobal :: forall b wm. IsWindowManager b wm => wm -> Global
+xdgShellGlobal :: forall b w wm. IsWindowManager b w wm => wm -> Global
 xdgShellGlobal wm =
   createGlobal @Interface_xdg_wm_base maxVersion (initializeXdgWmBase @b wm)
 
-data XdgWmBase b wm = IsWindowManager b wm => XdgWmBase {
+data XdgWmBase b w wm = IsWindowManager b w wm => XdgWmBase {
   wm :: wm
 }
 
 initializeXdgWmBase ::
-  forall b a.
-  IsWindowManager b a =>
+  forall b w a.
+  IsWindowManager b w a =>
   a -> Object 'Server Interface_xdg_wm_base -> STMc NoRetry '[SomeException] ()
 initializeXdgWmBase wm wlXdgWm = do
   let xdgWmBase = XdgWmBase { wm }
@@ -38,17 +38,17 @@ initializeXdgWmBase wm wlXdgWm = do
   }
 
 
-data XdgSurface b wm = XdgSurface {
-  xdgWmBase :: XdgWmBase b wm,
+data XdgSurface b w wm = XdgSurface {
+  xdgWmBase :: XdgWmBase b w wm,
   wlXdgSurface :: Object 'Server Interface_xdg_surface,
   serverSurface :: ServerSurface b,
   hasRoleObject :: TVar Bool
 }
 
 initializeXdgSurface ::
-  forall b wm.
-  IsWindowManager b wm =>
-  XdgWmBase b wm ->
+  forall b w wm.
+  IsWindowManager b w wm =>
+  XdgWmBase b w wm ->
   NewObject 'Server Interface_xdg_surface ->
   Object 'Server Interface_wl_surface ->
   STMc NoRetry '[SomeException] ()
@@ -58,9 +58,9 @@ initializeXdgSurface wm wlXdgSurface wlSurface = do
     Nothing -> throwM (userError "Invalid server surface")
 
 initializeXdgSurface' ::
-  forall b wm.
-  IsWindowManager b wm =>
-  XdgWmBase b wm ->
+  forall b w wm.
+  IsWindowManager b w wm =>
+  XdgWmBase b w wm ->
   NewObject 'Server Interface_xdg_surface ->
   ServerSurface b ->
   STMc NoRetry '[] ()
@@ -97,23 +97,23 @@ initializeXdgSurface' xdgWmBase wlXdgSurface serverSurface = do
     ack_configure = \_serial -> pure ()
   }
 
-destroyXdgSurface :: XdgSurface b wm -> STMc NoRetry '[SomeException] ()
+destroyXdgSurface :: XdgSurface b w wm -> STMc NoRetry '[SomeException] ()
 destroyXdgSurface xdgSurface =
   whenM (readTVar xdgSurface.hasRoleObject) do
     -- TODO convert to server error that is relayed to the client
     throwM (userError "Cannot destroy xdg_surface before its role object has been destroyed.")
 
-data XdgToplevel b wm = XdgToplevel {
-  window :: Window b wm,
-  xdgSurface :: XdgSurface b wm,
+data XdgToplevel b w wm = XdgToplevel {
+  window :: w,
+  xdgSurface :: XdgSurface b w wm,
   wlXdgToplevel :: Object 'Server Interface_xdg_toplevel
 }
 
-instance IsWindowManager b wm => IsSurfaceDownstream b (XdgToplevel b wm) where
+instance IsWindowManager b w wm => IsSurfaceDownstream b (XdgToplevel b w wm) where
   commitSurfaceDownstream xdgToplevel surfaceCommit =
     liftSTMc $ commitWindowContent xdgToplevel.window unsafeConfigureSerial surfaceCommit
 
-initializeXdgToplevel :: forall b wm. IsWindowManager b wm => XdgSurface b wm -> NewObject 'Server Interface_xdg_toplevel -> STMc NoRetry '[SomeException] ()
+initializeXdgToplevel :: forall b w wm. IsWindowManager b w wm => XdgSurface b w wm -> NewObject 'Server Interface_xdg_toplevel -> STMc NoRetry '[SomeException] ()
 initializeXdgToplevel xdgSurface wlXdgToplevel = do
   writeTVar xdgSurface.hasRoleObject True
 
@@ -164,23 +164,23 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
     -- should be created after request handlers are attached.
     newWindow xdgSurface.xdgWmBase.wm windowProperties (sendConfigureEvent xdgToplevel) (sendWindowRequest xdgToplevel)
 
-sendConfigureEvent :: XdgToplevel b wm -> WindowConfiguration -> STMc NoRetry '[SomeException] ()
+sendConfigureEvent :: XdgToplevel b w wm -> WindowConfiguration -> STMc NoRetry '[SomeException] ()
 sendConfigureEvent xdgToplevel windowConfiguration = do
   traceM "Sending window configuration"
 
   xdgToplevel.wlXdgToplevel.configure windowConfiguration.width windowConfiguration.height windowConfiguration.states
   xdgToplevel.xdgSurface.wlXdgSurface.configure 0
 
-sendWindowRequest :: XdgToplevel b wm -> WindowRequest -> STMc NoRetry '[SomeException] ()
+sendWindowRequest :: XdgToplevel b w wm -> WindowRequest -> STMc NoRetry '[SomeException] ()
 sendWindowRequest xdgToplevel WindowRequestClose = do
   traceM "Sending window close request"
 
   xdgToplevel.wlXdgToplevel.close
 
-onNullSurfaceCommit :: XdgToplevel b wm -> STM ()
+onNullSurfaceCommit :: XdgToplevel b w wm -> STM ()
 onNullSurfaceCommit = undefined -- TODO unmap surface
 
-destroyXdgToplevel :: XdgToplevel b wm -> STMc NoRetry '[] ()
+destroyXdgToplevel :: XdgToplevel b w wm -> STMc NoRetry '[] ()
 destroyXdgToplevel xdgToplevel = do
   removeSurfaceRole xdgToplevel.xdgSurface.serverSurface
   writeTVar xdgToplevel.xdgSurface.hasRoleObject False
