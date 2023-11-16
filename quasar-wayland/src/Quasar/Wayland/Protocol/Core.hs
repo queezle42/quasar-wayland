@@ -9,6 +9,7 @@ module Quasar.Wayland.Protocol.Core (
   doubleToFixed,
   WlString(..),
   toString,
+  nullWlString,
   SharedFd,
   IsSide(..),
   Side(..),
@@ -161,6 +162,9 @@ instance IsString WlString where
 
 toString :: WlString -> String
 toString (WlString bs) = BSUTF8.toString bs
+
+nullWlString :: WlString -> Bool
+nullWlString (WlString bs) = BS.null bs
 
 
 data MessagePart = MessagePart Put Int (Seq SharedFd)

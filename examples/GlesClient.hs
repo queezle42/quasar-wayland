@@ -11,6 +11,7 @@ import Quasar.Wayland.Gles.Dmabuf
 import Quasar.Wayland.Gles.Egl
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
+import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Shm
 import Quasar.Wayland.Surface
 
@@ -29,11 +30,13 @@ main = do
 
     shouldClose <- newTVarIO False
 
-    tl <- atomicallyC do
+    let properties = defaultWindowProperties {
+      title = "quasar-wayland-example-client-gles"
+    }
+
+    window <- atomicallyC do
       windowManager <- getClientWindowManager @GlesBackend client
-      tl <- newWindow windowManager (writeTMVar configurationVar) (\WindowRequestClose -> writeTVar shouldClose True)
-      setTitle tl "quasar-wayland-example-client"
-      pure tl
+      newWindow windowManager properties (writeTMVar configurationVar) (\WindowRequestClose -> writeTVar shouldClose True)
 
     frameId <- newTVarIO 0
 
@@ -47,7 +50,7 @@ main = do
       let height = max configuration.height 512
       buffer <- liftIO $ renderDemo demo width height (i / 60)
       atomicallyC do
-        commitWindowContent tl configuration.configureSerial defaultSurfaceCommit {
+        commitWindowContent window configuration.configureSerial defaultSurfaceCommit {
           buffer = Just buffer,
           bufferDamage = Just DamageAll
         }

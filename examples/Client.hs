@@ -6,6 +6,7 @@ import Quasar.Timer
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.JuicyPixels
 import Quasar.Wayland.Client.XdgShell
+import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Shm
 import Quasar.Wayland.Surface
 
@@ -21,12 +22,13 @@ main = do
 
     configurationVar <- newEmptyTMVarIO
 
-    tl <- atomicallyC do
+    let properties = defaultWindowProperties {
+      title = "quasar-wayland-example-client"
+    }
+
+    window <- atomicallyC do
       windowManager <- getClientWindowManager @ShmBufferBackend client
-      --windowManager <- newDummyWindowManager @ShmBufferBackend
-      tl <- newWindow windowManager (writeTMVar configurationVar) undefined
-      setTitle tl "quasar-wayland-example-client"
-      pure tl
+      newWindow windowManager properties (writeTMVar configurationVar) undefined
 
     forM_ [solidColor, gradient, gradient2, gradient3, gradient4] \img -> do
       -- Blocks until first configure event
@@ -35,7 +37,7 @@ main = do
       let height = max configuration.height 512
       buffer <- liftIO $ toImageBuffer (mkImage width height img)
       atomicallyC do
-        commitWindowContent tl configuration.configureSerial defaultSurfaceCommit {
+        commitWindowContent window configuration.configureSerial defaultSurfaceCommit {
           buffer = Just buffer
         }
         liftSTMc $ destroyBuffer buffer

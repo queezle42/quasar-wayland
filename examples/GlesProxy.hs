@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Control.Concurrent
 import Quasar
 import Quasar.Prelude
 import Quasar.Wayland.Client
@@ -13,8 +14,8 @@ import Quasar.Wayland.Server.DummyOutput
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.XdgShell
 import Quasar.Wayland.Shared.FnWindowManager
+import Quasar.Wayland.Shared.WindowApi (WindowProperties(..))
 import Quasar.Wayland.Surface
-import Control.Concurrent
 
 main :: IO ()
 main = runQuasarAndExit do
@@ -50,14 +51,18 @@ main = runQuasarAndExit do
 
 mapWindowManager :: IsWindowManager GlesBackend a => ProxyDemo -> TQueue (IO ()) -> a -> FnWindowManager GlesBackend
 mapWindowManager demo jobQueue upstream = fnWindowManager {
-  newWindowFn = \cfg req -> mapWindow demo jobQueue <$> fnWindowManager.newWindowFn cfg req
+  newWindowFn = \props cfg req -> mapWindow demo jobQueue <$> fnWindowManager.newWindowFn (mapProperties props) cfg req
 }
   where
     fnWindowManager = toFnWindowManager upstream
 
+mapProperties :: WindowProperties -> WindowProperties
+mapProperties properties = properties {
+  title = properties.title <> " (proxy)"
+}
+
 mapWindow :: ProxyDemo -> TQueue (IO ()) -> FnWindow GlesBackend -> FnWindow GlesBackend
 mapWindow demo jobQueue window = window {
-  setTitleFn = \title -> setTitle window (title <> " (proxy)"),
   commitWindowContentFn = onWindowContentCommit demo jobQueue window
 }
 

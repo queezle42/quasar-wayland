@@ -3,14 +3,16 @@ module Quasar.Wayland.Server.XdgShell (
 ) where
 
 import Control.Monad.Catch
+import Quasar.Observable.Core (toObservable)
+import Quasar.Observable.ObservableVar
 import Quasar.Prelude
+import Quasar.Resources (disposeEventually)
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Surface
 import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Surface
-import Quasar.Resources (disposeEventually)
 
 xdgShellGlobal :: forall b wm. IsWindowManager b wm => wm -> Global
 xdgShellGlobal wm =
@@ -133,11 +135,14 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
     attachFinalizer wlXdgToplevel do
       void $ disposeEventually window
 
+    titleVar <- newObservableVar ""
+    appIdVar <- newObservableVar ""
+
     setRequestHandler wlXdgToplevel RequestHandler_xdg_toplevel {
       destroy = liftSTMc $ destroyXdgToplevel xdgToplevel,
       set_parent = undefined,
-      set_title = \title -> liftSTMc $ setTitle window title,
-      set_app_id = \appId -> liftSTMc $ setAppId window appId,
+      set_title = writeObservableVar titleVar,
+      set_app_id = writeObservableVar appIdVar,
       show_window_menu = undefined,
       move = undefined,
       resize = undefined,
@@ -150,9 +155,14 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
       set_minimized = undefined
     }
 
+    let windowProperties = WindowProperties {
+      title = toObservable titleVar,
+      appId = toObservable titleVar
+    }
+
     -- `newWindow` might call the configure callback immediately, so the window
     -- should be created after request handlers are attached.
-    newWindow xdgSurface.xdgWmBase.wm (sendConfigureEvent xdgToplevel) (sendWindowRequest xdgToplevel)
+    newWindow xdgSurface.xdgWmBase.wm windowProperties (sendConfigureEvent xdgToplevel) (sendWindowRequest xdgToplevel)
 
 sendConfigureEvent :: XdgToplevel b wm -> WindowConfiguration -> STMc NoRetry '[SomeException] ()
 sendConfigureEvent xdgToplevel windowConfiguration = do

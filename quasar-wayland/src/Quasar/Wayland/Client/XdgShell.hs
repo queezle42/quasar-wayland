@@ -19,15 +19,16 @@ module Quasar.Wayland.Client.XdgShell (
   WindowRequestCallback,
 ) where
 
+import Quasar.Observable.Core (attachSimpleObserver)
 import Quasar.Prelude
-import Quasar.Resources (Disposable (getDisposer))
+import Quasar.Resources (Disposable (getDisposer), TSimpleDisposer)
+import Quasar.Resources.DisposableTVar
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Surface
-import Quasar.Resources.DisposableTVar
 
 
 type ClientWindowManager :: Type -> Type
@@ -41,6 +42,7 @@ instance ClientBufferBackend b => IsWindowManager b (ClientWindowManager b) wher
   newWindow = newClientXdgToplevel
 
 data ClientXdgToplevelState b = ClientXdgToplevelState {
+  propertiesDisposer :: TSimpleDisposer,
   clientSurface :: ClientSurface b,
   xdgSurface :: Object 'Client Interface_xdg_surface,
   xdgToplevel :: Object 'Client Interface_xdg_toplevel,
@@ -51,10 +53,6 @@ data ClientXdgToplevelState b = ClientXdgToplevelState {
 newtype ClientXdgToplevel b = ClientXdgToplevel (DisposableTVar (ClientXdgToplevelState b))
 
 instance ClientBufferBackend b => IsWindow b (ClientXdgToplevel b) where
-  setTitle w title =
-    withState w \state -> state.xdgToplevel.set_title title
-  setAppId w appId =
-    withState w \state -> state.xdgToplevel.set_app_id appId
   setFullscreen w fullscreen =
     withState w \state ->
       if fullscreen
@@ -93,14 +91,15 @@ newClientXdgToplevel ::
   forall b.
   ClientBufferBackend b =>
   ClientWindowManager b ->
+  WindowProperties ->
   WindowConfigurationCallback ->
   WindowRequestCallback ->
   STMc NoRetry '[SomeException] (ClientXdgToplevel b)
-newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} configureCallback requestCallback = do
+newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} properties configureCallback requestCallback = do
   nextConfigureSerial <- newTVar Nothing
   configurationAccumulator <- newTVar defaultWindowConfiguration
 
-  (clientSurface, (xdgSurface, xdgToplevel)) <- newClientSurface @b client \wlSurface -> do
+  (clientSurface, (xdgSurface, xdgToplevel, propertiesDisposer)) <- newClientSurface @b client \wlSurface -> do
 
     xdgSurface <- wlXdgWmBase.get_xdg_surface wlSurface
     setEventHandler xdgSurface EventHandler_xdg_surface {
@@ -117,14 +116,31 @@ newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} configureCallback 
       close = liftSTMc $ requestCallback WindowRequestClose
     }
 
-    pure (xdgSurface, xdgToplevel)
+    (d1, initialTitle) <- liftSTMc $ attachSimpleObserver properties.title do
+      -- TODO ensure this logs/normalizes invalid titles but does not crash the downstream connection
+      tryCall . xdgToplevel.set_title
+
+    unless (nullWlString initialTitle) do
+      xdgToplevel.set_title initialTitle
+
+    (d2, initialAppId) <- liftSTMc $ attachSimpleObserver properties.appId do
+      -- TODO ensure this logs/normalizes invalid app_ids but does not crash the downstream connection
+      tryCall . xdgToplevel.set_app_id
+
+    unless (nullWlString initialAppId) do
+      xdgToplevel.set_app_id initialAppId
+
+    let propertiesDisposer = d1 <> d2
+
+    pure (xdgSurface, xdgToplevel, propertiesDisposer)
 
   let state = ClientXdgToplevelState {
     clientSurface,
     xdgSurface,
     xdgToplevel,
     nextConfigureSerial,
-    configurationAccumulator
+    configurationAccumulator,
+    propertiesDisposer
   }
 
   ClientXdgToplevel <$> newDisposableTVar state disposeClientXdgToplevel

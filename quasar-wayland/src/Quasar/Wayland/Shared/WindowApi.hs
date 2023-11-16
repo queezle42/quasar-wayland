@@ -2,6 +2,8 @@ module Quasar.Wayland.Shared.WindowApi (
   IsWindowManager(..),
   IsWindow(..),
 
+  WindowProperties(..),
+  defaultWindowProperties,
   WindowConfiguration(..),
   WindowConfigurationCallback,
   defaultWindowConfiguration,
@@ -16,17 +18,29 @@ import Quasar.Prelude
 import Quasar.Resources (Disposable)
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Surface
+import Quasar.Observable.Core (Observable, NoLoad)
 
 class IsWindow b (Window b a) => IsWindowManager b a | a -> b where
   type Window b a
-  newWindow :: a -> WindowConfigurationCallback -> WindowRequestCallback -> STMc NoRetry '[SomeException] (Window b a)
+  newWindow :: a -> WindowProperties -> WindowConfigurationCallback -> WindowRequestCallback -> STMc NoRetry '[SomeException] (Window b a)
 
 class (BufferBackend b, Disposable a) => IsWindow b a | a -> b where
-  setTitle :: a -> WlString -> STMc NoRetry '[SomeException] ()
-  setAppId :: a -> WlString -> STMc NoRetry '[SomeException] ()
   setFullscreen :: a -> Bool -> STMc NoRetry '[SomeException] ()
   commitWindowContent :: a -> ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] ()
   ackWindowConfigure :: a -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
+
+data WindowProperties = WindowProperties {
+  title :: Observable NoLoad '[] WlString,
+  appId :: Observable NoLoad '[] WlString
+  --maxSize :: Observable NoLoad '[] (Int, Int),
+  --minSize :: Observable NoLoad '[] (Int, Int)
+}
+
+defaultWindowProperties :: WindowProperties
+defaultWindowProperties = WindowProperties {
+  title = "",
+  appId = ""
+}
 
 
 -- | NOTE Dummy implementation to encourage correct api design without actually implementing configure serials.

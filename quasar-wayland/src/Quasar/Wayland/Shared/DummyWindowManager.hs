@@ -5,7 +5,6 @@ module Quasar.Wayland.Shared.DummyWindowManager (
 ) where
 
 import Quasar.Prelude
-import Quasar.Wayland.Protocol
 import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Surface
 import Quasar.Resources (Disposable (getDisposer))
@@ -19,14 +18,12 @@ data DummyWindow b = DummyWindow
 
 instance BufferBackend b => IsWindowManager b (DummyWindowManager b) where
   type Window b (DummyWindowManager b) = DummyWindow b
-  newWindow _wm configCallback _requestCallback = do
+  newWindow _wm _properties configCallback _requestCallback = do
     traceM "New window created"
     configCallback defaultWindowConfiguration
     pure DummyWindow
 
 instance BufferBackend b => IsWindow b (DummyWindow b) where
-  setTitle _window title = traceM $ mconcat ["Window title: \"", toString title, "\""]
-  setAppId _window appId = traceM $ mconcat ["App id: \"", toString appId, "\""]
   setFullscreen _window _fullscreen = pure ()
   commitWindowContent _window _configureSerial _commit = traceM "Window comitted"
   ackWindowConfigure _window _configureSerial = traceM "Window configure acked"
