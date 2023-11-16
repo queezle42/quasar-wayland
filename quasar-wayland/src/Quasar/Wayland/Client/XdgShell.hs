@@ -22,7 +22,7 @@ module Quasar.Wayland.Client.XdgShell (
 import Quasar.Observable.Core (attachSimpleObserver)
 import Quasar.Prelude
 import Quasar.Resources (Disposable (getDisposer), TSimpleDisposer)
-import Quasar.Resources.DisposableTVar
+import Quasar.Resources.DisposableVar
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Protocol
@@ -49,7 +49,7 @@ data ClientXdgToplevelState b = ClientXdgToplevelState {
   configurationAccumulator :: TVar WindowConfiguration
 }
 
-newtype ClientXdgToplevel b = ClientXdgToplevel (DisposableTVar (ClientXdgToplevelState b))
+newtype ClientXdgToplevel b = ClientXdgToplevel (DisposableVar (ClientXdgToplevelState b))
 
 instance ClientBufferBackend b => IsWindow b (ClientXdgToplevel b) where
   setFullscreen w fullscreen =
@@ -70,7 +70,7 @@ disposeClientXdgToplevel state = do
   -- TODO do we have to release a buffer?
 
 withState :: MonadSTMc NoRetry '[] m => ClientXdgToplevel b -> (ClientXdgToplevelState b -> m ()) -> m ()
-withState (ClientXdgToplevel var) action = tryReadDisposableTVar var >>= mapM_ action
+withState (ClientXdgToplevel var) action = tryReadDisposableVar var >>= mapM_ action
 
 
 
@@ -142,7 +142,7 @@ newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} properties configu
     propertiesDisposer
   }
 
-  ClientXdgToplevel <$> newDisposableTVar state disposeClientXdgToplevel
+  ClientXdgToplevel <$> newDisposableVar state disposeClientXdgToplevel
 
 commitClientXdgToplevel :: forall b. ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] ()
 commitClientXdgToplevel toplevel configureSerial surfaceCommit = do
