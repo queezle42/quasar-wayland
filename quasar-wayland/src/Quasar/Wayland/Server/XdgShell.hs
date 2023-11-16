@@ -157,7 +157,7 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
 
     let windowProperties = WindowProperties {
       title = toObservable titleVar,
-      appId = toObservable titleVar
+      appId = toObservable appIdVar
     }
 
     -- `newWindow` might call the configure callback immediately, so the window
