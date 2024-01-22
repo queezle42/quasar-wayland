@@ -25,6 +25,7 @@ import Quasar.Prelude
 import Quasar.Wayland.Gles.Utils.Stat (DevT(..))
 import Quasar.Wayland.Utils.SharedFd
 import Quasar.Wayland.Utils.SharedMemory
+import Quasar.Resources (Disposable (getDisposer))
 
 data Dmabuf = Dmabuf {
   width :: Int32,
@@ -34,6 +35,9 @@ data Dmabuf = Dmabuf {
 }
   deriving Show
 
+instance Disposable Dmabuf where
+  getDisposer dmabuf = foldMap getDisposer dmabuf.planes
+
 data DmabufPlane = DmabufPlane {
   fd :: SharedFd,
   stride :: Word32,
@@ -41,6 +45,9 @@ data DmabufPlane = DmabufPlane {
   modifier :: DrmModifier
 }
   deriving Show
+
+instance Disposable DmabufPlane where
+  getDisposer plane = getDisposer plane.fd
 
 
 newtype DrmFormat = DrmFormat { fourcc :: Word32 }

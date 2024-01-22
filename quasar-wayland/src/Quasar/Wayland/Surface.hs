@@ -30,9 +30,8 @@ module Quasar.Wayland.Surface (
 import Data.Hashable (Hashable(..))
 import Data.Typeable
 import Quasar.Prelude
-import Quasar.Resources (TSimpleDisposer, newUnmanagedTSimpleDisposer)
+import Quasar.Resources (TDisposer, newUnmanagedTDisposer, Disposable, disposeEventually_)
 import Quasar.Wayland.Region (Rectangle(..))
-import Quasar.Wayland.Utils.Once
 
 type BufferBackend :: Type -> Constraint
 class Typeable b => BufferBackend b where
@@ -58,14 +57,14 @@ instance Hashable (Buffer b) where
   hash x = hash x.key
   hashWithSalt salt x = hashWithSalt salt x.key
 
-newBuffer :: BufferStorage b -> STMc NoRetry '[] () -> STMc NoRetry '[] (Buffer b)
-newBuffer storage bufferDestroyedFn = do
+newBuffer :: Disposable (BufferStorage b) => BufferStorage b -> STMc NoRetry '[] (Buffer b)
+newBuffer storage = do
   key <- newUniqueSTM
   releaseBufferCallback <- newTVar (pure ())
   lockCount <- newTVar 0
   destroyRequested <- newTVar False
   destroyed <- newTVar False
-  destroyedCallback <- newTVar bufferDestroyedFn
+  destroyedCallback <- newTVar (disposeEventually_ storage)
   pure Buffer {
     key,
     storage,
@@ -85,10 +84,10 @@ addBufferDestroyedCallback buffer callback =
   modifyTVar buffer.destroyedCallback (>> callback)
 
 -- | Prevents the buffer from being released. Returns an unlock action.
-lockBuffer :: Buffer b -> STMc NoRetry '[] TSimpleDisposer
+lockBuffer :: Buffer b -> STMc NoRetry '[] TDisposer
 lockBuffer buffer = do
   modifyTVar buffer.lockCount succ
-  newUnmanagedTSimpleDisposer unlockBuffer
+  newUnmanagedTDisposer unlockBuffer
   where
     unlockBuffer :: STMc NoRetry '[] ()
     unlockBuffer = do

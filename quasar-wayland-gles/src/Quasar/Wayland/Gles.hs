@@ -210,8 +210,7 @@ renderDemo RenderDemo{egl, framebuffer, shaderProgram} width height time = do
 
   dmabuf <- eglExportDmabuf egl eglImage width height
   eglDestroyImage egl eglImage
-  let glesBuffer = GlesBuffer dmabuf
-  atomicallyC $ newBuffer glesBuffer (traceM "TODO Should destroy dmabuf (but sending currently closes the fds)")
+  atomicallyC $ newBuffer (GlesBuffer dmabuf)
 
 
 proxyDemo :: ProxyDemo -> Dmabuf -> IO (Buffer GlesBackend)
@@ -321,8 +320,7 @@ proxyDemo ProxyDemo{egl, framebuffer, shaderProgram} inputDmabuf = do
 
   dmabuf <- eglExportDmabuf egl eglImage width height
   eglDestroyImage egl eglImage
-  let glesBuffer = GlesBuffer dmabuf
-  atomicallyC $ newBuffer glesBuffer (traceM "TODO Should destroy dmabuf (but sending currently closes the fds)")
+  atomicallyC $ newBuffer (GlesBuffer dmabuf)
 
 
 glGetString :: GLenum -> IO String

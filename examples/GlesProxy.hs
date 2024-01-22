@@ -76,7 +76,7 @@ onWindowContentCommit demo jobQueue window serial commit = do
       writeTQueue jobQueue do
         b <- proxyDemo demo $ getDmabuf buffer.storage
         atomicallyC do
-          disposeTSimpleDisposer disposer
+          disposeTDisposer disposer
           commitWindowContent window serial commit {
             buffer = Just b
           }

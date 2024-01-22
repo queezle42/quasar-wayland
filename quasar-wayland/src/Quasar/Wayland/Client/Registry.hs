@@ -36,7 +36,7 @@ data Global = Global {
 
 createRegistry :: Object 'Client Interface_wl_display -> STMc NoRetry '[SomeException] (FutureEx '[SomeException] Registry)
 createRegistry wlDisplay = mfixExtra \clientRegistry -> do
-  globals <- ObservableMap.newObservableMapVar mempty
+  globals <- ObservableMap.newVar mempty
 
   wlRegistry <- wlDisplay.get_registry
   setMessageHandler wlRegistry (messageHandler clientRegistry)
@@ -57,11 +57,11 @@ createRegistry wlDisplay = mfixExtra \clientRegistry -> do
         global :: Word32 -> WlString -> Word32 -> STMc NoRetry '[SomeException] ()
         global name interface version = do
           let global' = Global { name, interface, version }
-          ObservableMap.insert clientRegistry.globals name global'
+          ObservableMap.insertVar clientRegistry.globals name global'
 
         global_remove :: Word32 -> STMc NoRetry '[SomeException] ()
         global_remove name = do
-          result <- ObservableMap.lookupDelete clientRegistry.globals name
+          result <- ObservableMap.lookupDeleteVar clientRegistry.globals name
           case result of
             Nothing -> traceM $ "Invalid global removed by server: " <> show name
             Just _ -> pure ()

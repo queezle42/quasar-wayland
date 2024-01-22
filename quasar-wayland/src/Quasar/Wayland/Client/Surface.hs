@@ -16,7 +16,7 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Typeable (Typeable)
 import Quasar.Prelude
-import Quasar.Resources (TSimpleDisposer, disposeTSimpleDisposer)
+import Quasar.Resources (TDisposer, disposeTDisposer)
 import Quasar.Wayland.Client
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
@@ -76,7 +76,7 @@ newClientBuffer client buffer = do
     readTVar clientBuffer.state >>= \case
       Attached lockDisposer -> do
         writeTVar clientBuffer.state Destroyed
-        disposeTSimpleDisposer lockDisposer
+        disposeTDisposer lockDisposer
       Released -> pure ()
       Destroyed -> pure ()
 
@@ -91,7 +91,7 @@ releaseClientBuffer clientBuffer = do
   readTVar clientBuffer.state >>= \case
     Attached lockDisposer -> do
       writeTVar clientBuffer.state Released
-      disposeTSimpleDisposer lockDisposer
+      disposeTDisposer lockDisposer
     Released -> traceM "ClientBuffer: Duplicate release"
     Destroyed -> traceM "ClientBuffer: Release called but is already destroyed"
 
@@ -110,7 +110,7 @@ newSingleUseClientBuffer surfaceManager buffer = do
   lockDisposer <- liftSTMc $ lockBuffer buffer
   wlBuffer <- exportWlBuffer surfaceManager.bufferManager buffer
 
-  attachFinalizer wlBuffer (disposeTSimpleDisposer lockDisposer)
+  attachFinalizer wlBuffer (disposeTDisposer lockDisposer)
 
   setEventHandler wlBuffer EventHandler_wl_buffer {
     release = wlBuffer.destroy
@@ -129,7 +129,7 @@ data ClientSurface b = ClientSurface {
   wlSurface :: Object 'Client Interface_wl_surface
 }
 
-data ClientBufferState = Attached TSimpleDisposer | Released | Destroyed
+data ClientBufferState = Attached TDisposer | Released | Destroyed
 
 data ClientBuffer b = ClientBuffer {
   wlBuffer :: Object 'Client Interface_wl_buffer,

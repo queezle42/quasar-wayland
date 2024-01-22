@@ -21,6 +21,7 @@ import Data.Set qualified as Set
 import Foreign
 import Quasar.Future
 import Quasar.Prelude
+import Quasar.Resources (Disposable)
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Gles.Dmabuf
@@ -37,9 +38,10 @@ data GlesBackend
 instance BufferBackend GlesBackend where
   type BufferStorage GlesBackend = GlesBuffer
 
-data GlesBuffer = GlesBuffer {
+newtype GlesBuffer = GlesBuffer {
   dmabuf :: Dmabuf
 }
+  deriving newtype Disposable
 
 getDmabuf :: GlesBuffer -> Dmabuf
 getDmabuf (GlesBuffer dmabuf) = dmabuf
@@ -115,10 +117,12 @@ exportGlesWlBuffer dmabufSingleton buffer = do
     failed = traceM "Buffer creation failed"
   }
 
-  forM_ (zip [0,1..] buffer.dmabuf.planes) \(i, plane) ->
-    bufferParams.add plane.fd i plane.offset plane.stride plane.modifier.hi plane.modifier.lo
+  let dmabuf = buffer.dmabuf
+  forM_ (zip [0,1..] dmabuf.planes) \(i, plane) -> do
+    fd <- duplicateSharedFd plane.fd
+    bufferParams.add fd i plane.offset plane.stride plane.modifier.hi plane.modifier.lo
 
-  bufferParams.create_immed buffer.dmabuf.width buffer.dmabuf.height buffer.dmabuf.format.fourcc 0
+  bufferParams.create_immed dmabuf.width dmabuf.height dmabuf.format.fourcc 0
 
 
 -- * Server
@@ -222,5 +226,5 @@ initializeDmabufBuffer var wlBuffer width height format flags = do
   dmabuf <- importDmabufServerBuffer var width height format flags
   liftSTMc do
     -- Second arg is the destroy callback
-    buffer <- newBuffer @GlesBackend (GlesBuffer dmabuf) (pure ())
+    buffer <- newBuffer @GlesBackend (GlesBuffer dmabuf)
     initializeWlBuffer wlBuffer buffer
