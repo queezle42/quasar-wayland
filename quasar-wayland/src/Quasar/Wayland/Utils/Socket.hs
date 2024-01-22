@@ -12,10 +12,11 @@ import Network.Socket.Internal (zeroMemory)
 import Quasar.Prelude
 
 
-instance SA.SocketAddress () where
+data NoAddress = NoAddress
+instance SA.SocketAddress NoAddress where
   sizeOfSocketAddress _ = 0
-  peekSocketAddress _ptr = pure ()
-  pokeSocketAddress _ptr () = pure ()
+  peekSocketAddress _ptr = pure NoAddress
+  pokeSocketAddress _ptr NoAddress = pure ()
 
 
 
@@ -35,7 +36,7 @@ sendMsg :: Socket       -- ^ Socket
         -> IO Int       -- ^ The length actually sent
 sendMsg _    []  _ _ = pure 0
 sendMsg s bss cmsgs flags = withBufSizs bss $ \bufsizs ->
-    SA.sendBufMsg s () bufsizs cmsgs flags
+    SA.sendBufMsg s NoAddress bufsizs cmsgs flags
 
 -- | Receive data from the connected socket using recvmsg(2).
 recvMsg :: Socket  -- ^ Socket
@@ -50,7 +51,7 @@ recvMsg :: Socket  -- ^ Socket
 recvMsg s siz clen flags = do
     bs@(PS fptr _ _) <- create siz $ \ptr -> zeroMemory ptr (fromIntegral siz)
     withForeignPtr fptr $ \ptr -> do
-        ((),len,cmsgs,flags') <- SA.recvBufMsg s [(ptr,siz)] clen flags
+        (NoAddress, len, cmsgs, flags') <- SA.recvBufMsg s [(ptr,siz)] clen flags
         let bs' | len < siz = PS fptr 0 len
                 | otherwise = bs
         pure (bs', cmsgs, flags')
