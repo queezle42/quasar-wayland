@@ -43,12 +43,12 @@ memfdCreateFd size = Fd <$> throwErrnoIfMinus1 "memfd_create/ftruncate"
     int {
       int fd = memfd_create("shm", MFD_CLOEXEC | MFD_ALLOW_SEALING);
       if (fd < 0) {
-              return fd;
+        return fd;
       }
 
       if (ftruncate(fd, $(off_t size)) < 0) {
-              close(fd);
-              return -1;
+        close(fd);
+        return -1;
       }
       return fd;
     }
