@@ -30,7 +30,7 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Surface
-import Quasar.Wayland.Surface
+import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Utils.SharedFd
 
 data GlesBackend

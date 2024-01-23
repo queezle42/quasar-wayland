@@ -8,8 +8,8 @@ import Codec.Picture
 import Foreign
 import Quasar.Prelude
 import Quasar.Wayland.Client.ShmBuffer
+import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shm
-import Quasar.Wayland.Surface
 
 loadImageBuffer :: FilePath -> IO (Buffer ShmBufferBackend)
 loadImageBuffer path = do

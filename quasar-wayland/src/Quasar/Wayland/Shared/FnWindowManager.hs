@@ -6,9 +6,9 @@ module Quasar.Wayland.Shared.FnWindowManager (
 ) where
 
 import Quasar.Prelude
-import Quasar.Wayland.Shared.WindowApi
-import Quasar.Wayland.Surface
 import Quasar.Resources (Disposer, Disposable(getDisposer))
+import Quasar.Wayland.Shared.Surface
+import Quasar.Wayland.Shared.WindowApi
 
 newtype FnWindowManager b = FnWindowManager {
   newWindowFn :: WindowProperties -> WindowConfigurationCallback -> WindowRequestCallback -> STMc NoRetry '[SomeException] (FnWindow b)

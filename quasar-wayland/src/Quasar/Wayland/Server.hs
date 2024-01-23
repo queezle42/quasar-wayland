@@ -18,7 +18,7 @@ import Quasar.Wayland.Region
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Socket
 import Quasar.Wayland.Server.Surface
-import Quasar.Wayland.Surface
+import Quasar.Wayland.Shared.Surface
 
 
 data WaylandServer = WaylandServer {

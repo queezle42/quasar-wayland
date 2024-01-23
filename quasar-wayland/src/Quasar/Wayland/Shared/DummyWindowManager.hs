@@ -5,9 +5,9 @@ module Quasar.Wayland.Shared.DummyWindowManager (
 ) where
 
 import Quasar.Prelude
-import Quasar.Wayland.Shared.WindowApi
-import Quasar.Wayland.Surface
 import Quasar.Resources (Disposable (getDisposer))
+import Quasar.Wayland.Shared.Surface
+import Quasar.Wayland.Shared.WindowApi
 
 data DummyWindowManager b = DummyWindowManager
 

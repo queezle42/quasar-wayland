@@ -15,7 +15,7 @@ import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.XdgShell
 import Quasar.Wayland.Shared.FnWindowManager
 import Quasar.Wayland.Shared.WindowApi (WindowProperties(..))
-import Quasar.Wayland.Surface
+import Quasar.Wayland.Shared.Surface
 
 main :: IO ()
 main = runQuasarAndExit do

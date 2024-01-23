@@ -29,7 +29,7 @@ import Quasar.Wayland.Gles.Debug
 import Quasar.Wayland.Gles.Egl
 import Quasar.Wayland.Gles.Types
 import Quasar.Wayland.Gles.Utils.InlineC
-import Quasar.Wayland.Surface
+import Quasar.Wayland.Shared.Surface
 import System.IO (stderr)
 
 C.context ctx

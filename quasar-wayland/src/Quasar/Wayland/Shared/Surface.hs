@@ -1,4 +1,4 @@
-module Quasar.Wayland.Surface (
+module Quasar.Wayland.Shared.Surface (
   -- * Buffer backend
   BufferBackend(..),
   Buffer(storage),

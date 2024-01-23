@@ -7,8 +7,8 @@ module Quasar.Wayland.Client.ShmBuffer (
 import Control.Monad.Catch
 import Foreign
 import Quasar.Prelude
+import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shm
-import Quasar.Wayland.Surface
 import Quasar.Wayland.Utils.SharedFd
 import Quasar.Wayland.Utils.SharedMemory
 

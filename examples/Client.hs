@@ -6,9 +6,9 @@ import Quasar.Timer
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.JuicyPixels
 import Quasar.Wayland.Client.XdgShell
+import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Shm
-import Quasar.Wayland.Surface
 
 import Codec.Picture
 

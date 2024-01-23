@@ -17,8 +17,8 @@ import Data.ByteString qualified as BS
 import Quasar.Prelude
 import Quasar.Resources (Disposable)
 import Quasar.Wayland.Protocol
-import Quasar.Wayland.Surface
 import Quasar.Observable.Core (Observable, NoLoad)
+import Quasar.Wayland.Shared.Surface
 
 class IsWindow b w => IsWindowManager b w a | a -> b, a -> w where
   newWindow :: a -> WindowProperties -> WindowConfigurationCallback -> WindowRequestCallback -> STMc NoRetry '[SomeException] w

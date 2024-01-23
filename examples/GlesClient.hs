@@ -11,9 +11,9 @@ import Quasar.Wayland.Gles.Dmabuf
 import Quasar.Wayland.Gles.Egl
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
+import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Shm
-import Quasar.Wayland.Surface
 
 
 main :: IO ()

@@ -11,8 +11,8 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Surface
+import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
-import Quasar.Wayland.Surface
 
 xdgShellGlobal :: forall b w wm. IsWindowManager b w wm => wm -> Global
 xdgShellGlobal wm =

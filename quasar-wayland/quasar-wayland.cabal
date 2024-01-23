@@ -75,9 +75,9 @@ library
     Quasar.Wayland.Server.XdgShell
     Quasar.Wayland.Shared.DummyWindowManager
     Quasar.Wayland.Shared.FnWindowManager
+    Quasar.Wayland.Shared.Surface
     Quasar.Wayland.Shared.WindowApi
     Quasar.Wayland.Shm
-    Quasar.Wayland.Surface
     Quasar.Wayland.Utils.SharedFd
     Quasar.Wayland.Utils.SharedMemory
   other-modules:

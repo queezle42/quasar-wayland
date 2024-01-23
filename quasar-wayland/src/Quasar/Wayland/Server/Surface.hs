@@ -13,7 +13,7 @@ import Quasar.Prelude
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (appAsRect)
-import Quasar.Wayland.Surface
+import Quasar.Wayland.Shared.Surface
 
 
 data ServerSurface b = ServerSurface {
