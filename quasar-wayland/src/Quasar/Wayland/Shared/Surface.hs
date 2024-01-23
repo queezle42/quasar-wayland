@@ -32,7 +32,7 @@ import Quasar.Resources (TDisposer, newUnmanagedTDisposer, Disposable, disposeEv
 import Quasar.Wayland.Region (Rectangle(..))
 
 type BufferBackend :: Type -> Constraint
-class Typeable b => BufferBackend b where
+class (Typeable b, Disposable (BufferStorage b)) => BufferBackend b where
   type BufferStorage b :: Type
 
 
