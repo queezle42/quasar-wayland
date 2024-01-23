@@ -11,8 +11,9 @@ import Quasar.Wayland.Server.DummyOutput
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.XdgShell
 import Quasar.Wayland.Shared.FnWindowManager
-import Quasar.Wayland.Shared.WindowApi (WindowProperties(..))
 import Quasar.Wayland.Shared.Surface
+import Quasar.Wayland.Shared.WindowApi (WindowProperties(..), toWindowFactory)
+import Quasar.Wayland.Shared.WindowMultiplexer
 
 main :: IO ()
 main = runQuasarAndExit do
@@ -30,13 +31,17 @@ main = runQuasarAndExit do
     --clientDmabuf <- atomically $ getClientDmabufSingleton client
     --(dmabufFormats, dmabufModifiers) <- awaitSupportedFormats clientDmabuf
 
+    wlClientWM <- atomicallyC $ getClientWindowManager @GlesBackend client
+
     jobQueue <- newTQueueIO
-    windowManager <- atomicallyC $ mapWindowManager demo jobQueue <$> getClientWindowManager @GlesBackend client
+    let shaderWM = mapWindowManager demo jobQueue wlClientWM
+
+    let muxWM = WindowMultiplexerFactory [toWindowFactory shaderWM, toWindowFactory wlClientWM]
 
     registry <- newRegistry [
       compositorGlobal @GlesBackend,
       dummyOutputGlobal,
-      xdgShellGlobal windowManager,
+      xdgShellGlobal muxWM,
       glesDmabufGlobal backend
       ]
     server <- newWaylandServer registry
