@@ -76,7 +76,7 @@ newSharedFd :: Fd -> IO SharedFd
 newSharedFd fd = do
   rc <- newFdRc fd
   -- TODO
-  var <- newDisposableVarIO undefined (decRc closeFd (const (pure ()))) rc
+  var <- newDisposableVarIO loggingExceptionSink (decRc closeFd (const (pure ()))) rc
   pure (SharedFd var ("Fd@" <> show fd))
 
 -- | @withSharedFd fn sfd@ executes the computation @fn@, passing the underlying
