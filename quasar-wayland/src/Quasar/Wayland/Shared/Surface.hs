@@ -15,8 +15,6 @@ module Quasar.Wayland.Shared.Surface (
   SurfaceCommit(..),
   IsSurfaceDownstream(..),
   SurfaceDownstream,
-  IsSurfaceUpstream(..),
-  SurfaceUpstream,
   defaultSurfaceCommit,
 
   --Surface,
@@ -155,18 +153,6 @@ class IsSurfaceDownstream b a | a -> b where
 instance IsSurfaceDownstream b (SurfaceDownstream b) where
   toSurfaceDownstream = id
   commitSurfaceDownstream (SurfaceDownstream x) = commitSurfaceDownstream x
-
-
-data SurfaceUpstream b = forall a. IsSurfaceUpstream b a => SurfaceUpstream a
-
-class IsSurfaceUpstream b a | a -> b where
-  toSurfaceUpstream :: a -> SurfaceUpstream b
-  toSurfaceUpstream = SurfaceUpstream
-  connectSurfaceDownstream :: IsSurfaceDownstream b d => a -> d -> STM ()
-
-instance IsSurfaceUpstream b (SurfaceUpstream b) where
-  toSurfaceUpstream = id
-  connectSurfaceDownstream (SurfaceUpstream x) = connectSurfaceDownstream @b x
 
 
 defaultSurfaceCommit :: SurfaceCommit b
