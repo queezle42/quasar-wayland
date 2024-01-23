@@ -37,9 +37,7 @@ main = do
       let height = max configuration.height 512
       buffer <- liftIO $ toImageBuffer (mkImage width height img)
       atomicallyC do
-        commitWindowContent window configuration.configureSerial defaultSurfaceCommit {
-          buffer = Just buffer
-        }
+        commitWindowContent window configuration.configureSerial (defaultSurfaceCommit buffer)
         liftSTMc $ destroyBuffer buffer
 
       await =<< newDelay 1000000

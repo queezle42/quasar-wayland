@@ -134,7 +134,7 @@ addDamage x (Just (DamageList xs)) = Just (DamageList (x : xs))
 
 
 data SurfaceCommit b = SurfaceCommit {
-  buffer :: Maybe (Buffer b),
+  buffer :: Buffer b,
   offset :: Maybe (Int32, Int32),
   -- | May be empty on the first commit.
   bufferDamage :: Maybe Damage,
@@ -148,16 +148,22 @@ class IsSurfaceDownstream b a | a -> b where
   toSurfaceDownstream :: a -> SurfaceDownstream b
   toSurfaceDownstream = SurfaceDownstream
   -- TODO Don't allow exceptions or limit allowed exception types. Currently implementations of this leak exceptions across a responsibility bondary.
+  -- | Called on surface commit. The provided buffer is only valid during the
+  -- call of the function and needs to be locked (see `lockBuffer`) by the
+  -- callee to prevent it from being released.
   commitSurfaceDownstream :: a -> SurfaceCommit b -> STMc NoRetry '[SomeException] ()
+  -- | Called on a NULL surface commit.
+  unmapSurfaceDownstream :: a -> STMc NoRetry '[SomeException] ()
 
 instance IsSurfaceDownstream b (SurfaceDownstream b) where
   toSurfaceDownstream = id
   commitSurfaceDownstream (SurfaceDownstream x) = commitSurfaceDownstream x
+  unmapSurfaceDownstream (SurfaceDownstream x) = unmapSurfaceDownstream x
 
 
-defaultSurfaceCommit :: SurfaceCommit b
-defaultSurfaceCommit = SurfaceCommit {
-  buffer = Nothing,
+defaultSurfaceCommit :: Buffer b -> SurfaceCommit b
+defaultSurfaceCommit buffer = SurfaceCommit {
+  buffer,
   offset = Nothing,
   bufferDamage = Nothing,
   frameCallback = Nothing

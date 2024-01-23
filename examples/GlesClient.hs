@@ -50,10 +50,9 @@ main = do
       let height = max configuration.height 512
       buffer <- liftIO $ renderDemo demo width height (i / 60)
       atomicallyC do
-        commitWindowContent window configuration.configureSerial defaultSurfaceCommit {
-          buffer = Just buffer,
+        commitWindowContent window configuration.configureSerial ((defaultSurfaceCommit buffer) {
           bufferDamage = Just DamageAll
-        }
+        })
         liftSTMc $ destroyBuffer buffer
 
       await =<< newDelay 16000

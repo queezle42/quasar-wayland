@@ -185,6 +185,7 @@ newClientSurface client initializeSurfaceRoleFn = do
 
 instance ClientBufferBackend b => IsSurfaceDownstream b (ClientSurface b) where
   commitSurfaceDownstream = commitClientSurface
+  unmapSurfaceDownstream = undefined
 
 commitClientSurface :: ClientBufferBackend b => ClientSurface b -> SurfaceCommit b -> STMc NoRetry '[SomeException] ()
 commitClientSurface surface commit = do
@@ -192,13 +193,12 @@ commitClientSurface surface commit = do
 
   -- TODO wl_surface v5 offset changes
 
-  forM_ commit.buffer \buffer -> do
-    let offset = fromMaybe (0, 0) commit.offset
+  let offset = fromMaybe (0, 0) commit.offset
 
-    wlBuffer <- requestClientBuffer surface.surfaceManager buffer
-    -- NOTE Alternative which does not leak buffer objects (until TODOs are fixed) by never reusing buffers
-    --wlBuffer <- newSingleUseClientBuffer surface.surfaceManager buffer
-    surface.wlSurface.attach (Just wlBuffer) (fst offset) (snd offset)
+  wlBuffer <- requestClientBuffer surface.surfaceManager commit.buffer
+  -- NOTE Alternative which does not leak buffer objects (until TODOs are fixed) by never reusing buffers
+  --wlBuffer <- newSingleUseClientBuffer surface.surfaceManager buffer
+  surface.wlSurface.attach (Just wlBuffer) (fst offset) (snd offset)
 
   mapM_ (addBufferDamage surface.wlSurface) commit.bufferDamage
 

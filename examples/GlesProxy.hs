@@ -69,15 +69,12 @@ mapWindow demo jobQueue window = window {
 onWindowContentCommit :: ProxyDemo -> TQueue (IO ()) -> FnWindow GlesBackend -> ConfigureSerial -> SurfaceCommit GlesBackend -> STMc NoRetry '[SomeException] ()
 onWindowContentCommit demo jobQueue window serial commit = do
   traceM "commit"
-  case commit.buffer of
-    Nothing -> commitWindowContent window serial commit
-    Just buffer -> do
-      disposer <- liftSTMc $ lockBuffer buffer
-      writeTQueue jobQueue do
-        b <- proxyDemo demo $ getDmabuf buffer.storage
-        atomicallyC do
-          disposeTDisposer disposer
-          commitWindowContent window serial commit {
-            buffer = Just b
-          }
-          liftSTMc $ destroyBuffer b
+  disposer <- liftSTMc $ lockBuffer commit.buffer
+  writeTQueue jobQueue do
+    b <- proxyDemo demo $ getDmabuf commit.buffer.storage
+    atomicallyC do
+      disposeTDisposer disposer
+      commitWindowContent window serial commit {
+        buffer = b
+      }
+      liftSTMc $ destroyBuffer b

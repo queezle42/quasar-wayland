@@ -104,16 +104,20 @@ commitMappedServerSurface surface mapped = do
         _ -> Just DamageAll
     combinedDamage = bufferDamage <> convertedSurfaceDamage
 
-  -- Attach callback for wl_buffer.release
-  forM_ serverBuffer \sb ->
-    liftSTMc $ addBufferReleaseCallback sb.buffer (tryCall sb.wlBuffer.release)
+  case serverBuffer of
+    Nothing -> do
+      when (isJust frameCallback) $ throwM $ userError "Must not attach frame callback when unmapping surface"
+      unmapSurfaceDownstream mapped.surfaceDownstream
+    Just sb -> do
+      -- Attach callback for wl_buffer.release
+      liftSTMc $ addBufferReleaseCallback sb.buffer (tryCall sb.wlBuffer.release)
 
-  liftSTMc $ commitSurfaceDownstream mapped.surfaceDownstream SurfaceCommit {
-    buffer = (.buffer) <$> serverBuffer,
-    offset,
-    bufferDamage = combinedDamage,
-    frameCallback
-  }
+      liftSTMc $ commitSurfaceDownstream mapped.surfaceDownstream SurfaceCommit {
+        buffer = sb.buffer,
+        offset,
+        bufferDamage = combinedDamage,
+        frameCallback
+      }
 
 
 requireMappedSurface :: ServerSurface b -> STMc NoRetry '[SomeException] (MappedServerSurface b)
