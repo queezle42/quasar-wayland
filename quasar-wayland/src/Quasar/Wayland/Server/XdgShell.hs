@@ -53,9 +53,8 @@ initializeXdgSurface ::
   Object 'Server Interface_wl_surface ->
   STMc NoRetry '[SomeException] ()
 initializeXdgSurface wm wlXdgSurface wlSurface = do
-  liftSTMc (getServerSurface wlSurface) >>= \case
-    Just serverSurface -> liftSTMc $ initializeXdgSurface' wm wlXdgSurface serverSurface
-    Nothing -> throwM (userError "Invalid server surface")
+  serverSurface <- getServerSurface wlSurface
+  liftSTMc $ initializeXdgSurface' wm wlXdgSurface serverSurface
 
 initializeXdgSurface' ::
   forall b w wm.

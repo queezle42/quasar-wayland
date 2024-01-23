@@ -60,8 +60,11 @@ newServerSurface = do
     pendingFrameCallback
   }
 
-getServerSurface :: forall b. BufferBackend b => Object 'Server Interface_wl_surface -> STMc NoRetry '[] (Maybe (ServerSurface b))
-getServerSurface wlSurface = getInterfaceData @(ServerSurface b) wlSurface
+getServerSurface :: forall b. BufferBackend b => Object 'Server Interface_wl_surface -> STMc NoRetry '[SomeException] (ServerSurface b)
+getServerSurface wlSurface =
+  getInterfaceData @(ServerSurface b) wlSurface >>= \case
+    Nothing -> throwM (userError "Invalid server surface")
+    Just serverSurface -> pure serverSurface
 
 commitServerSurface :: ServerSurface b -> STMc NoRetry '[SomeException] ()
 commitServerSurface serverSurface = do
