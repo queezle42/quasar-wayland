@@ -6,9 +6,6 @@ import Quasar.Prelude
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.XdgShell
 import Quasar.Wayland.Gles
-import Quasar.Wayland.Gles.Backend
-import Quasar.Wayland.Gles.Dmabuf
-import Quasar.Wayland.Gles.Egl
 import Quasar.Wayland.Server
 import Quasar.Wayland.Server.DummyOutput
 import Quasar.Wayland.Server.Registry
@@ -25,9 +22,9 @@ main = runQuasarAndExit do
   quasar <- askQuasar
   liftIO $ runInBoundThread do
 
-    egl <- initializeGles
-    (dmabufFormats, dmabufModifiers) <- eglQueryDmabufFormats egl
-    feedback <- getDmabufFeedback egl
+    backend <- initializeGlesBackend
+    let egl = backend.egl
+
     demo <- setupProxyDemo egl
 
     --clientDmabuf <- atomically $ getClientDmabufSingleton client
@@ -39,8 +36,8 @@ main = runQuasarAndExit do
     registry <- newRegistry [
       compositorGlobal @GlesBackend,
       dummyOutputGlobal,
-      dmabufGlobal dmabufFormats dmabufModifiers feedback,
-      xdgShellGlobal windowManager
+      xdgShellGlobal windowManager,
+      glesDmabufGlobal backend
       ]
     server <- newWaylandServer registry
     runQuasarIO quasar do

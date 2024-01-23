@@ -6,14 +6,8 @@ import Quasar.Timer
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.XdgShell
 import Quasar.Wayland.Gles
-import Quasar.Wayland.Gles.Backend
-import Quasar.Wayland.Gles.Dmabuf
-import Quasar.Wayland.Gles.Egl
-import Quasar.Wayland.Protocol
-import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
-import Quasar.Wayland.Shm
 
 
 main :: IO ()

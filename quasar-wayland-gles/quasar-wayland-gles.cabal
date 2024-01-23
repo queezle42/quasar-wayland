@@ -58,7 +58,6 @@ library
   import: shared-properties
   exposed-modules:
     Quasar.Wayland.Gles
-    Quasar.Wayland.Gles.Backend
     Quasar.Wayland.Gles.Dmabuf
     Quasar.Wayland.Gles.Egl
   other-modules:

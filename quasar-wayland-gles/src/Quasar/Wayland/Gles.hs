@@ -1,6 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Quasar.Wayland.Gles (
+  Egl,
   initializeGles,
 
   RenderDemo,
@@ -11,8 +12,23 @@ module Quasar.Wayland.Gles (
   setupProxyDemo,
   setupProxyDemoShader,
   proxyDemo,
+
+  GlesBackend(..),
+  initializeGlesBackend,
+  GlesBuffer(..),
+  getDmabuf,
+
+  -- * Client
+  ClientDmabufSingleton,
+  newClientDmabufSingleton,
+  getClientDmabufSingleton,
+  awaitSupportedFormats,
+
+  -- * Server
+  glesDmabufGlobal,
 ) where
 
+import Control.Monad.Catch
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Set (Set)
@@ -24,11 +40,16 @@ import Language.C.Inline qualified as C
 import Language.C.Inline.Unsafe qualified as CU
 import Paths_quasar_wayland_gles (getDataFileName)
 import Quasar.Prelude
-import Quasar.Wayland.Gles.Backend
+import Quasar.Resources (Disposable)
+import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Gles.Debug
+import Quasar.Wayland.Gles.Dmabuf
 import Quasar.Wayland.Gles.Egl
 import Quasar.Wayland.Gles.Types
 import Quasar.Wayland.Gles.Utils.InlineC
+import Quasar.Wayland.Protocol
+import Quasar.Wayland.Protocol.Generated
+import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Shared.Surface
 import System.IO (stderr)
 
@@ -494,3 +515,53 @@ glGetUniformLocation program name =
     [CU.block|GLint {
       glGetUniformLocation($(GLuint program), $(const GLchar* namePtr));
     }|]
+
+
+data GlesBackend = GlesBackend {
+  egl :: Egl,
+  version1Formats :: [DrmFormat],
+  version3FormatTable :: DmabufFormatTable,
+  feedback :: CompiledDmabufFeedback
+}
+
+instance BufferBackend GlesBackend where
+  type BufferStorage GlesBackend = GlesBuffer
+
+-- | Needs to run on Egl/GL thread.
+initializeGlesBackend :: IO GlesBackend
+initializeGlesBackend = do
+  egl <- initializeGles
+  (dmabufFormats, dmabufModifiers) <- eglQueryDmabufFormats egl
+  feedback <- getDmabufFeedback egl
+  pure GlesBackend {
+    egl,
+    version1Formats = dmabufFormats,
+    version3FormatTable = dmabufModifiers,
+    feedback
+  }
+
+glesDmabufGlobal :: GlesBackend -> Global
+glesDmabufGlobal backend =
+  dmabufGlobal @GlesBackend
+    GlesBuffer
+    backend.version1Formats
+    backend.version3FormatTable
+    backend.feedback
+
+newtype GlesBuffer = GlesBuffer {
+  dmabuf :: Dmabuf
+}
+  deriving newtype Disposable
+
+getDmabuf :: GlesBuffer -> Dmabuf
+getDmabuf (GlesBuffer dmabuf) = dmabuf
+
+
+instance ClientBufferBackend GlesBackend where
+  type ClientBufferManager GlesBackend = ClientDmabufSingleton
+  newClientBufferManager = newClientDmabufSingleton
+  exportWlBuffer manager buffer = exportGlesWlBuffer manager buffer.storage
+
+exportGlesWlBuffer :: ClientDmabufSingleton -> GlesBuffer -> STMc NoRetry '[SomeException] (NewObject 'Client Interface_wl_buffer)
+exportGlesWlBuffer dmabufSingleton buffer =
+  exportDmabufWlBuffer dmabufSingleton buffer.dmabuf
