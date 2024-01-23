@@ -56,4 +56,4 @@ main = do
   traceIO "Closed"
 
 whileM :: Monad m => m Bool -> m () -> m ()
-whileM pred action = whenM pred (action >> whileM pred action)
+whileM p action = whenM p (action >> whileM p action)
