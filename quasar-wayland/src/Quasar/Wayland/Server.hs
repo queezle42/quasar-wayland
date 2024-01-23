@@ -5,6 +5,7 @@ module Quasar.Wayland.Server (
   newWaylandServerConnection,
   listenAt,
   compositorGlobal,
+  subcompositorGlobal,
 ) where
 
 import Control.Monad.Catch
@@ -21,7 +22,7 @@ import Quasar.Wayland.Server.Surface
 import Quasar.Wayland.Shared.Surface
 
 
-data WaylandServer = WaylandServer {
+newtype WaylandServer = WaylandServer {
   registry :: Registry
 }
 
@@ -74,4 +75,16 @@ compositorGlobal = createGlobal @Interface_wl_compositor maxVersion bindComposit
     handler = RequestHandler_wl_compositor {
       create_surface = \wlSurface -> liftSTMc $ initializeServerSurface @b wlSurface,
       create_region = \wlRegion -> liftSTMc $ initializeServerRegion wlRegion
+    }
+
+subcompositorGlobal :: forall b. BufferBackend b => Global
+subcompositorGlobal = createGlobal @Interface_wl_subcompositor maxVersion bindCompositor
+  where
+    bindCompositor :: Object 'Server Interface_wl_subcompositor -> STMc NoRetry '[SomeException] ()
+    bindCompositor wlCompositor = setMessageHandler wlCompositor handler
+
+    handler :: RequestHandler_wl_subcompositor
+    handler = RequestHandler_wl_subcompositor {
+      destroy = pure (), -- Destroy has no effect, as specified.
+      get_subsurface = initializeServerSubsurface @b
     }

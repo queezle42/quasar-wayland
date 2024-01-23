@@ -1,6 +1,7 @@
 module Quasar.Wayland.Server.Surface (
   ServerSurface,
   initializeServerSurface,
+  initializeServerSubsurface,
   getServerSurface,
   assignSurfaceRole,
   removeSurfaceRole,
@@ -229,3 +230,30 @@ assignSurfaceRole surface surfaceDownstream = do
 
 removeSurfaceRole :: ServerSurface b -> STMc NoRetry '[] ()
 removeSurfaceRole surface = undefined
+
+
+
+data ServerSubsurface b = ServerSubsurface (ServerSurface b)
+
+instance IsSurfaceDownstream b (ServerSubsurface b) where
+  commitSurfaceDownstream _self _commit = traceM "Subsurface committed"
+  unmapSurfaceDownstream _self = traceM "Subsurface unmapped"
+
+initializeServerSubsurface ::
+  forall b. BufferBackend b =>
+  NewObject 'Server Interface_wl_subsurface ->
+  Object 'Server Interface_wl_surface ->
+  Object 'Server Interface_wl_surface ->
+  STMc NoRetry '[SomeException] ()
+initializeServerSubsurface wlSubsurface wlSurface wlParent = do
+  serverSurface <- liftSTMc $ getServerSurface @b wlSurface
+  serverParent <- liftSTMc $ getServerSurface @b wlParent
+  assignSurfaceRole @Interface_wl_subsurface serverSurface (toSurfaceDownstream (ServerSubsurface serverParent))
+  setRequestHandler wlSubsurface RequestHandler_wl_subsurface {
+    destroy = pure (),
+    set_position = \x y -> traceM (mconcat ["TODO: Subsurface position: ", show x, ", ", show y]),
+    place_above = \sibling -> traceM "TODO: Subsurface above",
+    place_below = \sibling -> traceM "TODO: Subsurface below",
+    set_sync = traceM "TODO: Subsurface sync",
+    set_desync = traceM "TODO: Subsurface desync"
+  }
