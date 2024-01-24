@@ -1,4 +1,5 @@
 module Quasar.Wayland.Gles.Dmabuf (
+  -- * Dmabuf
   Dmabuf(..),
   DmabufPlane(..),
   DrmFormat(..),
@@ -7,6 +8,7 @@ module Quasar.Wayland.Gles.Dmabuf (
   drmModNone,
   drmModInvalid,
 
+  -- ** Feedback
   CompiledDmabufFeedback(..),
   CompiledDmabufFeedbackTranche(..),
   DmabufFormatTable,
@@ -14,12 +16,15 @@ module Quasar.Wayland.Gles.Dmabuf (
   readFormatTableFd,
   writeFormatTableFd,
 
+  -- ** Client
   ClientDmabufSingleton,
   newClientDmabufSingleton,
   getClientDmabufSingleton,
   awaitSupportedFormats,
   exportDmabufWlBuffer,
 
+  -- ** Server
+  IsDmabufBackend(..),
   dmabufGlobal,
   importDmabufServerBuffer,
 ) where
@@ -47,6 +52,9 @@ import Quasar.Wayland.Server.Surface
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Utils.SharedFd
 import Quasar.Wayland.Utils.SharedMemory
+
+class BufferBackend b => IsDmabufBackend b where
+  importDmabuf :: b -> Dmabuf -> BufferStorage b
 
 data Dmabuf = Dmabuf {
   width :: Int32,
@@ -258,8 +266,8 @@ exportDmabufWlBuffer dmabufSingleton dmabuf = do
 type ServerDmabufParams = TVar ServerDmabufParamsState
 type ServerDmabufParamsState = Maybe (Map Word32 DmabufPlane)
 
-dmabufGlobal :: forall b. BufferBackend b => (Dmabuf -> BufferStorage b) -> [DrmFormat] -> DmabufFormatTable -> CompiledDmabufFeedback -> Global
-dmabufGlobal bufferFn version1Formats version3FormatTable feedback =
+dmabufGlobal :: forall b. IsDmabufBackend b => b -> [DrmFormat] -> DmabufFormatTable -> CompiledDmabufFeedback -> Global
+dmabufGlobal backend version1Formats version3FormatTable feedback =
   createGlobal @Interface_zwp_linux_dmabuf_v1 4 initialize
   where
     initialize :: NewObject 'Server Interface_zwp_linux_dmabuf_v1 -> STMc NoRetry '[SomeException] ()
@@ -278,7 +286,7 @@ dmabufGlobal bufferFn version1Formats version3FormatTable feedback =
     dmabufHandler =
       RequestHandler_zwp_linux_dmabuf_v1 {
         destroy = pure (),
-        create_params = initializeDmabufParams @b bufferFn,
+        create_params = initializeDmabufParams backend,
         get_default_feedback = initializeDmabufFeedback feedback,
         -- NOTE "If the surface is destroyed before the wp_linux_dmabuf_feedback
         -- object, the feedback object becomes inert."
@@ -309,8 +317,8 @@ sendDmabufFeedback feedback wlFeedback = do
 
   wlFeedback.done
 
-initializeDmabufParams :: forall b. BufferBackend b => (Dmabuf -> BufferStorage b) -> NewObject 'Server Interface_zwp_linux_buffer_params_v1 -> STMc NoRetry '[SomeException] ()
-initializeDmabufParams bufferFn wlDmabufParams = do
+initializeDmabufParams :: forall b. IsDmabufBackend b => b -> NewObject 'Server Interface_zwp_linux_buffer_params_v1 -> STMc NoRetry '[SomeException] ()
+initializeDmabufParams backend wlDmabufParams = do
   var <- newTVar (Just mempty)
   wlDmabufParams `setRequestHandler` dmabufParamsHandler var
   where
@@ -319,7 +327,7 @@ initializeDmabufParams bufferFn wlDmabufParams = do
       destroy = pure (),
       add = addDmabufPlane var,
       create = \_width _height _format _flags -> undefined,
-      create_immed = initializeDmabufBuffer @b bufferFn var
+      create_immed = initializeDmabufBuffer backend var
     }
 
 addDmabufPlane :: ServerDmabufParams -> SharedFd -> Word32 -> Word32 -> Word32 -> Word32 -> Word32 -> STMc NoRetry '[SomeException] ()
@@ -349,10 +357,10 @@ importDmabufServerBuffer var width height (DrmFormat -> format) _flags@0 = do
       pure $ Dmabuf { width, height, format, planes }
 importDmabufServerBuffer _ _ _ _ _ = throwM $ userError "zwp_linux_buffer_params_v1 flags (inverted, interlaced) are not supported"
 
-initializeDmabufBuffer :: forall b. BufferBackend b => (Dmabuf -> BufferStorage b) -> ServerDmabufParams -> NewObject 'Server Interface_wl_buffer -> Int32 -> Int32 -> Word32 -> Word32 -> STMc NoRetry '[SomeException] ()
-initializeDmabufBuffer bufferFn var wlBuffer width height format flags = do
+initializeDmabufBuffer :: forall b. IsDmabufBackend b => b -> ServerDmabufParams -> NewObject 'Server Interface_wl_buffer -> Int32 -> Int32 -> Word32 -> Word32 -> STMc NoRetry '[SomeException] ()
+initializeDmabufBuffer backend var wlBuffer width height format flags = do
   dmabuf <- importDmabufServerBuffer var width height format flags
   liftSTMc do
     -- Second arg is the destroy callback
-    buffer <- newBuffer @b (bufferFn dmabuf)
+    buffer <- newBuffer @b (importDmabuf backend dmabuf)
     initializeWlBuffer wlBuffer buffer

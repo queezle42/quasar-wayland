@@ -527,6 +527,10 @@ data GlesBackend = GlesBackend {
 instance BufferBackend GlesBackend where
   type BufferStorage GlesBackend = GlesBuffer
 
+instance IsDmabufBackend GlesBackend where
+  importDmabuf :: GlesBackend -> Dmabuf -> GlesBuffer
+  importDmabuf _ = GlesBuffer
+
 -- | Needs to run on Egl/GL thread.
 initializeGlesBackend :: IO GlesBackend
 initializeGlesBackend = do
@@ -542,8 +546,8 @@ initializeGlesBackend = do
 
 glesDmabufGlobal :: GlesBackend -> Global
 glesDmabufGlobal backend =
-  dmabufGlobal @GlesBackend
-    GlesBuffer
+  dmabufGlobal
+    backend
     backend.version1Formats
     backend.version3FormatTable
     backend.feedback
