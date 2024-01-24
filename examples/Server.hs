@@ -17,7 +17,12 @@ main = runQuasarAndExit do
   let
     layerShellGlobal = createGlobal @Interface_zwlr_layer_shell_v1 maxVersion (\x -> setRequestHandler x layerShellHandler)
     wmGlobal = xdgShellGlobal wm
-  registry <- newRegistry [compositorGlobal @ShmBufferBackend, shmGlobal, layerShellGlobal, wmGlobal]
+  registry <- newRegistry [
+    compositorGlobal @ShmBufferBackend,
+    shmGlobal ShmBufferBackend,
+    layerShellGlobal,
+    wmGlobal
+    ]
   server <- newWaylandServer registry
   listenAt "example.socket" server
   sleepForever

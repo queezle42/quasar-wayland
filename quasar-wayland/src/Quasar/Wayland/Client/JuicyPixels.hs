@@ -11,14 +11,18 @@ import Quasar.Wayland.Client.ShmBuffer
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shm
 
-loadImageBuffer :: FilePath -> IO (Buffer ShmBufferBackend)
-loadImageBuffer path = do
+loadImageBuffer ::
+  IsShmBufferBackend b =>
+  b -> FilePath -> IO (Buffer b)
+loadImageBuffer backend path = do
   image <- either fail (pure . convertRGBA8) =<< readImage path
-  toImageBuffer image
+  toImageBuffer backend image
 
-toImageBuffer :: Image PixelRGBA8 -> IO (Buffer ShmBufferBackend)
-toImageBuffer image = do
-  (buffer, ptr) <- newLocalShmBuffer (fromIntegral (imageWidth image)) (fromIntegral (imageHeight image))
+toImageBuffer ::
+  IsShmBufferBackend b =>
+  b -> Image PixelRGBA8 -> IO (Buffer b)
+toImageBuffer backend image = do
+  (buffer, ptr) <- newLocalShmBuffer backend (fromIntegral (imageWidth image)) (fromIntegral (imageHeight image))
   let
     width = imageWidth image
     height = imageHeight image

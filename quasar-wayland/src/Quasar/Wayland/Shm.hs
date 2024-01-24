@@ -1,5 +1,6 @@
 module Quasar.Wayland.Shm (
-  ShmBufferBackend,
+  IsShmBufferBackend(..),
+  ShmBufferBackend(..),
   ShmPool,
   newShmPool,
   resizeShmPool,
@@ -23,10 +24,17 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Shared.Surface
 
-data ShmBufferBackend
+-- | Simple buffer backend that only supports shared memory buffers.
+data ShmBufferBackend = ShmBufferBackend
 
 instance BufferBackend ShmBufferBackend where
   type BufferStorage ShmBufferBackend = ShmBuffer
+
+class BufferBackend b => IsShmBufferBackend b where
+  importShmBuffer :: b -> ShmBuffer -> BufferStorage b
+
+instance IsShmBufferBackend ShmBufferBackend where
+  importShmBuffer ShmBufferBackend = id
 
 -- | Wrapper for an externally managed shm pool
 data ShmPool = ShmPool {
@@ -64,7 +72,9 @@ data ShmBufferState = ShmBufferState {
   format :: Word32
 }
 
--- | Create an `ShmPool` for externally managed memory. Takes ownership of the passed file descriptor.
+-- | Create an `ShmPool` for externally managed memory. Takes ownership of the
+-- passed file descriptor. Needs to be destroyed with `destroyShmPool` when no
+-- longer required.
 newShmPool :: SharedFd -> Int32 -> STMc NoRetry '[] ShmPool
 newShmPool fd size = do
   key <- newUniqueSTM
@@ -119,12 +129,14 @@ connectDownstreamShmPool pool downstream = do
 
 
 -- | Create a new buffer for an externally managed pool
-newShmBuffer :: ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STMc NoRetry '[] (Buffer ShmBufferBackend)
-newShmBuffer pool offset width height stride format = do
+newShmBuffer ::
+  IsShmBufferBackend b =>
+  b -> ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STMc NoRetry '[] (Buffer b)
+newShmBuffer backend pool offset width height stride format = do
   -- TODO check arguments
   modifyTVar pool.bufferCount succ
   shmBuffer <- ShmBuffer <$> newTDisposableVar (ShmBufferState pool offset width height stride format) releaseShmBuffer
-  newBuffer @ShmBufferBackend shmBuffer
+  newBuffer (importShmBuffer backend shmBuffer)
   where
     releaseShmBuffer :: ShmBufferState -> STMc NoRetry '[] ()
     releaseShmBuffer buffer = do

@@ -19,7 +19,7 @@ main = runQuasarAndExit do
 
   registry <- newRegistry [
     compositorGlobal @ShmBufferBackend,
-    shmGlobal,
+    shmGlobal ShmBufferBackend,
     xdgShellGlobal windowManager
     ]
   server <- newWaylandServer registry
