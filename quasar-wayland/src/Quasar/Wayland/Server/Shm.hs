@@ -6,8 +6,8 @@ import Quasar.Prelude
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
-import Quasar.Wayland.Shm
 import Quasar.Wayland.Server.Surface
+import Quasar.Wayland.Shm
 
 
 shmGlobal :: IsShmBufferBackend b => b -> Global
