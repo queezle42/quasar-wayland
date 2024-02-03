@@ -27,6 +27,7 @@ module Quasar.Wayland.Shared.Surface (
 
 import Data.Hashable (Hashable(..))
 import Data.Typeable
+import Quasar.Future (Future)
 import Quasar.Prelude
 import Quasar.Resources (TDisposer, newUnmanagedTDisposer, Disposable, disposeEventually_)
 import Quasar.Wayland.Region (Rectangle(..))
@@ -141,17 +142,30 @@ data SurfaceCommit b = SurfaceCommit {
   frameCallback :: Maybe (Word32 -> STMc NoRetry '[] ())
 }
 
+instance Semigroup (SurfaceCommit b) where
+  x <> y = SurfaceCommit {
+    buffer = y.buffer,
+    offset = y.offset,
+    bufferDamage = x.bufferDamage <> y.bufferDamage,
+    frameCallback = case (x.frameCallback, y.frameCallback) of
+      (Just xfc, Just yfc) -> Just (\time -> xfc time >> yfc time)
+      (xfc, Nothing) -> xfc
+      (Nothing, yfc) -> yfc
+  }
+
 
 data SurfaceDownstream b = forall a. IsSurfaceDownstream b a => SurfaceDownstream a
 
 class IsSurfaceDownstream b a | a -> b where
   toSurfaceDownstream :: a -> SurfaceDownstream b
   toSurfaceDownstream = SurfaceDownstream
+
   -- TODO Don't allow exceptions or limit allowed exception types. Currently implementations of this leak exceptions across a responsibility bondary.
   -- | Called on surface commit. The provided buffer is only valid during the
   -- call of the function and needs to be locked (see `lockBuffer`) by the
   -- callee to prevent it from being released.
-  commitSurfaceDownstream :: a -> SurfaceCommit b -> STMc NoRetry '[SomeException] ()
+  commitSurfaceDownstream :: a -> SurfaceCommit b -> STMc NoRetry '[SomeException] (Future ())
+
   -- | Called on a NULL surface commit.
   unmapSurfaceDownstream :: a -> STMc NoRetry '[SomeException] ()
 

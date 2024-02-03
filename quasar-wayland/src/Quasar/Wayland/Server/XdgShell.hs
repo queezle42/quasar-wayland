@@ -110,7 +110,7 @@ data XdgToplevel b w wm = XdgToplevel {
 
 instance IsWindowManager b w wm => IsSurfaceDownstream b (XdgToplevel b w wm) where
   commitSurfaceDownstream xdgToplevel surfaceCommit =
-    liftSTMc $ commitWindowContent xdgToplevel.window unsafeConfigureSerial surfaceCommit
+    commitWindowContent xdgToplevel.window unsafeConfigureSerial surfaceCommit
   unmapSurfaceDownstream xdgToplevel = throwM (userError "TODO unmap xdg_toplevel")
 
 initializeXdgToplevel :: forall b w wm. IsWindowManager b w wm => XdgSurface b w wm -> NewObject 'Server Interface_xdg_toplevel -> STMc NoRetry '[SomeException] ()

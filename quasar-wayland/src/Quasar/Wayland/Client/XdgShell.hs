@@ -29,6 +29,7 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
+import Quasar.Future (Future)
 
 
 type ClientWindowManager :: Type -> Type
@@ -144,11 +145,12 @@ newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} properties configu
 
   ClientXdgToplevel <$> newTDisposableVar state disposeClientXdgToplevel
 
-commitClientXdgToplevel :: forall b. ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] ()
-commitClientXdgToplevel toplevel configureSerial surfaceCommit = do
+commitClientXdgToplevel :: forall b. ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] (Future ())
+commitClientXdgToplevel toplevel@(ClientXdgToplevel var) configureSerial surfaceCommit = do
   ackWindowConfigure @b toplevel configureSerial
-  withState toplevel \state ->
-    commitSurfaceDownstream state.clientSurface surfaceCommit
+  tryReadTDisposableVar var >>= \case
+    Nothing -> pure (pure ())
+    Just state -> commitSurfaceDownstream state.clientSurface surfaceCommit
 
 ackToplevelConfigure :: ClientXdgToplevel b -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
 ackToplevelConfigure toplevel _configureSerial = do

@@ -20,6 +20,7 @@ module Quasar.Wayland.Shared.WindowApi (
 ) where
 
 import Data.ByteString qualified as BS
+import Quasar.Future (Future)
 import Quasar.Observable.Core (Observable, NoLoad)
 import Quasar.Prelude
 import Quasar.Resources (Disposable (getDisposer))
@@ -39,7 +40,7 @@ class (BufferBackend b, Disposable a) => IsWindow b a | a -> b where
   toWindow :: a -> Window b
   toWindow = Window
   setFullscreen :: a -> Bool -> STMc NoRetry '[SomeException] ()
-  commitWindowContent :: a -> ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] ()
+  commitWindowContent :: a -> ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] (Future ())
   ackWindowConfigure :: a -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
 
 -- | Quantification wrapper for `IsWindow`.

@@ -36,11 +36,13 @@ instance BufferBackend b => IsWindow b (WindowMultiplexer b) where
       readTVar state.downstreams >>= \case
         [] -> pure ()
         (primary:_) -> setFullscreen primary fullscreen
-  commitWindowContent multiplexer serial commit = do
-    withState multiplexer \state -> do
-      windows <- readTVar state.downstreams
-      -- TODO use correct per-downstream serial
-      forM_ windows \window -> commitWindowContent window serial commit
+  commitWindowContent (WindowMultiplexer var) serial commit = do
+    tryReadTDisposableVar var >>= \case
+      Nothing -> pure (pure ()) -- ignore commits when disposed
+      Just state -> do
+        windows <- readTVar state.downstreams
+        -- TODO use correct per-downstream serial
+        mconcat <$> forM windows \window -> commitWindowContent window serial commit
   ackWindowConfigure multiplexer serial = do
     withState multiplexer \state -> do
       windows <- readTVar state.downstreams

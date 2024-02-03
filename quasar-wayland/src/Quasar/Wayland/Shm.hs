@@ -153,8 +153,8 @@ instance ClientBufferBackend ShmBufferBackend where
 
   newClientBufferManager = newClientShmManager
 
-  exportWlBuffer :: ClientShmManager -> Buffer ShmBufferBackend -> STMc NoRetry '[SomeException] (NewObject 'Client Interface_wl_buffer)
-  exportWlBuffer client buffer = do
+  exportWlBuffer :: ClientShmManager -> Buffer ShmBufferBackend -> IO (NewObject 'Client Interface_wl_buffer)
+  exportWlBuffer client buffer = atomicallyC do
     let ShmBuffer var = buffer.storage
     tryReadTDisposableVar var >>= \case
       Nothing -> throwM (userError "ShmBufferBackend: Trying to export already disposed buffer")

@@ -113,7 +113,9 @@ commitMappedServerSurface surface mapped = do
       -- Attach callback for wl_buffer.release
       liftSTMc $ addBufferReleaseCallback sb.buffer (tryCall sb.wlBuffer.release)
 
-      liftSTMc $ commitSurfaceDownstream mapped.surfaceDownstream SurfaceCommit {
+      -- TODO Instead of voiding the future we might want to delay the
+      -- frameCallback?
+      liftSTMc $ void $ commitSurfaceDownstream mapped.surfaceDownstream SurfaceCommit {
         buffer = sb.buffer,
         offset,
         bufferDamage = combinedDamage,
@@ -236,7 +238,7 @@ removeSurfaceRole surface = undefined
 data ServerSubsurface b = ServerSubsurface (ServerSurface b)
 
 instance IsSurfaceDownstream b (ServerSubsurface b) where
-  commitSurfaceDownstream _self _commit = traceM "Subsurface committed"
+  commitSurfaceDownstream _self _commit = pure () <$ traceM "Subsurface committed"
   unmapSurfaceDownstream _self = traceM "Subsurface unmapped"
 
 initializeServerSubsurface ::

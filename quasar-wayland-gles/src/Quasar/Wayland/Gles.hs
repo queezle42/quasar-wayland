@@ -566,6 +566,6 @@ instance ClientBufferBackend GlesBackend where
   newClientBufferManager = newClientDmabufSingleton
   exportWlBuffer manager buffer = exportGlesWlBuffer manager buffer.storage
 
-exportGlesWlBuffer :: ClientDmabufSingleton -> GlesBuffer -> STMc NoRetry '[SomeException] (NewObject 'Client Interface_wl_buffer)
+exportGlesWlBuffer :: ClientDmabufSingleton -> GlesBuffer -> IO (NewObject 'Client Interface_wl_buffer)
 exportGlesWlBuffer dmabufSingleton buffer =
-  exportDmabufWlBuffer dmabufSingleton buffer.dmabuf
+  atomicallyC $ exportDmabufWlBuffer dmabufSingleton buffer.dmabuf
