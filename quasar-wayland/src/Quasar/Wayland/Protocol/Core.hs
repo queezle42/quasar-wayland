@@ -28,6 +28,7 @@ module Quasar.Wayland.Protocol.Core (
   getInterfaceData,
   isObjectDestroyed,
   attachFinalizer,
+  attachOrRunFinalizer,
   NewObject,
   IsObject,
   IsMessage(..),
@@ -397,6 +398,16 @@ isObjectDestroyed object = liftSTMc do
 -- or the wayland connection is closed.
 attachFinalizer :: MonadSTMc NoRetry '[] m => Object s i -> STMc NoRetry '[] () -> m ()
 attachFinalizer object finalizer = modifyTVar object.finalizers (finalizer:)
+
+-- | Attach a finalizer to an object that is run when the object is destroyed
+-- or the wayland connection is closed. Runs the finalizer immediately, when the
+-- object is already destroyed.
+attachOrRunFinalizer :: MonadSTMc NoRetry '[] m => Object s i -> STMc NoRetry '[] () -> m ()
+attachOrRunFinalizer object finalizer = liftSTMc do
+  destroyed <- isObjectDestroyed object
+  if destroyed
+    then finalizer
+    else modifyTVar object.finalizers (finalizer:)
 
 -- | Type alias to indicate an object is created with a message.
 type NewObject s i = Object s i
