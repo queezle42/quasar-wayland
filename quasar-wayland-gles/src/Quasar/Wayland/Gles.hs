@@ -15,7 +15,7 @@ module Quasar.Wayland.Gles (
 
   GlesBackend(..),
   initializeGlesBackend,
-  GlesBuffer(..),
+  GlesFrame,
   getDmabuf,
 
   -- * Client
@@ -28,7 +28,6 @@ module Quasar.Wayland.Gles (
   glesDmabufGlobal,
 ) where
 
-import Control.Monad.Catch
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.Set (Set)
@@ -39,8 +38,11 @@ import GHC.Float
 import Language.C.Inline qualified as C
 import Language.C.Inline.Unsafe qualified as CU
 import Paths_quasar_wayland_gles (getDataFileName)
+import Quasar.Future (callOnceCompleted_)
 import Quasar.Prelude
-import Quasar.Resources (Disposable)
+import Quasar.Resources (Disposable, TDisposable, disposeSTM, disposeEventually_, dispose)
+import Quasar.Resources.DisposableVar
+import Quasar.Resources.Lock
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Gles.Debug
 import Quasar.Wayland.Gles.Dmabuf
@@ -150,8 +152,14 @@ setupProxyDemoShader egl vertexShader fragmentShader = do
     shaderProgram
   }
 
-renderDemo :: RenderDemo -> Int32 -> Int32 -> Double -> IO (Buffer GlesBackend)
-renderDemo RenderDemo{egl, framebuffer, shaderProgram} width height time = do
+renderDemo :: RenderDemo -> Int32 -> Int32 -> Double -> IO (Lock (Frame GlesBackend))
+renderDemo demo width height time = do
+  rawFrame <- renderDemoI demo width height time
+  --newLockIO disposeEventually_ rawFrame
+  newLockIO (\rf -> traceM "frame disposer" >> disposeEventually_ rf) rawFrame
+
+renderDemoI :: RenderDemo -> Int32 -> Int32 -> Double -> IO (Frame GlesBackend)
+renderDemoI RenderDemo{egl, framebuffer, shaderProgram} width height time = do
   -- Create buffer texture
   texture <- glGenTexture
 
@@ -231,11 +239,21 @@ renderDemo RenderDemo{egl, framebuffer, shaderProgram} width height time = do
 
   dmabuf <- eglExportDmabuf egl eglImage width height
   eglDestroyImage egl eglImage
-  atomicallyC $ newBuffer (GlesBuffer dmabuf)
+
+  pure (GlesFrame dmabuf)
 
 
-proxyDemo :: ProxyDemo -> Dmabuf -> IO (Buffer GlesBackend)
-proxyDemo ProxyDemo{egl, framebuffer, shaderProgram} inputDmabuf = do
+proxyDemo :: ProxyDemo -> Lock GlesFrame -> IO (Lock GlesFrame)
+proxyDemo demo inFrame = do
+  atomicallyC (tryReadLock inFrame) >>= \case
+    Nothing -> undefined
+    Just rawInFrame -> do
+      rawOutFrame <- proxyDemoI demo rawInFrame
+      dispose inFrame
+      newLockIO disposeEventually_ rawOutFrame
+
+proxyDemoI :: ProxyDemo -> GlesFrame -> IO GlesFrame
+proxyDemoI ProxyDemo{egl, framebuffer, shaderProgram} (GlesFrame inputDmabuf) = do
   let
     width = inputDmabuf.width
     height = inputDmabuf.height
@@ -341,7 +359,7 @@ proxyDemo ProxyDemo{egl, framebuffer, shaderProgram} inputDmabuf = do
 
   dmabuf <- eglExportDmabuf egl eglImage width height
   eglDestroyImage egl eglImage
-  atomicallyC $ newBuffer (GlesBuffer dmabuf)
+  pure $ GlesFrame dmabuf
 
 
 glGetString :: GLenum -> IO String
@@ -524,12 +542,16 @@ data GlesBackend = GlesBackend {
   feedback :: CompiledDmabufFeedback
 }
 
-instance BufferBackend GlesBackend where
-  type BufferStorage GlesBackend = GlesBuffer
+instance RenderBackend GlesBackend where
+  type Frame GlesBackend = GlesFrame
+  releaseFrame = undefined
 
 instance IsDmabufBackend GlesBackend where
-  importDmabuf :: GlesBackend -> Dmabuf -> GlesBuffer
-  importDmabuf _ = GlesBuffer
+  type MappedDmabuf GlesBackend = Dmabuf
+
+  mapDmabuf _ = pure
+  unmapDmabuf _dmabuf = pure ()
+  createDmabufFrame dmabuf = pure (GlesFrame dmabuf)
 
 -- | Needs to run on Egl/GL thread.
 initializeGlesBackend :: IO GlesBackend
@@ -552,20 +574,35 @@ glesDmabufGlobal backend =
     backend.version3FormatTable
     backend.feedback
 
-newtype GlesBuffer = GlesBuffer {
+newtype GlesFrame = GlesFrame {
   dmabuf :: Dmabuf
 }
   deriving newtype Disposable
 
-getDmabuf :: GlesBuffer -> Dmabuf
-getDmabuf (GlesBuffer dmabuf) = dmabuf
+newtype GlesExportBuffer = GlesExportBuffer (TDisposableVar Dmabuf)
+  deriving (Eq, Hashable, Disposable, TDisposable)
+
+getDmabuf :: GlesFrame -> Dmabuf
+getDmabuf (GlesFrame dmabuf) = dmabuf
 
 
 instance ClientBufferBackend GlesBackend where
   type ClientBufferManager GlesBackend = ClientDmabufSingleton
+  type ExportBuffer GlesBackend = GlesExportBuffer
   newClientBufferManager = newClientDmabufSingleton
-  exportWlBuffer manager buffer = exportGlesWlBuffer manager buffer.storage
 
-exportGlesWlBuffer :: ClientDmabufSingleton -> GlesBuffer -> IO (NewObject 'Client Interface_wl_buffer)
-exportGlesWlBuffer dmabufSingleton buffer =
-  atomicallyC $ exportDmabufWlBuffer dmabufSingleton buffer.dmabuf
+  renderFrame frame = atomicallyC do
+    tryReadLock frame >>= \case
+      Nothing -> undefined
+      Just (GlesFrame dmabuf) -> do
+        var <- newTDisposableVar dmabuf undefined
+        newLock (const (traceM "hi" >> disposeSTM frame)) (GlesExportBuffer var)
+
+  exportWlBuffer dmabufSingleton (GlesExportBuffer var) = atomically do
+    tryReadTDisposableVar var >>= \case
+      Nothing -> undefined
+      Just dmabuf -> liftSTMc $ exportDmabufWlBuffer dmabufSingleton dmabuf
+
+  addBufferDestroyedCallback :: GlesExportBuffer -> STMc NoRetry '[] () -> STMc NoRetry '[] ()
+  addBufferDestroyedCallback (GlesExportBuffer var) callback =
+    callOnceCompleted_ var (\() -> callback)

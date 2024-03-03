@@ -40,6 +40,7 @@ main = runQuasarAndExit do
 
     registry <- newRegistry [
       compositorGlobal @GlesBackend,
+      subcompositorGlobal @GlesBackend,
       dummyOutputGlobal,
       xdgShellGlobal muxWM,
       glesDmabufGlobal backend
@@ -71,15 +72,11 @@ mapWindow demo jobQueue window = window {
 onWindowContentCommit :: ProxyDemo -> TQueue (IO ()) -> FnWindow GlesBackend -> ConfigureSerial -> SurfaceCommit GlesBackend -> STMc NoRetry '[SomeException] (Future ())
 onWindowContentCommit demo jobQueue window serial commit = do
   traceM "commit"
-  disposer <- liftSTMc $ lockBuffer commit.buffer
   writeTQueue jobQueue do
-    b <- proxyDemo demo $ getDmabuf commit.buffer.storage
-    commitFuture <- atomicallyC do
-      disposeTDisposer disposer
-      commitFuture <- commitWindowContent window serial commit {
-        buffer = b
+    f <- proxyDemo demo commit.frame
+    await =<< atomicallyC do
+      commitWindowContent window serial commit {
+        frame = f
       }
-      liftSTMc $ destroyBuffer b
-      pure commitFuture
-    await commitFuture
+  -- TODO pass commit future?
   pure (pure ())

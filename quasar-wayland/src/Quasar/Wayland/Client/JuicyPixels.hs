@@ -1,6 +1,6 @@
 module Quasar.Wayland.Client.JuicyPixels (
-  loadImageBuffer,
-  toImageBuffer,
+  loadImageFile,
+  toImage,
   pixelRgba8ToWlARGB,
 ) where
 
@@ -11,18 +11,18 @@ import Quasar.Wayland.Client.ShmBuffer
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shm
 
-loadImageBuffer ::
+loadImageFile ::
   IsShmBufferBackend b =>
-  b -> FilePath -> IO (Buffer b)
-loadImageBuffer backend path = do
+  b -> FilePath -> IO (Frame b)
+loadImageFile backend path = do
   image <- either fail (pure . convertRGBA8) =<< readImage path
-  toImageBuffer backend image
+  toImage backend image
 
-toImageBuffer ::
+toImage ::
   IsShmBufferBackend b =>
-  b -> Image PixelRGBA8 -> IO (Buffer b)
-toImageBuffer backend image = do
-  (buffer, ptr) <- newLocalShmBuffer backend (fromIntegral (imageWidth image)) (fromIntegral (imageHeight image))
+  b -> Codec.Picture.Image PixelRGBA8 -> IO (Frame b)
+toImage backend image = do
+  (buffer, ptr) <- newLocalShmBuffer (fromIntegral (imageWidth image)) (fromIntegral (imageHeight image))
   let
     width = imageWidth image
     height = imageHeight image
@@ -30,7 +30,7 @@ toImageBuffer backend image = do
   withForeignPtr ptr \ptr' -> forM_ [(x, y) | x <- [0 .. width - 1], y <- [0 .. height - 1]] \(x, y) -> do
     pokeByteOff ptr' ((x + (y * width)) * 4) (pixelRgba8ToWlARGB (pixelAt image x y))
 
-  pure buffer
+  atomicallyC (importShmBuffer backend buffer)
 
 
 pixelRgba8ToWlARGB :: PixelRGBA8 -> Word32

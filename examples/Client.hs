@@ -10,7 +10,8 @@ import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Shm
 
-import Codec.Picture
+import Codec.Picture as JuicyPixels
+import Quasar.Resources.Lock (newLockIO)
 
 
 main :: IO ()
@@ -35,12 +36,13 @@ main = do
       configuration <- atomically $ readTMVar configurationVar
       let width = max configuration.width 512
       let height = max configuration.height 512
-      buffer <- liftIO $ toImageBuffer ShmBufferBackend (mkImage width height img)
-      atomicallyC do
-        commitWindowContent window configuration.configureSerial (defaultSurfaceCommit buffer)
-        liftSTMc $ destroyBuffer buffer
+      rawBuffer <- liftIO $ toImage ShmBufferBackend (mkImage width height img)
+      buffer <- newLockIO disposeSTM rawBuffer
+      commit <- atomicallyC do
+        commitWindowContent window configuration.configureSerial ((defaultSurfaceCommit buffer) {bufferDamage = Just DamageAll})
 
-      await =<< newDelay 1000000
+      delay <- newDelay 1000000
+      await (commit >> toFuture delay)
 
     traceIO "Closing"
   traceIO "Closed"
@@ -107,7 +109,7 @@ gradient4 p = color (1 - v p) 0 (u p)
 solidColor :: Position -> PixelRGBA8
 solidColor _p = color (255 :: Double) 0 0
 
-mkImage :: Int32 -> Int32 -> (Position -> PixelRGBA8) -> Image PixelRGBA8
+mkImage :: Int32 -> Int32 -> (Position -> PixelRGBA8) -> JuicyPixels.Image PixelRGBA8
 mkImage width height fn = generateImage pixel (fromIntegral width) (fromIntegral height)
   where
     dimensions :: Dimensions

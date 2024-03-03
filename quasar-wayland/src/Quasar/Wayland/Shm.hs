@@ -2,6 +2,7 @@ module Quasar.Wayland.Shm (
   IsShmBufferBackend(..),
   ShmBufferBackend(..),
   ShmPool,
+  ShmBuffer,
   newShmPool,
   resizeShmPool,
   destroyShmPool,
@@ -18,6 +19,7 @@ import Quasar.Future
 import Quasar.Prelude
 import Quasar.Resources (TDisposer, newUnmanagedTDisposer, disposeTDisposer, Disposable(..), TDisposable)
 import Quasar.Resources.DisposableVar
+import Quasar.Resources.Lock
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Protocol
@@ -27,14 +29,15 @@ import Quasar.Wayland.Shared.Surface
 -- | Simple buffer backend that only supports shared memory buffers.
 data ShmBufferBackend = ShmBufferBackend
 
-instance BufferBackend ShmBufferBackend where
-  type BufferStorage ShmBufferBackend = ShmBuffer
+instance RenderBackend ShmBufferBackend where
+  type Frame ShmBufferBackend = ShmBuffer
+  releaseFrame = undefined
 
-class BufferBackend b => IsShmBufferBackend b where
-  importShmBuffer :: b -> ShmBuffer -> BufferStorage b
+class RenderBackend b => IsShmBufferBackend b where
+  importShmBuffer :: b -> ShmBuffer -> STMc NoRetry '[] (Frame b)
 
 instance IsShmBufferBackend ShmBufferBackend where
-  importShmBuffer ShmBufferBackend = id
+  importShmBuffer ShmBufferBackend = pure
 
 -- | Wrapper for an externally managed shm pool
 data ShmPool = ShmPool {
@@ -61,7 +64,7 @@ data DownstreamShmPool = DownstreamShmPool {
 
 
 newtype ShmBuffer = ShmBuffer (TDisposableVar ShmBufferState)
-  deriving (Disposable, TDisposable)
+  deriving (Eq, Hashable, Disposable, TDisposable)
 
 data ShmBufferState = ShmBufferState {
   pool :: ShmPool,
@@ -103,7 +106,8 @@ resizeShmPool pool size = do
   downstreams <- readTVar pool.downstreams
   mapM_ (\downstream -> downstream.resize size) downstreams
 
--- | Request destruction of an an externally managed shm pool. Memory shared with this pool will be deallocated after the last buffer is released.
+-- | Request destruction of an an externally managed shm pool. Memory shared
+-- with this pool will be deallocated after all buffer is released.
 destroyShmPool :: ShmPool -> STMc NoRetry '[] ()
 destroyShmPool pool = do
   writeTVar pool.destroyRequested True
@@ -130,13 +134,11 @@ connectDownstreamShmPool pool downstream = do
 
 -- | Create a new buffer for an externally managed pool
 newShmBuffer ::
-  IsShmBufferBackend b =>
-  b -> ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STMc NoRetry '[] (Buffer b)
-newShmBuffer backend pool offset width height stride format = do
+  ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STMc NoRetry '[] ShmBuffer
+newShmBuffer pool offset width height stride format = do
   -- TODO check arguments
   modifyTVar pool.bufferCount succ
-  shmBuffer <- ShmBuffer <$> newTDisposableVar (ShmBufferState pool offset width height stride format) releaseShmBuffer
-  newBuffer (importShmBuffer backend shmBuffer)
+  ShmBuffer <$> newTDisposableVar (ShmBufferState pool offset width height stride format) releaseShmBuffer
   where
     releaseShmBuffer :: ShmBufferState -> STMc NoRetry '[] ()
     releaseShmBuffer buffer = do
@@ -150,18 +152,25 @@ newShmBuffer backend pool offset width height stride format = do
 instance ClientBufferBackend ShmBufferBackend where
 
   type ClientBufferManager ShmBufferBackend = ClientShmManager
+  type ExportBuffer ShmBufferBackend = ShmBuffer
 
   newClientBufferManager = newClientShmManager
 
-  exportWlBuffer :: ClientShmManager -> Buffer ShmBufferBackend -> IO (NewObject 'Client Interface_wl_buffer)
-  exportWlBuffer client buffer = atomicallyC do
-    let ShmBuffer var = buffer.storage
+  renderFrame :: Lock ShmBuffer -> IO (Lock ShmBuffer)
+  renderFrame = pure
+
+  exportWlBuffer :: ClientShmManager -> ShmBuffer -> IO (NewObject 'Client Interface_wl_buffer)
+  exportWlBuffer client (ShmBuffer var) = atomicallyC do
     tryReadTDisposableVar var >>= \case
       Nothing -> throwM (userError "ShmBufferBackend: Trying to export already disposed buffer")
       Just state -> do
         wlShmPool <- getClientShmPool client state.pool
         -- NOTE no event handlers are attached here, since the caller (usually `Quasar.Wayland.Surface`) has that responsibility.
         wlShmPool.create_buffer state.offset state.width state.height state.stride state.format
+
+  addBufferDestroyedCallback :: ShmBuffer -> STMc NoRetry '[] () -> STMc NoRetry '[] ()
+  addBufferDestroyedCallback (ShmBuffer var) callback =
+    callOnceCompleted_ var (const callback)
 
 data ClientShmManager = ClientShmManager {
   key :: Unique,

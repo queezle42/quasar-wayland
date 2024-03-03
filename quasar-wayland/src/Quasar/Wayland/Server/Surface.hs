@@ -6,15 +6,17 @@ module Quasar.Wayland.Server.Surface (
   assignSurfaceRole,
   removeSurfaceRole,
   initializeWlBuffer,
-  getBuffer,
+  --getImage,
 ) where
 
 import Control.Monad.Catch
 import Quasar.Prelude
+import Quasar.Resources.Lock
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (appAsRect)
 import Quasar.Wayland.Shared.Surface
+import Quasar.Wayland.Protocol.Core (attachOrRunFinalizer)
 
 
 data ServerSurface b = ServerSurface {
@@ -45,8 +47,8 @@ data MappedServerSurface b = MappedServerSurface {
 }
 
 data ServerBuffer b = ServerBuffer {
-  buffer :: Buffer b,
-  wlBuffer :: Object 'Server Interface_wl_buffer
+  wlBuffer :: Object 'Server Interface_wl_buffer,
+  importBuffer :: STMc NoRetry '[] (Frame b)
 }
 
 newServerSurface :: STMc NoRetry '[] (ServerSurface b)
@@ -61,13 +63,13 @@ newServerSurface = do
     pendingFrameCallback
   }
 
-getServerSurface :: forall b. BufferBackend b => Object 'Server Interface_wl_surface -> STMc NoRetry '[SomeException] (ServerSurface b)
+getServerSurface :: forall b. RenderBackend b => Object 'Server Interface_wl_surface -> STMc NoRetry '[SomeException] (ServerSurface b)
 getServerSurface wlSurface =
   getInterfaceData @(ServerSurface b) wlSurface >>= \case
     Nothing -> throwM (userError "Invalid server surface")
     Just serverSurface -> pure serverSurface
 
-commitServerSurface :: ServerSurface b -> STMc NoRetry '[SomeException] ()
+commitServerSurface :: RenderBackend b => ServerSurface b -> STMc NoRetry '[SomeException] ()
 commitServerSurface serverSurface = do
   readTVar serverSurface.state >>= \case
     Unmapped -> throwM $ userError "Cannot commit a surface that does not have a role"
@@ -90,7 +92,7 @@ mapServerSurface pending = do
     pendingSurfaceDamage
   }
 
-commitMappedServerSurface :: ServerSurface b -> MappedServerSurface b -> STMc NoRetry '[SomeException] ()
+commitMappedServerSurface :: forall b. RenderBackend b => ServerSurface b -> MappedServerSurface b -> STMc NoRetry '[SomeException] ()
 commitMappedServerSurface surface mapped = do
   serverBuffer <- swapTVar mapped.pendingBuffer Nothing
   offset <- swapTVar mapped.pendingOffset Nothing
@@ -110,13 +112,13 @@ commitMappedServerSurface surface mapped = do
       when (isJust frameCallback) $ throwM $ userError "Must not attach frame callback when unmapping surface"
       unmapSurfaceDownstream mapped.surfaceDownstream
     Just sb -> do
-      -- Attach callback for wl_buffer.release
-      liftSTMc $ addBufferReleaseCallback sb.buffer (tryCall sb.wlBuffer.release)
+      rawFrame <- liftSTMc sb.importBuffer
+      frame <- newLock (\_ -> releaseFrame @b rawFrame >> tryCall sb.wlBuffer.release) rawFrame
 
       -- TODO Instead of voiding the future we might want to delay the
       -- frameCallback?
       liftSTMc $ void $ commitSurfaceDownstream mapped.surfaceDownstream SurfaceCommit {
-        buffer = sb.buffer,
+        frame,
         offset,
         bufferDamage = combinedDamage,
         frameCallback
@@ -131,7 +133,7 @@ requireMappedSurface serverSurface = do
     _ -> throwM $ userError "Requested operation requires a mapped surface"
 
 attachToSurface ::
-  forall b. BufferBackend b =>
+  forall b. RenderBackend b =>
   ServerSurface b ->
   Maybe (Object 'Server Interface_wl_buffer) ->
   Int32 ->
@@ -155,7 +157,7 @@ damageBuffer serverSurface rect = do
   modifyTVar mappedSurface.pendingBufferDamage (addDamage rect)
 
 
-initializeServerSurface :: forall b. BufferBackend b => NewObject 'Server Interface_wl_surface -> STMc NoRetry '[] ()
+initializeServerSurface :: forall b. RenderBackend b => NewObject 'Server Interface_wl_surface -> STMc NoRetry '[] ()
 initializeServerSurface wlSurface = do
   serverSurface <- newServerSurface @b
   -- TODO missing requests
@@ -188,28 +190,38 @@ addFrameCallback serverSurface wlCallback = do
     -- TODO improve error handling
     cb time = unlessM wlCallback.isDestroyed (tryCall (wlCallback.done time))
 
-initializeWlBuffer :: forall b. BufferBackend b => NewObject 'Server Interface_wl_buffer -> Buffer b -> STMc NoRetry '[] ()
-initializeWlBuffer wlBuffer buffer = do
+-- | Called by a buffer implementation (e.g. the implementation for
+-- @wl_shm@ or @zwp_linux_dmabuf_v1@) to initialize a new @wl_buffer@ object.
+--
+-- The @createImage@ function will be called whenever the buffer needs to be
+-- read.
+initializeWlBuffer ::
+  forall b. (RenderBackend b) =>
+  NewObject 'Server Interface_wl_buffer ->
+  STMc NoRetry '[] (Frame b) ->
+  STMc NoRetry '[] () ->
+  STMc NoRetry '[] ()
+initializeWlBuffer wlBuffer importBuffer finalizeBuffer = do
   let serverBuffer = ServerBuffer {
-    buffer,
-    wlBuffer
+    wlBuffer,
+    importBuffer
   }
-  setInterfaceData wlBuffer serverBuffer
+  setInterfaceData wlBuffer (serverBuffer :: ServerBuffer b)
   setRequestHandler wlBuffer RequestHandler_wl_buffer {
-    -- TODO propagate buffer destruction
-    destroy = liftSTMc $ destroyBuffer buffer
+    destroy = pure ()
   }
+  attachOrRunFinalizer wlBuffer finalizeBuffer
 
 
-getServerBuffer :: forall b. BufferBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (ServerBuffer b)
+getServerBuffer :: forall b. RenderBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (ServerBuffer b)
 getServerBuffer wlBuffer = do
   ifd <- getInterfaceData @(ServerBuffer b) wlBuffer
   case ifd of
     Just buffer -> pure buffer
     Nothing -> throwM $ InternalError ("Missing interface data on " <> show wlBuffer)
 
-getBuffer :: forall b. BufferBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (Buffer b)
-getBuffer wlBuffer = (.buffer) <$> getServerBuffer wlBuffer
+--getImage :: forall b. RenderBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (Lock (Image b))
+--getImage wlBuffer = (.image) <$> getServerBuffer wlBuffer
 
 
 assignSurfaceRole :: forall i b. IsInterfaceSide 'Server i => ServerSurface b -> SurfaceDownstream b -> STMc NoRetry '[SomeException] ()
@@ -242,7 +254,7 @@ instance IsSurfaceDownstream b (ServerSubsurface b) where
   unmapSurfaceDownstream _self = traceM "Subsurface unmapped"
 
 initializeServerSubsurface ::
-  forall b. BufferBackend b =>
+  forall b. RenderBackend b =>
   NewObject 'Server Interface_wl_subsurface ->
   Object 'Server Interface_wl_surface ->
   Object 'Server Interface_wl_surface ->

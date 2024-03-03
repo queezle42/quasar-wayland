@@ -65,7 +65,7 @@ listenAt socketPath server = disposeOnError do
     newWaylandServerConnection server socket
 
 
-compositorGlobal :: forall b. BufferBackend b => Global
+compositorGlobal :: forall b. RenderBackend b => Global
 compositorGlobal = createGlobal @Interface_wl_compositor maxVersion bindCompositor
   where
     bindCompositor :: Object 'Server Interface_wl_compositor -> STMc NoRetry '[SomeException] ()
@@ -77,7 +77,7 @@ compositorGlobal = createGlobal @Interface_wl_compositor maxVersion bindComposit
       create_region = \wlRegion -> liftSTMc $ initializeServerRegion wlRegion
     }
 
-subcompositorGlobal :: forall b. BufferBackend b => Global
+subcompositorGlobal :: forall b. RenderBackend b => Global
 subcompositorGlobal = createGlobal @Interface_wl_subcompositor maxVersion bindCompositor
   where
     bindCompositor :: Object 'Server Interface_wl_subcompositor -> STMc NoRetry '[SomeException] ()

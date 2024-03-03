@@ -8,9 +8,10 @@ import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Surface
 import Quasar.Wayland.Shm
+import Quasar.Resources (disposeSTM)
 
 
-shmGlobal :: IsShmBufferBackend b => b -> Global
+shmGlobal :: forall b. IsShmBufferBackend b => b -> Global
 shmGlobal backend = createGlobal @Interface_wl_shm maxVersion initializeWlShm
   where
     initializeWlShm :: NewObject 'Server Interface_wl_shm -> STMc NoRetry '[SomeException] ()
@@ -49,5 +50,5 @@ shmGlobal backend = createGlobal @Interface_wl_shm maxVersion initializeWlShm
       Word32 ->
       STMc NoRetry '[SomeException] ()
     initializeWlShmBuffer pool wlBuffer offset width height stride format = liftSTMc do
-      buffer <- newShmBuffer backend pool offset width height stride format
-      initializeWlBuffer wlBuffer buffer
+      rawBuffer <- newShmBuffer pool offset width height stride format
+      initializeWlBuffer @b wlBuffer (importShmBuffer backend rawBuffer) (disposeSTM rawBuffer)

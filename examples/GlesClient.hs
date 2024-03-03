@@ -2,6 +2,7 @@ module Main (main) where
 
 import Quasar
 import Quasar.Prelude
+import Quasar.Resources.Lock
 import Quasar.Timer
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.XdgShell
@@ -42,14 +43,14 @@ main = do
 
       let width = max configuration.width 512
       let height = max configuration.height 512
-      buffer <- liftIO $ renderDemo demo width height (i / 60)
-      atomicallyC do
-        commitWindowContent window configuration.configureSerial ((defaultSurfaceCommit buffer) {
+      frame <- liftIO $ renderDemo demo width height (i / 60)
+      commit <- atomicallyC do
+        commitWindowContent window configuration.configureSerial ((defaultSurfaceCommit frame) {
           bufferDamage = Just DamageAll
         })
-        liftSTMc $ destroyBuffer buffer
 
-      await =<< newDelay 16000
+      delay <- newDelay 16000
+      _ <- await (commit >> toFuture delay)
       pure ()
 
     traceIO "Closing"

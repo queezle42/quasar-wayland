@@ -28,13 +28,12 @@ newLocalShmPool size = do
 
 
 newLocalShmBuffer ::
-  IsShmBufferBackend b =>
-  b -> Int32 -> Int32 -> IO (Buffer b, ForeignPtr Word32)
-newLocalShmBuffer backend width height = do
+  Int32 -> Int32 -> IO (ShmBuffer, ForeignPtr Word32)
+newLocalShmBuffer width height = do
   (pool, ptr) <- newLocalShmPool size
 
   atomicallyC do
-    buffer <- newShmBuffer backend pool offset width height stride pixelFormat
+    buffer <- newShmBuffer pool offset width height stride pixelFormat
 
     -- Pool won't be reused
     destroyShmPool pool

@@ -26,7 +26,6 @@ module Quasar.Wayland.Gles.Dmabuf (
   -- ** Server
   IsDmabufBackend(..),
   dmabufGlobal,
-  importDmabufServerBuffer,
 ) where
 
 import Control.Monad.Catch
@@ -52,9 +51,13 @@ import Quasar.Wayland.Server.Surface
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Utils.SharedFd
 import Quasar.Wayland.Utils.SharedMemory
+import Quasar.Resources.Lock (newLock)
 
-class BufferBackend b => IsDmabufBackend b where
-  importDmabuf :: b -> Dmabuf -> BufferStorage b
+class RenderBackend b => IsDmabufBackend b where
+  type MappedDmabuf b
+  mapDmabuf :: b -> Dmabuf -> STMc NoRetry '[] (MappedDmabuf b)
+  unmapDmabuf :: MappedDmabuf b -> STMc NoRetry '[] ()
+  createDmabufFrame :: MappedDmabuf b -> STMc NoRetry '[] (Frame b)
 
 data Dmabuf = Dmabuf {
   width :: Int32,
@@ -344,8 +347,8 @@ addDmabufPlane var fd planeIndex offset stride modifierHi modifierLo = do
     addPlane Nothing = pure (Just (DmabufPlane {fd, offset, stride, modifier}))
     addPlane (Just _) = throwM $ userError "zwp_linux_buffer_params_v1::error.plane_set: the plane index was already set"
 
-importDmabufServerBuffer :: ServerDmabufParams -> Int32 -> Int32 -> Word32 -> Word32 -> STMc NoRetry '[SomeException] Dmabuf
-importDmabufServerBuffer var width height (DrmFormat -> format) _flags@0 = do
+newDmabuf :: ServerDmabufParams -> Int32 -> Int32 -> Word32 -> Word32 -> STMc NoRetry '[SomeException] Dmabuf
+newDmabuf var width height (DrmFormat -> format) _flags@0 = do
   readTVar var >>= \case
     Nothing -> throwM $ userError "zwp_linux_buffer_params_v1::error.already_used: the dmabuf_batch object has already been used to create a wl_buffer"
     Just planesMap -> do
@@ -355,12 +358,11 @@ importDmabufServerBuffer var width height (DrmFormat -> format) _flags@0 = do
             then pure plane
             else throwM $ userError "zwp_linux_buffer_params_v1::error.incomplete: missing or too many planes to create a buffer"
       pure $ Dmabuf { width, height, format, planes }
-importDmabufServerBuffer _ _ _ _ _ = throwM $ userError "zwp_linux_buffer_params_v1 flags (inverted, interlaced) are not supported"
+newDmabuf _ _ _ _ _ = throwM $ userError "zwp_linux_buffer_params_v1 flags (inverted, interlaced) are not supported"
 
 initializeDmabufBuffer :: forall b. IsDmabufBackend b => b -> ServerDmabufParams -> NewObject 'Server Interface_wl_buffer -> Int32 -> Int32 -> Word32 -> Word32 -> STMc NoRetry '[SomeException] ()
 initializeDmabufBuffer backend var wlBuffer width height format flags = do
-  dmabuf <- importDmabufServerBuffer var width height format flags
+  dmabuf <- newDmabuf var width height format flags
   liftSTMc do
-    -- Second arg is the destroy callback
-    buffer <- newBuffer @b (importDmabuf backend dmabuf)
-    initializeWlBuffer wlBuffer buffer
+    mappedDmabuf <- mapDmabuf backend dmabuf
+    initializeWlBuffer @b wlBuffer (createDmabufFrame @b mappedDmabuf) (unmapDmabuf @b mappedDmabuf)
