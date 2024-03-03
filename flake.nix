@@ -54,6 +54,8 @@
                 };
           };
         };
+
+        skia_quasar-wayland = final.callPackage ./skia {};
       };
 
       quasar = quasar.overlays.default;
