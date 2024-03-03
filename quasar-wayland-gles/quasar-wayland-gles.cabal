@@ -78,8 +78,6 @@ library
     exceptions,
     inline-c,
     quasar,
-    quasar,
-    quasar-wayland,
     quasar-wayland,
     template-haskell,
     unix,
