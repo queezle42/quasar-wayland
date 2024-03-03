@@ -94,3 +94,12 @@ executable quasar-wayland-example-proxy-gles
     quasar-wayland,
     quasar-wayland-gles,
   main-is: GlesProxy.hs
+
+executable quasar-wayland-example-skia
+  import: shared-executable-properties
+  build-depends:
+    base,
+    quasar,
+    quasar-wayland,
+    quasar-wayland-skia,
+  main-is: Skia.hs

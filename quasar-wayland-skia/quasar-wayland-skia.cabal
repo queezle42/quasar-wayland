@@ -1,0 +1,62 @@
+cabal-version: 3.0
+
+name: quasar-wayland-skia
+version: 0.1.0.0
+category: Wayland, User Interfaces
+description: Skia integration for quasar-wayland
+author: Jens Nolte
+license: BSD-2-Clause
+build-type: Simple
+
+source-repository head
+  type: git
+  location: https://github.com/queezle42/quasar-wayland
+
+common shared-properties
+  default-extensions:
+    AllowAmbiguousTypes
+    ApplicativeDo
+    BangPatterns
+    BlockArguments
+    DataKinds
+    DefaultSignatures
+    DerivingStrategies
+    DuplicateRecordFields
+    FunctionalDependencies
+    GADTs
+    LambdaCase
+    MagicHash
+    NoImplicitPrelude
+    NoStarIsType
+    OverloadedRecordDot
+    OverloadedStrings
+    QuasiQuotes
+    TemplateHaskellQuotes
+    TypeFamilies
+    ViewPatterns
+  default-language: GHC2021
+  ghc-options:
+    -Weverything
+    -Wno-all-missed-specialisations
+    -Wno-missing-deriving-strategies
+    -Wno-missing-import-lists
+    -Wno-missing-kind-signatures
+    -Wno-missing-safe-haskell-mode
+    -Wno-unsafe
+    -Werror=incomplete-patterns
+    -Werror=missing-fields
+    -Werror=missing-methods
+
+library
+  import: shared-properties
+  exposed-modules:
+    Quasar.Wayland.Skia
+  build-depends:
+    base,
+    inline-c,
+    inline-c-cpp,
+    quasar,
+    quasar-wayland,
+  extra-libraries: skia
+  hs-source-dirs:
+    src

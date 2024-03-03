@@ -37,6 +37,7 @@
       quasar-wayland = haskellPackages.quasar-wayland;
       quasar-wayland-examples = haskellPackages.quasar-wayland-examples;
       quasar-wayland-gles = haskellPackages.quasar-wayland-gles;
+      quasar-wayland-skia = haskellPackages.quasar-wayland-skia;
     }
     );
 
@@ -52,6 +53,7 @@
                 {
                   librarySystemDepends = [ final.libGL ];
                 };
+            quasar-wayland-skia = hfinal.callCabal2nix "quasar-wayland-skia" ./quasar-wayland-skia { skia = final.skia_quasar-wayland; };
           };
         };
 
@@ -70,6 +72,7 @@
             hpkgs.quasar-wayland
             hpkgs.quasar-wayland-examples
             hpkgs.quasar-wayland-gles
+            hpkgs.quasar-wayland-skia
           ];
           nativeBuildInputs = [
             # On some versions hls requires the same GHC version as the compiled
