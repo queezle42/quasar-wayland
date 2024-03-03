@@ -1,4 +1,1 @@
-packages:
-  examples
-  quasar-wayland
-  quasar-wayland-gles
+packages: */*.cabal
