@@ -38,6 +38,7 @@
       quasar-wayland-examples = haskellPackages.quasar-wayland-examples;
       quasar-wayland-gles = haskellPackages.quasar-wayland-gles;
       quasar-wayland-skia = haskellPackages.quasar-wayland-skia;
+      skia = pkgs.skia_quasar-wayland;
     }
     );
 
@@ -49,11 +50,26 @@
             quasar-wayland-examples = hfinal.callCabal2nix "quasar-wayland-examples" ./examples {};
             quasar-wayland-gles =
               final.haskell.lib.overrideCabal
-                (hfinal.callCabal2nix "quasar-wayland-gles" ./quasar-wayland-gles { EGL = null; GLESv2 = null; })
+                (hfinal.callCabal2nix "quasar-wayland-gles" ./quasar-wayland-gles {
+                  egl = final.libGL;
+                  glesv2 = final.libGL;
+                })
                 {
-                  librarySystemDepends = [ final.libGL ];
+                  buildTools = [ final.pkg-config ];
                 };
-            quasar-wayland-skia = hfinal.callCabal2nix "quasar-wayland-skia" ./quasar-wayland-skia { skia = final.skia_quasar-wayland; };
+            quasar-wayland-skia =
+              (final.haskell.lib.overrideCabal
+                (hfinal.callCabal2nix "quasar-wayland-skia" ./quasar-wayland-skia {
+                  egl = final.libGL;
+                  glesv2 = final.libGL;
+                  skia = final.skia_quasar-wayland;
+                })
+                {
+                  enableSharedLibraries = false;
+                  buildTools = [ final.pkg-config ];
+                  librarySystemDepends = [ final.libGL ];
+                  dontStrip = true;
+                });
           };
         };
 
@@ -87,7 +103,7 @@
           # Provide libEGL/libGLES2 to ghci (`librarySystemDepends` does not
           # seem to work with `shellFor`. It worked with a shell based on
           # `<package>.env`).
-          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libGL ];
+          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libGL pkgs.skia_quasar-wayland ];
         };
       }
     );

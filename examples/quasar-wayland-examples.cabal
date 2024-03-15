@@ -101,5 +101,6 @@ executable quasar-wayland-example-skia
     base,
     quasar,
     quasar-wayland,
+    quasar-wayland-gles,
     quasar-wayland-skia,
   main-is: Skia.hs

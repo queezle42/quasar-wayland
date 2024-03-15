@@ -53,10 +53,17 @@ library
     Quasar.Wayland.Skia
   build-depends:
     base,
+    containers,
     inline-c,
     inline-c-cpp,
+    nyan-interpolation,
     quasar,
     quasar-wayland,
-  extra-libraries: skia
+    quasar-wayland-gles,
+  extra-libraries:
+  pkgconfig-depends:
+    egl,
+    glesv2,
+    skia,
   hs-source-dirs:
     src

@@ -26,6 +26,9 @@ module Quasar.Wayland.Gles (
 
   -- * Server
   glesDmabufGlobal,
+
+  -- * Internal for skia
+  glGenTexture,
 ) where
 
 import Data.ByteString (ByteString)
@@ -84,6 +87,7 @@ initializeGles = do
     extensions = Set.fromList (words extensionsString)
     requiredExtensions :: Set String = Set.fromList [
       "GL_KHR_debug",
+      "GL_OES_required_internalformat",
       "GL_OES_EGL_image"
       --"GL_OES_EGL_image_external"
       ]

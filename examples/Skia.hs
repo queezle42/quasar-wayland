@@ -1,8 +1,14 @@
 module Main (main) where
 
+import Control.Concurrent (runInBoundThread)
 import Quasar.Prelude
-import System.IO
+import Quasar.Wayland.Gles
 import Quasar.Wayland.Skia (test)
+import System.IO
 
 main :: IO ()
-main = test
+main = runInBoundThread do
+  egl <- initializeGles
+  glTexture <- test egl
+
+  pure ()
