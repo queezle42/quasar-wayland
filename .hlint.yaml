@@ -42,6 +42,12 @@
     - traceShowIO
     - traceShowIdIO
 
+- functions:
+  - message: "undefined is not allowed in production code"
+    within: []
+    name:
+    - undefined
+
 # Add custom hints for this project
 #
 # Will suggest replacing "wibbleMany [myvar]" with "wibbleOne myvar"
@@ -71,6 +77,9 @@
 # - ignore: {name: Use const, within: SpecialModule} # Only within certain modules
 
 - ignore: {name: Eta reduce}
+- ignore: {name: Avoid lambda}
+- ignore: {name: Use const}
+- ignore: {name: Use fmap}
 
 
 # Define some custom infix operators
