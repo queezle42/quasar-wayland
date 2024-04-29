@@ -14,7 +14,7 @@ stdenv.mkDerivation (finalAttrs: {
     owner = "google";
     repo = "skia";
     rev = finalAttrs.version;
-    hash = "sha256-UF0GRvn3DHvsLcOLE6UvW775jj2zpnnMBOlRw0k/584=";
+    hash = "sha256-jSKvffBMyk/Y7kQ/MGDaXOHr4VLB7opdE8sCM7qnm8I=";
   };
 
   nativeBuildInputs = [ python3 gn ninja pkg-config validatePkgConfig ];

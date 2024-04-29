@@ -604,7 +604,7 @@ instance ClientBufferBackend GlesBackend where
   exportWlBuffer dmabufSingleton (GlesRenderedFrame var) = atomically do
     tryReadTDisposableVar var >>= \case
       Nothing -> undefined
-      Just dmabuf -> liftSTMc $ exportDmabufWlBuffer dmabufSingleton dmabuf
+      Just dmabuf -> liftSTMc $ sharedDmabufExportWlBuffer dmabufSingleton dmabuf
 
   syncExportBuffer = undefined
 

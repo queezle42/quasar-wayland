@@ -1,264 +1,412 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Quasar.Wayland.Skia (
-  test,
+  Skia(..),
+  initializeSkia,
+  SkiaSurface(..),
+  SkiaSurfaceState(..),
+  readSkiaSurfaceState,
+  readSkiaSurfaceStateIO,
+  --ManagedSkiaSurface,
+  IsSkiaBackend(..),
+  newSkiaSurface,
+  newFrameConsumeSurface,
+
+  clearSkiaSurface,
+  flushAndSubmit,
 ) where
 
 import Data.Map.Strict as Map
-import Foreign
-import Foreign.C
+import Data.Typeable (Typeable)
+import Foreign.ForeignPtr
 import Language.C.Inline qualified as C
 import Language.C.Inline.Context qualified as C
 import Language.C.Inline.Cpp qualified as CPP
-import Language.C.Inline.Unsafe qualified as CU
+import Language.C.Inline.Cpp.Unsafe qualified as CPPU
 import Language.C.Types qualified as C
+import Quasar.Exceptions (AsyncException(..), mkDisposedException, ExceptionSink)
+import Quasar.Exceptions.ExceptionSink (loggingExceptionSink)
+import Quasar.Future
 import Quasar.Prelude
-import Quasar.Wayland.Gles (glGenTexture)
-import Quasar.Wayland.Gles.Egl
-import Quasar.Wayland.Gles.Types
-import Text.Interpolation.Nyan (int)
+import Quasar.Resources
+import Quasar.Resources.DisposableVar
+import Quasar.Resources.Rc
+import Quasar.Wayland.Client
+import Quasar.Wayland.Client.Surface
+import Quasar.Wayland.Gles.Dmabuf
+import Quasar.Wayland.Protocol
+import Quasar.Wayland.Protocol.Generated
+import Quasar.Wayland.Shared.Surface
+import Quasar.Wayland.Skia.CTypes
+import Quasar.Wayland.Skia.Thread
 
 
-C.context (CPP.cppCtx {
-  C.ctxTypesTable = CPP.cppCtx.ctxTypesTable <> Map.fromList [
-    (C.TypeName "GLuint", [t|GLuint|]),
-    (C.TypeName "GLsizei", [t|GLsizei|])
+C.context (CPP.cppCtx <> C.fptrCtx <> mempty {
+  C.ctxTypesTable = Map.fromList [
+    (C.TypeName "GrDirectContext", [t|GrDirectContext|]),
+    (C.TypeName "SkSurface", [t|SkSurface|])
   ]
 })
 
 C.include "<iostream>"
 
-C.include "<EGL/egl.h>"
-C.include "<EGL/eglext.h>"
-
-C.include "<GLES2/gl2.h>"
-C.include "<GLES2/gl2ext.h>"
-
 C.include "include/core/SkGraphics.h"
 C.include "include/core/SkSurface.h"
 C.include "include/core/SkCanvas.h"
 C.include "include/core/SkColorSpace.h"
-C.include "include/gpu/gl/GrGLInterface.h"
-C.include "include/gpu/gl/GrGLTypes.h"
---C.include "include/gpu/gl/egl/GrGLMakeEGLInterface.h"
-C.include "include/gpu/gl/GrGLAssembleInterface.h"
 
 C.include "include/gpu/GrDirectContext.h"
 C.include "include/gpu/GrBackendSurface.h"
-C.include "include/gpu/ganesh/gl/GrGLDirectContext.h"
-C.include "include/gpu/ganesh/gl/GrGLBackendSurface.h"
 C.include "include/gpu/ganesh/SkSurfaceGanesh.h"
 
-C.verbatim [int||
-static GrGLFuncPtr egl_get_gl_proc(void* ctx, const char name[]) {
-    SkASSERT(nullptr == ctx);
-    // https://www.khronos.org/registry/EGL/extensions/KHR/EGL_KHR_get_all_proc_addresses.txt
-    // eglGetProcAddress() is not guaranteed to support the querying of non-extension EGL functions.
-    #define M(X) if (0 == strcmp(#X, name)) { return (GrGLFuncPtr) X; }
-    M(eglGetCurrentDisplay)
-    M(eglQueryString)
-    M(glActiveTexture)
-    M(glAttachShader)
-    M(glBindAttribLocation)
-    M(glBindBuffer)
-    M(glBindFramebuffer)
-    M(glBindRenderbuffer)
-    M(glBindTexture)
-    M(glBlendColor)
-    M(glBlendEquation)
-    M(glBlendFunc)
-    M(glBufferData)
-    M(glBufferSubData)
-    M(glCheckFramebufferStatus)
-    M(glClear)
-    M(glClearColor)
-    M(glClearStencil)
-    M(glColorMask)
-    M(glCompileShader)
-    M(glCompressedTexImage2D)
-    M(glCompressedTexSubImage2D)
-    M(glCopyTexSubImage2D)
-    M(glCreateProgram)
-    M(glCreateShader)
-    M(glCullFace)
-    M(glDeleteBuffers)
-    M(glDeleteFramebuffers)
-    M(glDeleteProgram)
-    M(glDeleteRenderbuffers)
-    M(glDeleteShader)
-    M(glDeleteTextures)
-    M(glDepthMask)
-    M(glDisable)
-    M(glDisableVertexAttribArray)
-    M(glDrawArrays)
-    M(glDrawElements)
-    M(glEnable)
-    M(glEnableVertexAttribArray)
-    M(glFinish)
-    M(glFlush)
-    M(glFramebufferRenderbuffer)
-    M(glFramebufferTexture2D)
-    M(glFrontFace)
-    M(glGenBuffers)
-    M(glGenFramebuffers)
-    M(glGenRenderbuffers)
-    M(glGenTextures)
-    M(glGenerateMipmap)
-    M(glGetBufferParameteriv)
-    M(glGetError)
-    M(glGetFramebufferAttachmentParameteriv)
-    M(glGetIntegerv)
-    M(glGetProgramInfoLog)
-    M(glGetProgramiv)
-    M(glGetRenderbufferParameteriv)
-    M(glGetShaderInfoLog)
-    M(glGetShaderPrecisionFormat)
-    M(glGetShaderiv)
-    M(glGetString)
-    M(glGetUniformLocation)
-    M(glIsTexture)
-    M(glLineWidth)
-    M(glLinkProgram)
-    M(glPixelStorei)
-    M(glReadPixels)
-    M(glRenderbufferStorage)
-    M(glScissor)
-    M(glShaderSource)
-    M(glStencilFunc)
-    M(glStencilFuncSeparate)
-    M(glStencilMask)
-    M(glStencilMaskSeparate)
-    M(glStencilOp)
-    M(glStencilOpSeparate)
-    M(glTexImage2D)
-    M(glTexParameterf)
-    M(glTexParameterfv)
-    M(glTexParameteri)
-    M(glTexParameteriv)
-    M(glTexSubImage2D)
-    M(glUniform1f)
-    M(glUniform1fv)
-    M(glUniform1i)
-    M(glUniform1iv)
-    M(glUniform2f)
-    M(glUniform2fv)
-    M(glUniform2i)
-    M(glUniform2iv)
-    M(glUniform3f)
-    M(glUniform3fv)
-    M(glUniform3i)
-    M(glUniform3iv)
-    M(glUniform4f)
-    M(glUniform4fv)
-    M(glUniform4i)
-    M(glUniform4iv)
-    M(glUniformMatrix2fv)
-    M(glUniformMatrix3fv)
-    M(glUniformMatrix4fv)
-    M(glUseProgram)
-    M(glVertexAttrib1f)
-    M(glVertexAttrib2fv)
-    M(glVertexAttrib3fv)
-    M(glVertexAttrib4fv)
-    M(glVertexAttribPointer)
-    M(glViewport)
-    #undef M
-    return eglGetProcAddress(name);
+
+type IsSkiaBackend :: Type -> Constraint
+class
+  (Eq (SkiaTextureStorage s), Hashable (SkiaTextureStorage s), Typeable s) =>
+  IsSkiaBackend s
+  where
+    type SkiaBackendContext s
+    type SkiaTextureStorage s
+    initializeSkiaBackend :: SkiaIO (ForeignPtr GrDirectContext, SkiaBackendContext s)
+    newSkiaBackendTexture :: Skia s -> Int32 -> Int32 -> SkiaIO (ForeignPtr SkSurface, SkiaTextureStorage s)
+    destroySkiaTextureStorage :: SkiaSurfaceState s -> SkiaIO ()
+    exportSkiaSurfaceDmabuf :: SkiaSurfaceState s -> SkiaIO Dmabuf
+
+data Skia s = Skia {
+  exceptionSink :: ExceptionSink,
+  thread :: SkiaThread,
+  grDirectContext :: ForeignPtr GrDirectContext,
+  context :: SkiaBackendContext s
 }
-|]
 
-test :: Egl -> IO GLuint
-test egl = do
-  texture <- glGenTexture
+initializeSkia :: forall s. IsSkiaBackend s => IO (Skia s)
+initializeSkia = do
+  let exceptionSink = loggingExceptionSink
+  thread <- newSkiaThread
+  future <- atomically (queueSkiaIO thread (initializeSkiaBackend @s))
+  (grDirectContext, context) <- await future
+  pure Skia {
+    exceptionSink,
+    thread,
+    grDirectContext,
+    context
+  }
 
-  let
-    width = 512 :: CInt
-    height = 512 :: CInt
+newtype SkiaSurface s = SkiaSurface (DisposableVar (SkiaSurfaceState s))
+  deriving (Eq, Hashable, Disposable)
 
-  [CU.block|void {
-    glBindTexture(GL_TEXTURE_2D, $(GLuint texture));
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8_OES, (GLsizei)$(int width), (GLsizei)$(int height), 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glBindTexture(GL_TEXTURE_2D, 0);
-  }|]
+data SkiaSurfaceState s = SkiaSurfaceState {
+  skia :: Skia s,
+  skSurface :: ForeignPtr SkSurface,
+  storage :: SkiaTextureStorage s,
+  width :: Int32,
+  height :: Int32
+}
 
-  [C.block|void {
-    SkGraphics::Init();
+newSkiaSurface ::
+  IsSkiaBackend s =>
+  Skia s ->
+  Int32 ->
+  Int32 ->
+  IO (SkiaSurface s)
+newSkiaSurface skia width height = runSkiaIO skia.thread do
+  (skSurface, storage) <- newSkiaBackendTexture skia width height
+  SkiaSurface <$> newFnDisposableVarIO skia.exceptionSink destroySurface SkiaSurfaceState {
+    skia,
+    skSurface,
+    storage,
+    width,
+    height
+  }
+  where
+    destroySurface :: forall s. IsSkiaBackend s => SkiaSurfaceState s -> IO ()
+    destroySurface state = runSkiaIO skia.thread do
+      destroySkiaTextureStorage @s state
+      liftIO $ finalizeForeignPtr state.skSurface
 
-    auto grGLInterface = GrGLMakeAssembledInterface(nullptr, egl_get_gl_proc);
+skiaSurfaceKey :: SkiaSurface s -> Unique
+skiaSurfaceKey (SkiaSurface var) = disposerElementKey var
 
-    // GrGLInterfaces::MakeEGL would be preferred, but it isn't exported from
-    // skia when building as a shared library:
-    //auto skiaGrGLInterface = GrGLInterfaces::MakeEGL();
+readSkiaSurfaceState :: SkiaSurface s -> STMc NoRetry '[] (SkiaSurfaceState s)
+readSkiaSurfaceState (SkiaSurface var) =
+  tryReadDisposableVar var >>= \case
+    Nothing -> undefined
+    Just surfaceState -> pure surfaceState
 
-    if (!grGLInterface) {
-      std::clog << "Could not create skia GrGLInterface\n";
-      return;
+readSkiaSurfaceStateIO :: SkiaSurface s -> IO (SkiaSurfaceState s)
+readSkiaSurfaceStateIO (SkiaSurface var) =
+  tryReadDisposableVarIO var >>= \case
+    Nothing -> undefined
+    Just surfaceState -> pure surfaceState
+
+data ReadonlySkiaSurface = ReadonlySkiaSurface {
+  skSurface :: ForeignPtr SkSurface,
+  disposer :: Disposer
+}
+
+--newtype ManagedSkiaSurface = ManagedSkiaSurface {
+--  skSurface :: ForeignPtr SkSurface
+--}
+
+
+data Borrowed a = Borrowed Disposer a
+
+instance Disposable (Borrowed a) where
+  getDisposer (Borrowed disposer _) = disposer
+
+
+data ImportedDmabuf = ImportedDmabuf Unique Dmabuf
+
+
+newtype SkiaFrame s = SkiaFrame (DisposableVar (SkiaFrameState s))
+
+instance Disposable (SkiaFrame s) where
+  getDisposer (SkiaFrame var) = getDisposer var
+
+data SkiaFrameState s
+  = SkiaFrameLazy (SkiaFrameOp s)
+  | SkiaFrameSparked Disposer (Future '[AsyncException] (Rc (SkiaRenderedFrame s)))
+
+instance Disposable (SkiaFrameState s) where
+  getDisposer (SkiaFrameLazy op) = getDisposer op
+  getDisposer (SkiaFrameSparked disposer _) = disposer
+
+data SkiaFrameOp s
+  = SkiaFrameImportOwnedDmabuf (Skia s) (Rc Dmabuf)
+  --- | SkiaFrameShaderOp
+  --- | SkiaFrameExported (Rc (SkiaExportBuffer s))
+  | SkiaFrameSinglePixel SkiaSinglePixelBuffer
+
+instance Disposable (SkiaFrameOp s) where
+  getDisposer (SkiaFrameImportOwnedDmabuf _ rc) = getDisposer rc
+  getDisposer (SkiaFrameSinglePixel _) = mempty
+
+data SkiaSinglePixelBuffer = SkiaSinglePixelBuffer Word32 Word32 Word32 Word32
+  deriving (Eq, Generic)
+
+instance Hashable SkiaSinglePixelBuffer
+
+
+data SkiaRenderedFrame s
+  -- | Owned surface, i.e. the surface belongs to the frame and will be
+  -- destroyed with the frame.
+  = SkiaRenderedFrameOwnedSurface (SkiaSurface s)
+  -- Borrowed surface, i.e. a surface that is used by the frame and will be
+  -- "returned" to the owner once the frame is destroyed.
+  | SkiaRenderedFrameBorrowedSurface (Rc (Borrowed (SkiaSurface s)))
+  | SkiaRenderedFrameImportedDmabuf (Rc ReadonlySkiaSurface) (Rc ImportedDmabuf)
+  | SkiaRenderedFrameSinglePixel SkiaSinglePixelBuffer
+
+instance Disposable (SkiaRenderedFrame s) where
+  getDisposer (SkiaRenderedFrameOwnedSurface surface) = getDisposer surface
+  getDisposer (SkiaRenderedFrameBorrowedSurface rc) = getDisposer rc
+  getDisposer (SkiaRenderedFrameImportedDmabuf x y) = getDisposer x <> getDisposer y
+  getDisposer (SkiaRenderedFrameSinglePixel _) = mempty
+
+newtype SkiaClientBufferManager s = SkiaClientBufferManager {
+  dmabufSingleton :: ClientDmabufSingleton
+}
+
+
+data SkiaExportBuffer s
+  = SkiaExportBufferSurface (SkiaSurface s)
+  | SkiaExportBufferImportedDmabuf ImportedDmabuf
+  | SkiaExportBufferSinglePixel SkiaSinglePixelBuffer
+
+data SkiaExportBufferId
+  = SkiaExportBufferIdUnique Unique
+  | SkiaExportBufferIdSinglePixel SkiaSinglePixelBuffer
+  deriving (Eq, Generic)
+
+instance Hashable SkiaExportBufferId
+
+instance IsSkiaBackend s => RenderBackend (Skia s) where
+  type Frame (Skia s) = SkiaFrame s
+
+instance IsSkiaBackend s => ClientBufferBackend (Skia s) where
+  type ClientBufferManager (Skia s) = SkiaClientBufferManager s
+  type RenderedFrame (Skia s) = SkiaRenderedFrame s
+  type ExportBufferId (Skia s) = SkiaExportBufferId
+  newClientBufferManager :: WaylandClient -> STMc NoRetry '[SomeException] (SkiaClientBufferManager s)
+  newClientBufferManager client = do
+    dmabufSingleton <- getClientDmabufSingleton client
+    pure SkiaClientBufferManager {
+      dmabufSingleton
     }
 
-    if (grGLInterface->validate()) {
-      std::clog << "Skia GrGLInterface valid\n";
-    }
-    else {
-      std::clog << "Skia GrGLInterface invalid\n";
-      return;
-    }
+  renderFrame :: Rc (SkiaFrame s) -> IO (Rc (SkiaRenderedFrame s))
+  renderFrame frame = renderFrameInternal frame
 
-    sk_sp<GrDirectContext> grDirectContext = GrDirectContexts::MakeGL(std::move(grGLInterface));
-    if (!grDirectContext) {
-      std::clog << "GrDirectContexts::MakeGL failed\n";
-      // TODO abort
-      return;
-    }
+  getExportBufferId :: SkiaRenderedFrame s -> STMc NoRetry '[] SkiaExportBufferId
+  getExportBufferId (SkiaRenderedFrameOwnedSurface surface) =
+      pure (SkiaExportBufferIdUnique (skiaSurfaceKey surface))
+  getExportBufferId (SkiaRenderedFrameBorrowedSurface borrowedSurfaceRc) =
+    tryReadRc borrowedSurfaceRc >>= \case
+      Nothing -> undefined
+      Just (Borrowed _ surface) ->
+        pure (SkiaExportBufferIdUnique (skiaSurfaceKey surface))
+  getExportBufferId (SkiaRenderedFrameImportedDmabuf _ dmabufRc) =
+    tryReadRc dmabufRc >>= \case
+      Nothing -> undefined
+      Just (ImportedDmabuf key _) -> pure (SkiaExportBufferIdUnique key)
+  getExportBufferId (SkiaRenderedFrameSinglePixel pixel) = pure (SkiaExportBufferIdSinglePixel pixel)
 
-    std::clog << "Skia GrDirectContext initialized\n";
+  exportWlBuffer :: SkiaClientBufferManager s -> SkiaRenderedFrame s -> IO (NewObject 'Client Interface_wl_buffer)
+  exportWlBuffer manager renderedFrame =
+    atomicallyC (getExportBuffer renderedFrame) >>= \case
+      SkiaExportBufferSurface surface -> exportSkiaSurface manager surface
+      SkiaExportBufferImportedDmabuf importedDmabuf -> undefined
+      SkiaExportBufferSinglePixel pixel -> undefined
 
-    GrGLTextureInfo textureInfo;
-    textureInfo.fTarget = GL_TEXTURE_2D;
-    textureInfo.fID = $(GLuint texture);
-    textureInfo.fFormat = GL_RGB8_OES;
+  syncExportBuffer :: SkiaRenderedFrame s -> IO ()
+  syncExportBuffer renderedFrame =
+    atomicallyC (getExportBuffer renderedFrame) >>= \case
+      SkiaExportBufferSurface surface ->
+        -- TODO use fence instead of full cpu sync if available
+        flushAndSync surface
+      SkiaExportBufferImportedDmabuf _ ->
+        pure () -- upstream is responsible for sync
+      SkiaExportBufferSinglePixel _ ->
+        pure () -- trivial buffer, no sync required
 
-    GrBackendTexture backendTexture = GrBackendTextures::MakeGL($(int width), $(int height), skgpu::Mipmapped::kNo, textureInfo);
+  getExportBufferDestroyedFuture :: SkiaRenderedFrame s -> STMc NoRetry '[] (Future '[] ())
+  getExportBufferDestroyedFuture renderedFrame = do
+    getExportBuffer renderedFrame >>= \case
+      SkiaExportBufferSurface surface -> pure (isDisposed surface)
+      SkiaExportBufferImportedDmabuf importedDmabuf -> undefined
+      SkiaExportBufferSinglePixel pixel -> undefined
 
-    std::clog << "Skia GrBackendTexture created from GL texture\n";
+getExportBuffer :: SkiaRenderedFrame s -> STMc NoRetry '[] (SkiaExportBuffer s)
+getExportBuffer (SkiaRenderedFrameOwnedSurface surface) =
+  pure (SkiaExportBufferSurface surface)
+getExportBuffer (SkiaRenderedFrameBorrowedSurface borrowedSurfaceRc) =
+  tryReadRc borrowedSurfaceRc >>= \case
+    Nothing -> undefined
+    Just (Borrowed _ surface) -> pure (SkiaExportBufferSurface surface)
+getExportBuffer (SkiaRenderedFrameImportedDmabuf _ importedDmabuf) = undefined
+getExportBuffer (SkiaRenderedFrameSinglePixel pixel) =
+  pure (SkiaExportBufferSinglePixel pixel)
 
-    GrSurfaceOrigin origin = GrSurfaceOrigin::kTopLeft_GrSurfaceOrigin;
-    int sampleCnt = 0;
-    SkColorType colorType = kRGB_888x_SkColorType;
-    sk_sp<SkColorSpace> colorSpace = nullptr; //SkColorSpace::MakeSRGB();
-    SkSurfaceProps* surfaceProps = nullptr; //new SkSurfaceProps();
-    sk_sp<SkSurface> skSurface = SkSurfaces::WrapBackendTexture(grDirectContext.get(), backendTexture, origin, sampleCnt, colorType, colorSpace, surfaceProps);
-    if (!skSurface) {
-      std::clog << "SkSurfaces::WrapBackendTexture failed\n";
-      return;
-    }
+exportSkiaSurface :: forall s. IsSkiaBackend s => SkiaClientBufferManager s -> SkiaSurface s -> IO (NewObject 'Client Interface_wl_buffer)
+exportSkiaSurface manager surface = do
+  surfaceState <- readSkiaSurfaceStateIO surface
+  dmabuf <- runSkiaIO surfaceState.skia.thread $ exportSkiaSurfaceDmabuf surfaceState
+  atomicallyC $ consumeDmabufExportWlBuffer manager.dmabufSingleton dmabuf
 
-    std::clog << "Skia SkSurfaces created from backend texture\n";
+importDmabuf :: Rc Dmabuf -> SkiaIO (Rc (SkiaRenderedFrame s))
+importDmabuf dmabuf = do
+  undefined
+
+renderFrameInternal :: Rc (SkiaFrame s) -> IO (Rc (SkiaRenderedFrame s))
+renderFrameInternal frameRc = do
+  consumeRc frameRc \(SkiaFrame var) -> do
+    frc <- atomically do
+      tryReadDisposableVar var >>= \case
+        Nothing -> throwC mkDisposedException
+        Just (SkiaFrameSparked _ frc) -> pure frc
+        Just (SkiaFrameLazy op) -> do
+          frc <- cacheFuture =<< sparkFrameOp op
+          disposer <- futureDisposerGeneric frc
+          tryWriteDisposableVar var (SkiaFrameSparked disposer frc)
+          pure frc
+    renderedFrameRc <- await frc
+    atomically do
+      tryDuplicateRc renderedFrameRc >>= \case
+        Nothing ->
+          -- We are holding an Rc (via `consumeRc`), which holds the SkiaFrame,
+          -- which holds the Rc for the SkiaRenderedFrame. If this exception
+          -- is encountered, someone somewhere disposed the SkiaFrame directly,
+          -- which is a bug.
+          throwC mkDisposedException
+        Just duplicatedRc -> pure duplicatedRc
+
+sparkFrameOp :: SkiaFrameOp s -> STM (Future '[AsyncException] (Rc (SkiaRenderedFrame s)))
+sparkFrameOp (SkiaFrameImportOwnedDmabuf skia dmabuf) =
+  queueSkiaIO skia.thread (importDmabuf dmabuf)
+sparkFrameOp (SkiaFrameSinglePixel singlePixelBuffer) =
+  pure <$> newRc (SkiaRenderedFrameSinglePixel singlePixelBuffer)
+
+-- | Takes ownership of a skia surface to create a frame. The surface will
+-- be destroyed later.
+newFrameConsumeSurface :: SkiaSurface s -> IO (SkiaFrame s)
+newFrameConsumeSurface surface = do
+  renderedFrameRc <- newRcIO (SkiaRenderedFrameOwnedSurface surface)
+  newFrameFromRenderedFrame renderedFrameRc
+
+newFrameFromRenderedFrame :: Rc (SkiaRenderedFrame s) -> IO (SkiaFrame s)
+newFrameFromRenderedFrame renderedFrameRc =
+  SkiaFrame <$> newDisposableVarIO (SkiaFrameSparked (getDisposer renderedFrameRc) (pure renderedFrameRc))
+
+--newManagedSkiaSurface :: Skia s -> Int -> Int -> IO ManagedSkiaSurface
+--newManagedSkiaSurface Skia{grDirectContext} width height = do
+--  let
+--    cWidth = fromIntegral width
+--    cHeight = fromIntegral height
+--
+--  rawSkSurface <- [CPPU.throwBlock|SkSurface* {
+--    GrDirectContext* grDirectContext = $fptr-ptr:(GrDirectContext* grDirectContext);
+--
+--    SkImageInfo imageInfo = SkImageInfo::Make($(int cWidth), $(int cHeight), kRGBA_8888_SkColorType, kPremul_SkAlphaType);
+--    sk_sp<SkSurface> skSurface = SkSurfaces::RenderTarget(grDirectContext, skgpu::Budgeted::kYes, imageInfo);
+--    if (!skSurface) {
+--      std::clog << "SkSurfaces::RenderTarget failed\n";
+--      return nullptr;
+--    }
+--
+--    // Release the base pointer from the shared pointer, since we will track the
+--    // lifetime by using a Haskell ForeignPtr.
+--    return skSurface.release();
+--  }|]
+--
+--  when (rawSkSurface == nullPtr) do
+--    throwIO $ userError "Failed to initialize skia"
+--
+--  let finalizerFunPtr = [C.funPtr|void deleteSkSurface(SkSurface* skSurface) {
+--    delete skSurface;
+--  }|]
+--
+--  skSurface <- newForeignPtr finalizerFunPtr rawSkSurface
+--
+--  pure ManagedSkiaSurface { skSurface }
 
 
-    //SkImageInfo imageInfo = SkImageInfo::Make(16, 16, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
-    //sk_sp<SkSurface> skSurface = SkSurfaces::RenderTarget(grDirectContext.get(), skgpu::Budgeted::kYes, imageInfo);
-    //if (!skSurface) {
-    //  std::clog << "SkSurfaces::RenderTarget failed\n";
-    //  return;
-    //}
-    //std::clog << "Skia SkSurfaces created\n";
+clearSkiaSurface :: SkiaSurface s -> IO ()
+clearSkiaSurface surface = do
+  surfaceState <- readSkiaSurfaceStateIO surface
+  runSkiaIO surfaceState.skia.thread (clearSkiaSurfaceInternal surfaceState.skSurface)
 
-    SkCanvas* skCanvas = skSurface->getCanvas();
+
+clearSkiaSurfaceInternal :: ForeignPtr SkSurface -> SkiaIO ()
+clearSkiaSurfaceInternal skSurface = liftIO do
+  [CPPU.throwBlock|void {
+    SkCanvas* skCanvas = ($fptr-ptr:(SkSurface* skSurface))->getCanvas();
     skCanvas->clear(SK_ColorRED);
-
-    std::clog << "Got skia SkCanvas\n";
-
-    grDirectContext->flush(skSurface.get());
-    grDirectContext->submit();
-
-    std::clog << "Flushed and submitted\n";
-
-    grDirectContext->releaseResourcesAndAbandonContext();
-
-    std::clog << "Cleaning up...\n";
   }|]
 
-  putStrLn "hi skia"
-  pure texture
+flushAndSubmit :: SkiaSurface s -> IO ()
+flushAndSubmit surface = do
+  surfaceState <- readSkiaSurfaceStateIO surface
+  runSkiaIO surfaceState.skia.thread (flushAndSubmitInternal surfaceState)
+
+flushAndSubmitInternal :: SkiaSurfaceState s -> SkiaIO ()
+flushAndSubmitInternal surfaceState = liftIO do
+  let grDirectContext = surfaceState.skia.grDirectContext
+  let skSurface = surfaceState.skSurface
+  [CPPU.throwBlock|void {
+    GrDirectContext* grDirectContext = $fptr-ptr:(GrDirectContext* grDirectContext);
+    grDirectContext->flushAndSubmit($fptr-ptr:(SkSurface* skSurface), GrSyncCpu::kYes);
+  }|]
+
+flushAndSync :: SkiaSurface s -> IO ()
+flushAndSync surface = do
+  surfaceState <- readSkiaSurfaceStateIO surface
+  runSkiaIO surfaceState.skia.thread (flushAndSubmitInternal surfaceState)
+
+flushAndSyncInternal :: SkiaSurfaceState s -> SkiaIO ()
+flushAndSyncInternal surfaceState = liftIO do
+  let grDirectContext = surfaceState.skia.grDirectContext
+  let skSurface = surfaceState.skSurface
+  [CPPU.throwBlock|void {
+    GrDirectContext* grDirectContext = $fptr-ptr:(GrDirectContext* grDirectContext);
+    grDirectContext->flushAndSubmit($fptr-ptr:(SkSurface* skSurface), GrSyncCpu::kYes);
+  }|]

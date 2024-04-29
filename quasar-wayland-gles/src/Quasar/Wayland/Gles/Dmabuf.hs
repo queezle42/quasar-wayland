@@ -21,7 +21,8 @@ module Quasar.Wayland.Gles.Dmabuf (
   newClientDmabufSingleton,
   getClientDmabufSingleton,
   awaitSupportedFormats,
-  exportDmabufWlBuffer,
+  consumeDmabufExportWlBuffer,
+  sharedDmabufExportWlBuffer,
 
   -- ** Server
   IsDmabufBackend(..),
@@ -249,8 +250,22 @@ awaitSupportedFormats dmabuf = do
   modifiers <- readTVarIO dmabuf.dmabufModifiers
   pure (Set.toList formats, Set.toList modifiers)
 
-exportDmabufWlBuffer :: ClientDmabufSingleton -> Dmabuf -> STMc NoRetry '[SomeException] (NewObject 'Client Interface_wl_buffer)
-exportDmabufWlBuffer dmabufSingleton dmabuf = do
+-- | Takes ownership of the `Dmabuf`.
+consumeDmabufExportWlBuffer :: ClientDmabufSingleton -> Dmabuf -> STMc NoRetry '[SomeException] (NewObject 'Client Interface_wl_buffer)
+consumeDmabufExportWlBuffer dmabufSingleton dmabuf = do
+  bufferParams <- dmabufSingleton.zwpLinuxDmabuf.create_params
+  setMessageHandler bufferParams EventHandler_zwp_linux_buffer_params_v1 {
+    created = \_ -> traceM "Error: Buffer created even though create_immed was used",
+    failed = traceM "Buffer creation failed"
+  }
+
+  forM_ (zip [0,1..] dmabuf.planes) \(i, plane) -> do
+    bufferParams.add plane.fd i plane.offset plane.stride plane.modifier.hi plane.modifier.lo
+
+  bufferParams.create_immed dmabuf.width dmabuf.height dmabuf.format.fourcc 0
+
+sharedDmabufExportWlBuffer :: ClientDmabufSingleton -> Dmabuf -> STMc NoRetry '[SomeException] (NewObject 'Client Interface_wl_buffer)
+sharedDmabufExportWlBuffer dmabufSingleton dmabuf = do
   bufferParams <- dmabufSingleton.zwpLinuxDmabuf.create_params
   setMessageHandler bufferParams EventHandler_zwp_linux_buffer_params_v1 {
     created = \_ -> traceM "Error: Buffer created even though create_immed was used",

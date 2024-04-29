@@ -51,9 +51,14 @@ library
   import: shared-properties
   exposed-modules:
     Quasar.Wayland.Skia
+    Quasar.Wayland.Skia.CTypes
+    Quasar.Wayland.Skia.GL
+  other-modules:
+    Quasar.Wayland.Skia.Thread
   build-depends:
     base,
     containers,
+    hashable,
     inline-c,
     inline-c-cpp,
     nyan-interpolation,
