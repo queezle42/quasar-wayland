@@ -6,14 +6,16 @@ module Quasar.Wayland.Skia (
   SkiaSurface(..),
   SkiaSurfaceState(..),
   readSkiaSurfaceState,
-  readSkiaSurfaceStateIO,
-  --ManagedSkiaSurface,
-  IsSkiaBackend(..),
   newSkiaSurface,
   newFrameConsumeSurface,
 
   clearSkiaSurface,
   flushAndSubmit,
+
+  -- * Internal
+  IsSkiaBackend(..),
+  readSkiaSurfaceStateIO,
+  --ManagedSkiaSurface,
 ) where
 
 import Data.Map.Strict as Map
@@ -60,6 +62,7 @@ C.include "include/gpu/GrBackendSurface.h"
 C.include "include/gpu/ganesh/SkSurfaceGanesh.h"
 
 
+-- | Implementation interface for a native skia backend, e.g. OpenGL or Vulkan.
 type IsSkiaBackend :: Type -> Constraint
 class
   (Eq (SkiaTextureStorage s), Hashable (SkiaTextureStorage s), Typeable s) =>
