@@ -2,7 +2,6 @@ module Main (main) where
 
 import Quasar
 import Quasar.Prelude
-import Quasar.Resources.DisposableVar
 import Quasar.Timer
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.XdgShell
