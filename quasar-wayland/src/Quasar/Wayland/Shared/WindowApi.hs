@@ -45,7 +45,7 @@ class (RenderBackend b, Disposable a) => IsWindow b a | a -> b where
   -- Ownership of the frame lock is transferred to the window. The window must
   -- ensure the frame lock is disposed at an appropriate time, or resources will
   -- be leaked.
-  commitWindowContent :: a -> ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] (Future ())
+  commitWindowContent :: a -> ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] (Future '[] ())
   ackWindowConfigure :: a -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
 
 -- | Quantification wrapper for `IsWindow`.

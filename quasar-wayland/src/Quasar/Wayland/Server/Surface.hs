@@ -11,12 +11,14 @@ module Quasar.Wayland.Server.Surface (
 
 import Control.Monad.Catch
 import Quasar.Prelude
-import Quasar.Resources.Lock
+import Quasar.Resources.Rc
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (appAsRect)
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Protocol.Core (attachOrRunFinalizer)
+import Quasar.Resources (Disposer, getDisposer, newUnmanagedSTMDisposer, newUnmanagedTDisposer)
+import Quasar.Future (callOnceCompleted_, toFuture)
 
 
 data ServerSurface b = ServerSurface {
@@ -113,7 +115,10 @@ commitMappedServerSurface surface mapped = do
       unmapSurfaceDownstream mapped.surfaceDownstream
     Just sb -> do
       rawFrame <- liftSTMc sb.importBuffer
-      frame <- newLock (\_ -> releaseFrame @b rawFrame >> tryCall sb.wlBuffer.release) rawFrame
+
+      callOnceCompleted_ (toFuture (getDisposer rawFrame)) \_ -> tryCall sb.wlBuffer.release
+
+      frame <- newRc rawFrame
 
       -- TODO Instead of voiding the future we might want to delay the
       -- frameCallback?
@@ -220,7 +225,7 @@ getServerBuffer wlBuffer = do
     Just buffer -> pure buffer
     Nothing -> throwM $ InternalError ("Missing interface data on " <> show wlBuffer)
 
---getImage :: forall b. RenderBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (Lock (Image b))
+--getImage :: forall b. RenderBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (TRc (Image b))
 --getImage wlBuffer = (.image) <$> getServerBuffer wlBuffer
 
 

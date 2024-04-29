@@ -76,7 +76,7 @@ newSharedFd :: Fd -> IO SharedFd
 newSharedFd fd = do
   rc <- newFdRc fd
   -- TODO
-  var <- newDisposableVarIO loggingExceptionSink (decRc closeFd (const (pure ()))) rc
+  var <- newFnDisposableVarIO loggingExceptionSink (decRc closeFd (const (pure ()))) rc
   pure (SharedFd var ("Fd@" <> show fd))
 
 -- | @withSharedFd fn sfd@ executes the computation @fn@, passing the underlying
@@ -115,7 +115,7 @@ duplicateSharedFd :: SharedFd -> STMc NoRetry '[SomeException] SharedFd
 duplicateSharedFd fd@(SharedFd _ showData) = do
   rc <- getFdRc fd
   incRc rc
-  var <- newDisposableVar loggingExceptionSink (decRc closeFd (const (pure ()))) rc
+  var <- newFnDisposableVar loggingExceptionSink (decRc closeFd (const (pure ()))) rc
   pure (SharedFd var ("Fd@" <> show fd))
 
 -- | Releases the reference to the underlying file descriptor. If this was the

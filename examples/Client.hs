@@ -9,9 +9,8 @@ import Quasar.Wayland.Client.XdgShell
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Shm
-
 import Codec.Picture as JuicyPixels
-import Quasar.Resources.Lock (newLockIO)
+import Quasar.Resources.Rc (newRcIO)
 
 
 main :: IO ()
@@ -37,12 +36,13 @@ main = do
       let width = max configuration.width 512
       let height = max configuration.height 512
       rawBuffer <- liftIO $ toImage ShmBufferBackend (mkImage width height img)
-      buffer <- newLockIO disposeSTM rawBuffer
+      buffer <- newRcIO rawBuffer
       commit <- atomicallyC do
         commitWindowContent window configuration.configureSerial ((defaultSurfaceCommit buffer) {bufferDamage = Just DamageAll})
 
       delay <- newDelay 1000000
-      await (commit >> toFuture delay)
+      await commit
+      await delay
 
     traceIO "Closing"
   traceIO "Closed"

@@ -6,7 +6,6 @@ module Quasar.Wayland.Shared.Surface (
   Damage(..),
   addDamage,
   SurfaceCommit(..),
-  destroyCommit,
   IsSurfaceDownstream(..),
   SurfaceDownstream,
   defaultSurfaceCommit,
@@ -18,14 +17,13 @@ module Quasar.Wayland.Shared.Surface (
 import Data.Typeable
 import Quasar.Future (Future)
 import Quasar.Prelude
-import Quasar.Resources.Lock
+import Quasar.Resources (Disposable, getDisposer, Disposer)
+import Quasar.Resources.Rc
 import Quasar.Wayland.Region (Rectangle(..))
-import Quasar.Resources (disposeSTM)
 
 type RenderBackend :: Type -> Constraint
-class Typeable b => RenderBackend b where
+class (Typeable b, Disposable (Frame b)) => RenderBackend b where
   type Frame b :: Type
-  releaseFrame :: Frame b -> STMc NoRetry '[] ()
 
 
 data Damage = DamageAll | DamageList [Rectangle]
@@ -45,7 +43,7 @@ addDamage x (Just (DamageList xs)) = Just (DamageList (x : xs))
 
 
 data SurfaceCommit b = SurfaceCommit {
-  frame :: Lock (Frame b),
+  frame :: Rc (Frame b),
   offset :: Maybe (Int32, Int32),
   -- | May be empty on the first commit.
   bufferDamage :: Maybe Damage,
@@ -53,8 +51,8 @@ data SurfaceCommit b = SurfaceCommit {
 }
 
 -- | Release resources attached to this commit.
-destroyCommit :: SurfaceCommit b -> STMc NoRetry '[] ()
-destroyCommit commit = disposeSTM commit.frame
+instance Disposable (SurfaceCommit b) where
+  getDisposer commit = getDisposer commit.frame
 
 instance Semigroup (SurfaceCommit b) where
   x <> y = SurfaceCommit {
@@ -81,7 +79,7 @@ class IsSurfaceDownstream b a | a -> b where
   -- Ownership of the frame lock is transferred to the callee. The callee must
   -- ensure the frame lock is disposed at an appropriate time, or resources will
   -- be leaked.
-  commitSurfaceDownstream :: a -> SurfaceCommit b -> STMc NoRetry '[SomeException] (Future ())
+  commitSurfaceDownstream :: a -> SurfaceCommit b -> STMc NoRetry '[SomeException] (Future '[] ())
 
   -- | Called on a NULL surface commit.
   unmapSurfaceDownstream :: a -> STMc NoRetry '[SomeException] ()
@@ -92,7 +90,7 @@ instance IsSurfaceDownstream b (SurfaceDownstream b) where
   unmapSurfaceDownstream (SurfaceDownstream x) = unmapSurfaceDownstream x
 
 
-defaultSurfaceCommit :: Lock (Frame b) -> SurfaceCommit b
+defaultSurfaceCommit :: Rc (Frame b) -> SurfaceCommit b
 defaultSurfaceCommit frame = SurfaceCommit {
   frame,
   offset = Nothing,

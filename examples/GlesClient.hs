@@ -2,7 +2,7 @@ module Main (main) where
 
 import Quasar
 import Quasar.Prelude
-import Quasar.Resources.Lock
+import Quasar.Resources.DisposableVar
 import Quasar.Timer
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.XdgShell
@@ -50,8 +50,8 @@ main = do
         })
 
       delay <- newDelay 16000
-      _ <- await (commit >> toFuture delay)
-      pure ()
+      await commit
+      await delay
 
     traceIO "Closing"
   traceIO "Closed"

@@ -48,7 +48,7 @@ newWaylandClient :: (MonadIO m, MonadQuasar m) => Socket -> m WaylandClient
 newWaylandClient socket = do
   ((wlDisplay, registryFuture), connection) <- newWaylandConnection newClientDisplay socket
 
-  registry <- liftIO $ awaitEx registryFuture
+  registry <- liftIO $ await registryFuture
 
   globals <- newTVarIO mempty
 

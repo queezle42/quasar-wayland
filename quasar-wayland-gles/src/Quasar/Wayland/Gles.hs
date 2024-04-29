@@ -43,17 +43,15 @@ import Language.C.Inline.Unsafe qualified as CU
 import Paths_quasar_wayland_gles (getDataFileName)
 import Quasar.Future (callOnceCompleted_)
 import Quasar.Prelude
-import Quasar.Resources (Disposable, TDisposable, disposeSTM, disposeEventually_, dispose)
+import Quasar.Resources (Disposable, TDisposable, disposeEventually_, dispose, getDisposer, isDisposed)
 import Quasar.Resources.DisposableVar
-import Quasar.Resources.Lock
+import Quasar.Resources.Rc
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Gles.Debug
 import Quasar.Wayland.Gles.Dmabuf
 import Quasar.Wayland.Gles.Egl
 import Quasar.Wayland.Gles.Types
 import Quasar.Wayland.Gles.Utils.InlineC
-import Quasar.Wayland.Protocol
-import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Shared.Surface
 import System.IO (stderr)
@@ -156,11 +154,10 @@ setupProxyDemoShader egl vertexShader fragmentShader = do
     shaderProgram
   }
 
-renderDemo :: RenderDemo -> Int32 -> Int32 -> Double -> IO (Lock (Frame GlesBackend))
+renderDemo :: RenderDemo -> Int32 -> Int32 -> Double -> IO (Rc (Frame GlesBackend))
 renderDemo demo width height time = do
   rawFrame <- renderDemoI demo width height time
-  --newLockIO disposeEventually_ rawFrame
-  newLockIO (\rf -> traceM "frame disposer" >> disposeEventually_ rf) rawFrame
+  newRcIO rawFrame
 
 renderDemoI :: RenderDemo -> Int32 -> Int32 -> Double -> IO (Frame GlesBackend)
 renderDemoI RenderDemo{egl, framebuffer, shaderProgram} width height time = do
@@ -247,14 +244,14 @@ renderDemoI RenderDemo{egl, framebuffer, shaderProgram} width height time = do
   pure (GlesFrame dmabuf)
 
 
-proxyDemo :: ProxyDemo -> Lock GlesFrame -> IO (Lock GlesFrame)
+proxyDemo :: ProxyDemo -> Rc GlesFrame -> IO (Rc GlesFrame)
 proxyDemo demo inFrame = do
-  atomicallyC (tryReadLock inFrame) >>= \case
+  atomicallyC (tryReadRc inFrame) >>= \case
     Nothing -> undefined
     Just rawInFrame -> do
       rawOutFrame <- proxyDemoI demo rawInFrame
       dispose inFrame
-      newLockIO disposeEventually_ rawOutFrame
+      newRcIO rawOutFrame
 
 proxyDemoI :: ProxyDemo -> GlesFrame -> IO GlesFrame
 proxyDemoI ProxyDemo{egl, framebuffer, shaderProgram} (GlesFrame inputDmabuf) = do
@@ -548,7 +545,6 @@ data GlesBackend = GlesBackend {
 
 instance RenderBackend GlesBackend where
   type Frame GlesBackend = GlesFrame
-  releaseFrame = undefined
 
 instance IsDmabufBackend GlesBackend where
   type MappedDmabuf GlesBackend = Dmabuf
@@ -583,7 +579,7 @@ newtype GlesFrame = GlesFrame {
 }
   deriving newtype Disposable
 
-newtype GlesExportBuffer = GlesExportBuffer (TDisposableVar Dmabuf)
+newtype GlesRenderedFrame = GlesRenderedFrame (TDisposableVar Dmabuf)
   deriving (Eq, Hashable, Disposable, TDisposable)
 
 getDmabuf :: GlesFrame -> Dmabuf
@@ -592,21 +588,24 @@ getDmabuf (GlesFrame dmabuf) = dmabuf
 
 instance ClientBufferBackend GlesBackend where
   type ClientBufferManager GlesBackend = ClientDmabufSingleton
-  type ExportBuffer GlesBackend = GlesExportBuffer
+  type RenderedFrame GlesBackend = GlesRenderedFrame
+  type ExportBufferId GlesBackend = Unique
   newClientBufferManager = newClientDmabufSingleton
 
   renderFrame frame = atomicallyC do
-    tryReadLock frame >>= \case
+    tryReadRc frame >>= \case
       Nothing -> undefined
       Just (GlesFrame dmabuf) -> do
         var <- newTDisposableVar dmabuf undefined
-        newLock (const (traceM "hi" >> disposeSTM frame)) (GlesExportBuffer var)
+        newRc (GlesRenderedFrame var)
 
-  exportWlBuffer dmabufSingleton (GlesExportBuffer var) = atomically do
+  getExportBufferId = undefined
+
+  exportWlBuffer dmabufSingleton (GlesRenderedFrame var) = atomically do
     tryReadTDisposableVar var >>= \case
       Nothing -> undefined
       Just dmabuf -> liftSTMc $ exportDmabufWlBuffer dmabufSingleton dmabuf
 
-  addBufferDestroyedCallback :: GlesExportBuffer -> STMc NoRetry '[] () -> STMc NoRetry '[] ()
-  addBufferDestroyedCallback (GlesExportBuffer var) callback =
-    callOnceCompleted_ var (\() -> callback)
+  syncExportBuffer = undefined
+
+  getExportBufferDestroyedFuture = pure . isDisposed

@@ -69,7 +69,7 @@ mapWindow demo jobQueue window = window {
   commitWindowContentFn = onWindowContentCommit demo jobQueue window
 }
 
-onWindowContentCommit :: ProxyDemo -> TQueue (IO ()) -> FnWindow GlesBackend -> ConfigureSerial -> SurfaceCommit GlesBackend -> STMc NoRetry '[SomeException] (Future ())
+onWindowContentCommit :: ProxyDemo -> TQueue (IO ()) -> FnWindow GlesBackend -> ConfigureSerial -> SurfaceCommit GlesBackend -> STMc NoRetry '[SomeException] (Future '[] ())
 onWindowContentCommit demo jobQueue window serial commit = do
   traceM "commit"
   writeTQueue jobQueue do

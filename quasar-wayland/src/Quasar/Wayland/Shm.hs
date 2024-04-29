@@ -17,9 +17,9 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Quasar.Future
 import Quasar.Prelude
-import Quasar.Resources (TDisposer, newUnmanagedTDisposer, disposeTDisposer, Disposable(..), TDisposable)
+import Quasar.Resources (TDisposer, newUnmanagedTDisposer, disposeTDisposer, Disposable(..), TDisposable, disposerElementKey, isDisposed)
 import Quasar.Resources.DisposableVar
-import Quasar.Resources.Lock
+import Quasar.Resources.Rc
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Protocol
@@ -31,7 +31,6 @@ data ShmBufferBackend = ShmBufferBackend
 
 instance RenderBackend ShmBufferBackend where
   type Frame ShmBufferBackend = ShmBuffer
-  releaseFrame = undefined
 
 class RenderBackend b => IsShmBufferBackend b where
   importShmBuffer :: b -> ShmBuffer -> STMc NoRetry '[] (Frame b)
@@ -152,12 +151,16 @@ newShmBuffer pool offset width height stride format = do
 instance ClientBufferBackend ShmBufferBackend where
 
   type ClientBufferManager ShmBufferBackend = ClientShmManager
-  type ExportBuffer ShmBufferBackend = ShmBuffer
+  type RenderedFrame ShmBufferBackend = ShmBuffer
+  type ExportBufferId ShmBufferBackend = Unique
 
   newClientBufferManager = newClientShmManager
 
-  renderFrame :: Lock ShmBuffer -> IO (Lock ShmBuffer)
+  renderFrame :: Rc ShmBuffer -> IO (Rc ShmBuffer)
   renderFrame = pure
+
+  getExportBufferId :: ShmBuffer -> STMc NoRetry '[] Unique
+  getExportBufferId (ShmBuffer var) = pure (disposerElementKey var)
 
   exportWlBuffer :: ClientShmManager -> ShmBuffer -> IO (NewObject 'Client Interface_wl_buffer)
   exportWlBuffer client (ShmBuffer var) = atomicallyC do
@@ -168,9 +171,11 @@ instance ClientBufferBackend ShmBufferBackend where
         -- NOTE no event handlers are attached here, since the caller (usually `Quasar.Wayland.Surface`) has that responsibility.
         wlShmPool.create_buffer state.offset state.width state.height state.stride state.format
 
-  addBufferDestroyedCallback :: ShmBuffer -> STMc NoRetry '[] () -> STMc NoRetry '[] ()
-  addBufferDestroyedCallback (ShmBuffer var) callback =
-    callOnceCompleted_ var (const callback)
+  syncExportBuffer :: ShmBuffer -> IO ()
+  syncExportBuffer _ = pure ()
+
+  getExportBufferDestroyedFuture :: ShmBuffer -> STMc NoRetry '[] (Future '[] ())
+  getExportBufferDestroyedFuture = pure . isDisposed
 
 data ClientShmManager = ClientShmManager {
   key :: Unique,
