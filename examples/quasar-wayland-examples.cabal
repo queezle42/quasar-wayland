@@ -50,7 +50,7 @@ common shared-executable-properties
     -threaded
     -rtsopts "-with-rtsopts=-N -I0"
 
-executable quasar-wayland-example-client
+executable quasar-wayland-example-client-shm
   import: shared-executable-properties
   build-depends:
     base,
@@ -58,7 +58,7 @@ executable quasar-wayland-example-client
     quasar,
     quasar-timer,
     quasar-wayland,
-  main-is: Client.hs
+  main-is: ShmClient.hs
 
 executable quasar-wayland-example-client-gles
   import: shared-executable-properties
@@ -69,22 +69,6 @@ executable quasar-wayland-example-client-gles
     quasar-wayland,
     quasar-wayland-gles,
   main-is: GlesClient.hs
-
-executable quasar-wayland-example-server
-  import: shared-executable-properties
-  build-depends:
-    base,
-    quasar,
-    quasar-wayland,
-  main-is: Server.hs
-
-executable quasar-wayland-example-proxy
-  import: shared-executable-properties
-  build-depends:
-    base,
-    quasar,
-    quasar-wayland,
-  main-is: Proxy.hs
 
 executable quasar-wayland-example-proxy-gles
   import: shared-executable-properties
