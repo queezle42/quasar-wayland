@@ -394,13 +394,13 @@ flushAndSubmitInternal surfaceState = liftIO do
   let skSurface = surfaceState.skSurface
   [CPPU.throwBlock|void {
     GrDirectContext* grDirectContext = $fptr-ptr:(GrDirectContext* grDirectContext);
-    grDirectContext->flushAndSubmit($fptr-ptr:(SkSurface* skSurface), GrSyncCpu::kYes);
+    grDirectContext->flushAndSubmit($fptr-ptr:(SkSurface* skSurface));
   }|]
 
 flushAndSync :: SkiaSurface s -> IO ()
 flushAndSync surface = do
   surfaceState <- readSkiaSurfaceStateIO surface
-  runSkiaIO surfaceState.skia.thread (flushAndSubmitInternal surfaceState)
+  runSkiaIO surfaceState.skia.thread (flushAndSyncInternal surfaceState)
 
 flushAndSyncInternal :: SkiaSurfaceState s -> SkiaIO ()
 flushAndSyncInternal surfaceState = liftIO do
