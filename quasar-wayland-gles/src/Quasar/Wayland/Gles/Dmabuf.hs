@@ -57,7 +57,6 @@ class RenderBackend b => IsDmabufBackend b where
   type MappedDmabuf b
   mapDmabuf :: b -> Dmabuf -> STMc NoRetry '[] (MappedDmabuf b)
   unmapDmabuf :: MappedDmabuf b -> STMc NoRetry '[] ()
-  -- TODO should this return a TRcVar?
   createDmabufFrame :: MappedDmabuf b -> STMc NoRetry '[] (Frame b)
 
 data Dmabuf = Dmabuf {
