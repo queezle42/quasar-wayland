@@ -42,7 +42,7 @@ import Foreign
 import GHC.Records
 import Quasar.Future
 import Quasar.Prelude
-import Quasar.Resources (Disposable (getDisposer))
+import Quasar.Resources (Disposable (getDisposer), Disposer)
 import Quasar.Wayland.Client
 import Quasar.Wayland.Gles.Utils.Stat (DevT(..))
 import Quasar.Wayland.Protocol
@@ -57,7 +57,7 @@ class RenderBackend b => IsDmabufBackend b where
   type MappedDmabuf b
   mapDmabuf :: b -> Dmabuf -> STMc NoRetry '[] (MappedDmabuf b)
   unmapDmabuf :: MappedDmabuf b -> STMc NoRetry '[] ()
-  createDmabufFrame :: MappedDmabuf b -> STMc NoRetry '[] (Frame b)
+  createDmabufFrame :: MappedDmabuf b -> Disposer -> STMc NoRetry '[] (Frame b)
 
 data Dmabuf = Dmabuf {
   width :: Int32,

@@ -17,7 +17,7 @@ import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (appAsRect)
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Protocol.Core (attachOrRunFinalizer)
-import Quasar.Resources (Disposer, getDisposer, newUnmanagedSTMDisposer, newUnmanagedTDisposer)
+import Quasar.Resources (Disposer, getDisposer, TDisposer, newUnmanagedTDisposer)
 import Quasar.Future (callOnceCompleted_, toFuture)
 
 
@@ -50,7 +50,7 @@ data MappedServerSurface b = MappedServerSurface {
 
 data ServerBuffer b = ServerBuffer {
   wlBuffer :: Object 'Server Interface_wl_buffer,
-  importBuffer :: STMc NoRetry '[] (Frame b)
+  importBuffer :: Disposer -> STMc NoRetry '[] (Frame b)
 }
 
 newServerSurface :: STMc NoRetry '[] (ServerSurface b)
@@ -114,10 +114,9 @@ commitMappedServerSurface surface mapped = do
       when (isJust frameCallback) $ throwM $ userError "Must not attach frame callback when unmapping surface"
       unmapSurfaceDownstream mapped.surfaceDownstream
     Just sb -> do
-      rawFrame <- liftSTMc sb.importBuffer
+      frameRelease <- newUnmanagedTDisposer (tryCall sb.wlBuffer.release)
 
-      callOnceCompleted_ (toFuture (getDisposer rawFrame)) \_ -> tryCall sb.wlBuffer.release
-
+      rawFrame <- liftSTMc $ sb.importBuffer (getDisposer frameRelease)
       frame <- newRc rawFrame
 
       -- TODO Instead of voiding the future we might want to delay the
@@ -203,7 +202,7 @@ addFrameCallback serverSurface wlCallback = do
 initializeWlBuffer ::
   forall b. (RenderBackend b) =>
   NewObject 'Server Interface_wl_buffer ->
-  STMc NoRetry '[] (Frame b) ->
+  (Disposer -> STMc NoRetry '[] (Frame b)) ->
   STMc NoRetry '[] () ->
   STMc NoRetry '[] ()
 initializeWlBuffer wlBuffer importBuffer finalizeBuffer = do

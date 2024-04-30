@@ -10,6 +10,7 @@ import Quasar.Prelude
 import Quasar.Wayland.Client.ShmBuffer
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shm
+import Quasar.Resources (getDisposer)
 
 loadImageFile ::
   IsShmBufferBackend b =>
@@ -30,7 +31,7 @@ toImage backend image = do
   withForeignPtr ptr \ptr' -> forM_ [(x, y) | x <- [0 .. width - 1], y <- [0 .. height - 1]] \(x, y) -> do
     pokeByteOff ptr' ((x + (y * width)) * 4) (pixelRgba8ToWlARGB (pixelAt image x y))
 
-  atomicallyC (importShmBuffer backend buffer)
+  atomicallyC (importShmBuffer backend buffer (getDisposer buffer))
 
 
 pixelRgba8ToWlARGB :: PixelRGBA8 -> Word32

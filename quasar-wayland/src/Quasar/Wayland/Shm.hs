@@ -17,7 +17,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Quasar.Future
 import Quasar.Prelude
-import Quasar.Resources (TDisposer, newUnmanagedTDisposer, disposeTDisposer, Disposable(..), TDisposable, disposerElementKey, isDisposed)
+import Quasar.Resources (Disposer, TDisposer, newUnmanagedTDisposer, disposeTDisposer, Disposable(..), TDisposable, disposerElementKey, isDisposed)
 import Quasar.Resources.DisposableVar
 import Quasar.Resources.Rc
 import Quasar.Wayland.Client
@@ -29,14 +29,19 @@ import Quasar.Wayland.Shared.Surface
 -- | Simple buffer backend that only supports shared memory buffers.
 data ShmBufferBackend = ShmBufferBackend
 
+data ShmBufferFrame = ShmBufferFrame Disposer ShmBuffer
+
+instance Disposable ShmBufferFrame where
+  getDisposer (ShmBufferFrame disposer _) = disposer
+
 instance RenderBackend ShmBufferBackend where
-  type Frame ShmBufferBackend = ShmBuffer
+  type Frame ShmBufferBackend = ShmBufferFrame
 
 class RenderBackend b => IsShmBufferBackend b where
-  importShmBuffer :: b -> ShmBuffer -> STMc NoRetry '[] (Frame b)
+  importShmBuffer :: b -> ShmBuffer -> Disposer -> STMc NoRetry '[] (Frame b)
 
 instance IsShmBufferBackend ShmBufferBackend where
-  importShmBuffer ShmBufferBackend = pure
+  importShmBuffer ShmBufferBackend shmBuffer disposer = pure (ShmBufferFrame disposer shmBuffer)
 
 -- | Wrapper for an externally managed shm pool
 data ShmPool = ShmPool {
@@ -151,19 +156,19 @@ newShmBuffer pool offset width height stride format = do
 instance ClientBufferBackend ShmBufferBackend where
 
   type ClientBufferManager ShmBufferBackend = ClientShmManager
-  type RenderedFrame ShmBufferBackend = ShmBuffer
+  type RenderedFrame ShmBufferBackend = ShmBufferFrame
   type ExportBufferId ShmBufferBackend = Unique
 
   newClientBufferManager = newClientShmManager
 
-  renderFrame :: Rc ShmBuffer -> IO (Rc ShmBuffer)
+  renderFrame :: Rc ShmBufferFrame -> IO (Rc ShmBufferFrame)
   renderFrame = pure
 
-  getExportBufferId :: ShmBuffer -> STMc NoRetry '[] Unique
-  getExportBufferId (ShmBuffer var) = pure (disposerElementKey var)
+  getExportBufferId :: ShmBufferFrame -> STMc NoRetry '[] Unique
+  getExportBufferId (ShmBufferFrame _ (ShmBuffer var)) = pure (disposerElementKey var)
 
-  exportWlBuffer :: ClientShmManager -> ShmBuffer -> IO (NewObject 'Client Interface_wl_buffer)
-  exportWlBuffer client (ShmBuffer var) = atomicallyC do
+  exportWlBuffer :: ClientShmManager -> ShmBufferFrame -> IO (NewObject 'Client Interface_wl_buffer)
+  exportWlBuffer client (ShmBufferFrame _ (ShmBuffer var)) = atomicallyC do
     tryReadTDisposableVar var >>= \case
       Nothing -> throwM (userError "ShmBufferBackend: Trying to export already disposed buffer")
       Just state -> do
@@ -171,11 +176,11 @@ instance ClientBufferBackend ShmBufferBackend where
         -- NOTE no event handlers are attached here, since the caller (usually `Quasar.Wayland.Surface`) has that responsibility.
         wlShmPool.create_buffer state.offset state.width state.height state.stride state.format
 
-  syncExportBuffer :: ShmBuffer -> IO ()
+  syncExportBuffer :: ShmBufferFrame -> IO ()
   syncExportBuffer _ = pure ()
 
-  getExportBufferDestroyedFuture :: ShmBuffer -> STMc NoRetry '[] (Future '[] ())
-  getExportBufferDestroyedFuture = pure . isDisposed
+  getExportBufferDestroyedFuture :: ShmBufferFrame -> STMc NoRetry '[] (Future '[] ())
+  getExportBufferDestroyedFuture (ShmBufferFrame _ shmBuffer) = pure $ isDisposed shmBuffer
 
 data ClientShmManager = ClientShmManager {
   key :: Unique,
