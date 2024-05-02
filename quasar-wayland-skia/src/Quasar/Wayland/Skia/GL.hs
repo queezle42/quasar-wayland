@@ -15,13 +15,14 @@ import Language.C.Inline.Unsafe qualified as CU
 import Language.C.Types qualified as C
 import Quasar.Prelude
 import Quasar.Wayland.Gles (initializeGles, glGenTexture)
+import Quasar.Wayland.Gles.Dmabuf
 import Quasar.Wayland.Gles.Egl
 import Quasar.Wayland.Gles.Egl.Types (EGLImage)
 import Quasar.Wayland.Gles.Types
 import Quasar.Wayland.Skia
 import Quasar.Wayland.Skia.CTypes
-import Text.Interpolation.Nyan (int)
 import Quasar.Wayland.Skia.Thread
+import Text.Interpolation.Nyan (int)
 
 
 C.context (CPP.cppCtx <> C.fptrCtx <> mempty {
@@ -177,25 +178,27 @@ static GrGLFuncPtr egl_get_gl_proc(void* ctx, const char name[]) {
 
 data GL
 
+data GlContext = GlContext {
+  egl :: Egl
+}
+
 instance IsSkiaBackend GL where
-  type SkiaBackendContext GL = Egl
+  type SkiaBackendContext GL = GlContext
   type SkiaTextureStorage GL = EGLImage
   initializeSkiaBackend = initializeSkiaGles
   newSkiaBackendTexture = newSkiaGLTexture
   destroySkiaTextureStorage = destroySkiaGLTexture
   exportSkiaSurfaceDmabuf = exportDmabuf
 
--- eglExportDmabuf :: Egl -> EGLImage -> Int32 -> Int32 -> IO Dmabuf
-
 exportDmabuf :: SkiaSurfaceState GL -> SkiaIO Dmabuf
 exportDmabuf surfaceState = liftIO do
-  eglExportDmabuf surfaceState.skia.context surfaceState.storage surfaceState.width surfaceState.height
+  eglExportDmabuf surfaceState.skia.context.egl surfaceState.storage surfaceState.width surfaceState.height
 
 destroySkiaGLTexture :: SkiaSurfaceState GL -> SkiaIO ()
-destroySkiaGLTexture surfaceState = liftIO $ eglDestroyImage surfaceState.skia.context surfaceState.storage
+destroySkiaGLTexture surfaceState = liftIO $ eglDestroyImage surfaceState.skia.context.egl surfaceState.storage
 
 -- | Initialize Skia using the OpenGL ES backend.
-initializeSkiaGles :: SkiaIO (ForeignPtr GrDirectContext, Egl)
+initializeSkiaGles :: SkiaIO (ForeignPtr GrDirectContext, GlContext, SkiaDmabufProperties)
 initializeSkiaGles = liftIO do
   egl <- initializeGles
 
@@ -245,7 +248,20 @@ initializeSkiaGles = liftIO do
 
   grDirectContext <- newForeignPtr finalizerFunPtr rawSkiaContext
 
-  pure (grDirectContext, egl)
+  (dmabufFormats, dmabufModifiers) <- eglQueryDmabufFormats egl
+  feedback <- getDmabufFeedback egl
+
+  let context = GlContext {
+    egl
+  }
+
+  let dmabuf = SkiaDmabufProperties {
+    version1Formats = dmabufFormats,
+    version3FormatTable = dmabufModifiers,
+    feedback
+  }
+
+  pure (grDirectContext, context, dmabuf)
 
 
 
@@ -266,7 +282,7 @@ newSkiaGLTexture Skia{grDirectContext, context} width height = liftIO do
   }|]
 
   -- Map texture to EGL image
-  eglImage <- eglCreateGLImage context texture
+  eglImage <- eglCreateGLImage context.egl texture
 
   rawSkSurface <- [CPPU.throwBlock|SkSurface* {
     GrDirectContext* grDirectContext = $fptr-ptr:(GrDirectContext* grDirectContext);
