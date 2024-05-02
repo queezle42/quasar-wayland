@@ -39,14 +39,14 @@ class (RenderBackend b, Typeable (ClientBufferManager b), Hashable (ExportBuffer
   -- The buffer can then be exported by using `exportWlBuffer`. Exported buffers
   -- stay mapped to the server and might be reused, if the buffer is already
   -- mapped it should not be mapped again. To identity which buffer the frame
-  -- has been rendered to, use `getBufferId`.
+  -- has been rendered to, use `getExportBufferId`.
   --
-  -- Disposing the `ExportBuffer` rc will release resources associated with the
+  -- Disposing the `RenderedFrame` rc will release resources associated with the
   -- frame (if applicable) and releases the internal buffer so it can be reused
   -- or destroyed by the buffer owner.
   --
   -- Takes responsibility for the frame rc. The caller is responsible for the
-  -- returned buffer rc.
+  -- returned RenderedFrame rc.
   --
   -- The exported buffers contents should not change until it is unlocked by the
   -- caller.

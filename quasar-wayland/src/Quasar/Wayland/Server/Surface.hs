@@ -17,8 +17,7 @@ import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (appAsRect)
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Protocol.Core (attachOrRunFinalizer)
-import Quasar.Resources (Disposer, getDisposer, TDisposer, newUnmanagedTDisposer)
-import Quasar.Future (callOnceCompleted_, toFuture)
+import Quasar.Resources (Disposer, getDisposer, newUnmanagedTDisposer)
 
 
 data ServerSurface b = ServerSurface {
