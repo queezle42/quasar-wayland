@@ -1,17 +1,10 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Quasar.Wayland.Skia.GL.Gles (
-  Egl,
   initializeGles,
 
-  -- * Client
-  ClientDmabufSingleton,
-  newClientDmabufSingleton,
-  getClientDmabufSingleton,
-  awaitSupportedFormats,
-
-  -- * Internal for skia
   glGenTexture,
+  glDeleteTexture,
 ) where
 
 import Data.Set (Set)
@@ -21,9 +14,6 @@ import Foreign.C
 import Language.C.Inline qualified as C
 import Language.C.Inline.Unsafe qualified as CU
 import Quasar.Prelude
-import Quasar.Resources (Disposable, TDisposable)
-import Quasar.Resources.DisposableVar
-import Quasar.Wayland.Skia.Dmabuf
 import Quasar.Wayland.Skia.GL.Debug
 import Quasar.Wayland.Skia.GL.Egl
 import Quasar.Wayland.Skia.GL.Types
