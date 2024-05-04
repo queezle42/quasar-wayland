@@ -17,7 +17,7 @@ import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (appAsRect)
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Protocol.Core (attachOrRunFinalizer)
-import Quasar.Resources (Disposer, getDisposer, newUnmanagedTDisposer)
+import Quasar.Resources (TDisposer, newUnmanagedTDisposer)
 
 
 data ServerSurface b = ServerSurface {
@@ -42,14 +42,15 @@ data MappedServerSurface b = MappedServerSurface {
   pendingBuffer :: TVar (Maybe (ServerBuffer b)),
   pendingOffset :: TVar (Maybe (Int32, Int32)),
   pendingBufferDamage :: TVar (Maybe Damage),
-  -- Damage specified in surface coordinates (i.e. produced by wl_surface.damage instead of wl_surface.damage_buffer).
-  -- Damage can be converted to buffer coordinates on commit (NOTE: conversion requires wl_surface version 4)
+  -- Damage specified in surface coordinates (i.e. produced by wl_surface.damage
+  -- instead of wl_surface.damage_buffer). Damage can be converted to buffer
+  -- coordinates on commit (NOTE: conversion requires wl_surface version 4)
   pendingSurfaceDamage :: TVar [Rectangle]
 }
 
 data ServerBuffer b = ServerBuffer {
   wlBuffer :: Object 'Server Interface_wl_buffer,
-  importBuffer :: Disposer -> STMc NoRetry '[] (Frame b)
+  createFrame :: TDisposer -> STMc NoRetry '[] (Frame b)
 }
 
 newServerSurface :: STMc NoRetry '[] (ServerSurface b)
@@ -115,7 +116,7 @@ commitMappedServerSurface surface mapped = do
     Just sb -> do
       frameRelease <- newUnmanagedTDisposer (tryCall sb.wlBuffer.release)
 
-      rawFrame <- liftSTMc $ sb.importBuffer (getDisposer frameRelease)
+      rawFrame <- liftSTMc $ sb.createFrame frameRelease
       frame <- newRc rawFrame
 
       -- TODO Instead of voiding the future we might want to delay the
@@ -194,26 +195,39 @@ addFrameCallback serverSurface wlCallback = do
     cb time = unlessM wlCallback.isDestroyed (tryCall (wlCallback.done time))
 
 -- | Called by a buffer implementation (e.g. the implementation for
--- @wl_shm@ or @zwp_linux_dmabuf_v1@) to initialize a new @wl_buffer@ object.
+-- @wl_shm@, @zwp_linux_dmabuf_v1@ or @wp_single_pixel_buffer_manager_v1@) to
+-- initialize a new @wl_buffer@ object.
 --
--- The @createImage@ function will be called whenever the buffer needs to be
--- read.
+-- The @createFrame@ function will be called whenever the buffer is committed
+-- by a wayland client. The disposer provided to @createFrame@ needs to be
+-- embedded in the frame and has to be disposed when the frame is disposed - it
+-- is used to signal @wl_buffer::release@.
+--
+-- The @unmapBuffer@-function is called when the buffer is unmapped by the
+-- wayland client (or otherwise destroyed). After @unmapBuffer@ has been called,
+-- no further frames will be created from the buffer.
+--
+-- Resources related to the buffer object should only be released once the
+-- buffer has been unmapped and all frames created from the buffer have been
+-- destroyed. As documented on @wl_surface::attach@, unmapping a buffer does not
+-- invalidate its content (therefore all frames created from the buffer remain
+-- valid until they are destroyed).
 initializeWlBuffer ::
   forall b. (RenderBackend b) =>
   NewObject 'Server Interface_wl_buffer ->
-  (Disposer -> STMc NoRetry '[] (Frame b)) ->
+  (TDisposer -> STMc NoRetry '[] (Frame b)) ->
   STMc NoRetry '[] () ->
   STMc NoRetry '[] ()
-initializeWlBuffer wlBuffer importBuffer finalizeBuffer = do
+initializeWlBuffer wlBuffer createFrame unmapBuffer = do
   let serverBuffer = ServerBuffer {
     wlBuffer,
-    importBuffer
+    createFrame
   }
   setInterfaceData wlBuffer (serverBuffer :: ServerBuffer b)
   setRequestHandler wlBuffer RequestHandler_wl_buffer {
     destroy = pure ()
   }
-  attachOrRunFinalizer wlBuffer finalizeBuffer
+  attachOrRunFinalizer wlBuffer unmapBuffer
 
 
 getServerBuffer :: forall b. RenderBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (ServerBuffer b)
