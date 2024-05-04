@@ -17,7 +17,7 @@ import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (appAsRect)
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Protocol.Core (attachOrRunFinalizer)
-import Quasar.Resources (TDisposer, newUnmanagedTDisposer)
+import Quasar.Resources (Disposer, TDisposer, newUnmanagedTDisposer, disposeEventually_)
 
 
 data ServerSurface b = ServerSurface {
@@ -203,9 +203,9 @@ addFrameCallback serverSurface wlCallback = do
 -- embedded in the frame and has to be disposed when the frame is disposed - it
 -- is used to signal @wl_buffer::release@.
 --
--- The @unmapBuffer@-function is called when the buffer is unmapped by the
--- wayland client (or otherwise destroyed). After @unmapBuffer@ has been called,
--- no further frames will be created from the buffer.
+-- The @unmapBufferDisposer@ is disposed when the buffer is unmapped by the
+-- wayland client (or on connection loss). The disposer can be used as a signal
+-- that no further frames will be created from the buffer.
 --
 -- Resources related to the buffer object should only be released once the
 -- buffer has been unmapped and all frames created from the buffer have been
@@ -216,9 +216,9 @@ initializeWlBuffer ::
   forall b. (RenderBackend b) =>
   NewObject 'Server Interface_wl_buffer ->
   (TDisposer -> STMc NoRetry '[] (Frame b)) ->
-  STMc NoRetry '[] () ->
+  Disposer ->
   STMc NoRetry '[] ()
-initializeWlBuffer wlBuffer createFrame unmapBuffer = do
+initializeWlBuffer wlBuffer createFrame unmapBufferDisposer = do
   let serverBuffer = ServerBuffer {
     wlBuffer,
     createFrame
@@ -227,7 +227,11 @@ initializeWlBuffer wlBuffer createFrame unmapBuffer = do
   setRequestHandler wlBuffer RequestHandler_wl_buffer {
     destroy = pure ()
   }
-  attachOrRunFinalizer wlBuffer unmapBuffer
+  -- TODO This removes back pressure for released buffers. We should await the 
+  -- @unmapBufferDisposer@ somewhere in the chain of new buffer allocations.
+  -- The best place would probably be to delay the frame callback, but I'm not
+  -- sure how to do that properly and cleanly.
+  attachOrRunFinalizer wlBuffer (disposeEventually_ unmapBufferDisposer)
 
 
 getServerBuffer :: forall b. RenderBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (ServerBuffer b)

@@ -8,7 +8,7 @@ import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Surface
 import Quasar.Wayland.Shm
-import Quasar.Resources (disposeSTM)
+import Quasar.Resources (getDisposer)
 
 
 shmGlobal :: forall b. IsShmBufferBackend b => b -> Global
@@ -51,4 +51,4 @@ shmGlobal backend = createGlobal @Interface_wl_shm maxVersion initializeWlShm
       STMc NoRetry '[SomeException] ()
     initializeWlShmBuffer pool wlBuffer offset width height stride format = liftSTMc do
       rawBuffer <- newShmBuffer pool offset width height stride format
-      initializeWlBuffer @b wlBuffer (importShmBuffer backend rawBuffer) (disposeSTM rawBuffer)
+      initializeWlBuffer @b wlBuffer (importShmBuffer backend rawBuffer . getDisposer) (getDisposer rawBuffer)

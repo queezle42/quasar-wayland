@@ -42,7 +42,7 @@ import Foreign
 import GHC.Records
 import Quasar.Future
 import Quasar.Prelude
-import Quasar.Resources (Disposable (getDisposer), Disposer)
+import Quasar.Resources (Disposable (getDisposer), TDisposer)
 import Quasar.Wayland.Client
 import Quasar.Wayland.Gles.Utils.Stat (DevT(..))
 import Quasar.Wayland.Protocol
@@ -53,11 +53,21 @@ import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Utils.SharedFd
 import Quasar.Wayland.Utils.SharedMemory
 
-class RenderBackend b => IsDmabufBackend b where
+class (RenderBackend b, Disposable (MappedDmabuf b)) => IsDmabufBackend b where
   type MappedDmabuf b
+  -- | Import a dmabuf.
+  --
+  -- Takes ownership of the provided dmabuf.
+  --
+  -- Ownership of the resulting @MappedDmabuf@-object is transferred to the
+  -- caller.
   mapDmabuf :: b -> Dmabuf -> STMc NoRetry '[] (MappedDmabuf b)
-  unmapDmabuf :: MappedDmabuf b -> STMc NoRetry '[] ()
-  createDmabufFrame :: MappedDmabuf b -> Disposer -> STMc NoRetry '[] (Frame b)
+
+  -- | Create a frame from a mapped dmabuf.
+  --
+  -- The mapped dmabuf is lend for the duration of the call and owned by the
+  -- caller.
+  createDmabufFrame :: b -> MappedDmabuf b -> TDisposer -> STMc NoRetry '[] (Frame b)
 
 data Dmabuf = Dmabuf {
   width :: Int32,
@@ -379,4 +389,4 @@ initializeDmabufBuffer backend var wlBuffer width height format flags = do
   dmabuf <- newServerDmabuf var width height format flags
   liftSTMc do
     mappedDmabuf <- mapDmabuf backend dmabuf
-    initializeWlBuffer @b wlBuffer (createDmabufFrame @b mappedDmabuf) (unmapDmabuf @b mappedDmabuf)
+    initializeWlBuffer @b wlBuffer (createDmabufFrame backend mappedDmabuf) (getDisposer mappedDmabuf)

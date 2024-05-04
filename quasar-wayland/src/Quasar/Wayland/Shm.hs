@@ -32,7 +32,7 @@ data ShmBufferBackend = ShmBufferBackend
 data ShmBufferFrame = ShmBufferFrame Disposer ShmBuffer
 
 instance Disposable ShmBufferFrame where
-  getDisposer (ShmBufferFrame disposer _) = disposer
+  getDisposer (ShmBufferFrame tdisposer _) = getDisposer tdisposer
 
 instance RenderBackend ShmBufferBackend where
   type Frame ShmBufferBackend = ShmBufferFrame
