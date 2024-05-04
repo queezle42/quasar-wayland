@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Quasar.Wayland.Gles (
+module Quasar.Wayland.Skia.GL.Gles (
   Egl,
   initializeGles,
 
@@ -23,11 +23,11 @@ import Language.C.Inline.Unsafe qualified as CU
 import Quasar.Prelude
 import Quasar.Resources (Disposable, TDisposable)
 import Quasar.Resources.DisposableVar
-import Quasar.Wayland.Gles.Debug
-import Quasar.Wayland.Gles.Dmabuf
-import Quasar.Wayland.Gles.Egl
-import Quasar.Wayland.Gles.Types
-import Quasar.Wayland.Gles.Utils.InlineC
+import Quasar.Wayland.Skia.Dmabuf
+import Quasar.Wayland.Skia.GL.Debug
+import Quasar.Wayland.Skia.GL.Egl
+import Quasar.Wayland.Skia.GL.Types
+import Quasar.Wayland.Skia.Utils.InlineC
 
 C.context ctx
 
@@ -91,32 +91,3 @@ glGenTexture =
 glDeleteTexture :: GLuint -> IO ()
 glDeleteTexture texture =
   [CU.exp|void { glDeleteTextures(1, &$(GLuint texture)) }|]
-
-
-newtype GlesRenderedFrame = GlesRenderedFrame (TDisposableVar Dmabuf)
-  deriving (Eq, Hashable, Disposable, TDisposable)
-
-
---instance ClientBufferBackend GlesBackend where
---  type ClientBufferManager GlesBackend = ClientDmabufSingleton
---  type RenderedFrame GlesBackend = GlesRenderedFrame
---  type ExportBufferId GlesBackend = Unique
---  newClientBufferManager = newClientDmabufSingleton
---
---  renderFrame frame = atomicallyC do
---    tryReadRc frame >>= \case
---      Nothing -> undefined
---      Just (GlesFrame dmabuf) -> do
---        var <- newTDisposableVar dmabuf undefined
---        newRc (GlesRenderedFrame var)
---
---  getExportBufferId = undefined
---
---  exportWlBuffer dmabufSingleton (GlesRenderedFrame var) = atomically do
---    tryReadTDisposableVar var >>= \case
---      Nothing -> undefined
---      Just dmabuf -> liftSTMc $ sharedDmabufExportWlBuffer dmabufSingleton dmabuf
---
---  syncExportBuffer = undefined
---
---  getExportBufferDestroyedFuture = pure . isDisposed

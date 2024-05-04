@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Quasar.Wayland.Gles.Egl (
+module Quasar.Wayland.Skia.GL.Egl (
   Egl,
   Dmabuf(..),
   DmabufPlane(..),
@@ -17,16 +17,16 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Foreign
 import Foreign.C
-import Quasar.Wayland.Gles.Dmabuf
-import Quasar.Wayland.Gles.Egl.Debug
-import Quasar.Wayland.Gles.Egl.Types
-import Quasar.Wayland.Gles.Types
-import Quasar.Wayland.Gles.Utils.InlineC
-import Quasar.Wayland.Gles.Utils.Stat
-import Quasar.Wayland.Utils.SharedFd
 import Language.C.Inline qualified as C
 import Language.C.Inline.Unsafe qualified as CU
 import Quasar.Prelude
+import Quasar.Wayland.Skia.Dmabuf
+import Quasar.Wayland.Skia.GL.Egl.Debug
+import Quasar.Wayland.Skia.GL.Egl.Types
+import Quasar.Wayland.Skia.GL.Types
+import Quasar.Wayland.Skia.Utils.InlineC
+import Quasar.Wayland.Skia.Utils.Stat
+import Quasar.Wayland.Utils.SharedFd
 import System.Posix.Types (Fd(Fd))
 
 

@@ -54,17 +54,30 @@ library
     Quasar.Wayland.Skia.CTypes
     Quasar.Wayland.Skia.GL
   other-modules:
+    Quasar.Wayland.Skia.Dmabuf
+    Quasar.Wayland.Skia.GL.Debug
+    Quasar.Wayland.Skia.GL.Egl
+    Quasar.Wayland.Skia.GL.Egl.Debug
+    Quasar.Wayland.Skia.GL.Egl.Types
+    Quasar.Wayland.Skia.GL.Gles
+    Quasar.Wayland.Skia.GL.Types
     Quasar.Wayland.Skia.Thread
+    Quasar.Wayland.Skia.Utils.InlineC
+    Quasar.Wayland.Skia.Utils.Stat
+
   build-depends:
     base,
+    binary,
+    bytestring,
     containers,
+    exceptions,
     hashable,
     inline-c,
     inline-c-cpp,
     nyan-interpolation,
     quasar,
     quasar-wayland,
-    quasar-wayland-gles,
+    template-haskell,
   extra-libraries:
   pkgconfig-depends:
     egl,

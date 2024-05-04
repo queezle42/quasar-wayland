@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Quasar.Wayland.Gles.Utils.Stat (
+module Quasar.Wayland.Skia.Utils.Stat (
   DevT(..),
   statDevT,
 ) where

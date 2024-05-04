@@ -1,4 +1,4 @@
-module Quasar.Wayland.Gles.Egl.Types (
+module Quasar.Wayland.Skia.GL.Egl.Types (
   EGLenum,
   EGLint,
   EGLBoolean,

@@ -1,4 +1,4 @@
-module Quasar.Wayland.Gles.Dmabuf (
+module Quasar.Wayland.Skia.Dmabuf (
   -- * Dmabuf
   Dmabuf(..),
   DmabufPlane(..),
@@ -44,12 +44,12 @@ import Quasar.Future
 import Quasar.Prelude
 import Quasar.Resources (Disposable (getDisposer), TDisposer)
 import Quasar.Wayland.Client
-import Quasar.Wayland.Gles.Utils.Stat (DevT(..))
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Surface
 import Quasar.Wayland.Shared.Surface
+import Quasar.Wayland.Skia.Utils.Stat (DevT(..))
 import Quasar.Wayland.Utils.SharedFd
 import Quasar.Wayland.Utils.SharedMemory
 

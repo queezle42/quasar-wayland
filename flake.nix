@@ -36,7 +36,6 @@
       default = quasar-wayland-examples;
       quasar-wayland = haskellPackages.quasar-wayland;
       quasar-wayland-examples = haskellPackages.quasar-wayland-examples;
-      quasar-wayland-gles = haskellPackages.quasar-wayland-gles;
       quasar-wayland-skia = haskellPackages.quasar-wayland-skia;
       skia = pkgs.skia_quasar-wayland;
     }
@@ -48,15 +47,6 @@
           packageOverrides = hfinal: hprev: prev.haskell.packageOverrides hfinal hprev // {
             quasar-wayland = hfinal.callCabal2nix "quasar-wayland" ./quasar-wayland {};
             quasar-wayland-examples = hfinal.callCabal2nix "quasar-wayland-examples" ./examples {};
-            quasar-wayland-gles =
-              final.haskell.lib.overrideCabal
-                (hfinal.callCabal2nix "quasar-wayland-gles" ./quasar-wayland-gles {
-                  egl = final.libGL;
-                  glesv2 = final.libGL;
-                })
-                {
-                  buildTools = [ final.pkg-config ];
-                };
             quasar-wayland-skia =
               (final.haskell.lib.overrideCabal
                 (hfinal.callCabal2nix "quasar-wayland-skia" ./quasar-wayland-skia {
@@ -87,7 +77,6 @@
           packages = hpkgs: [
             hpkgs.quasar-wayland
             hpkgs.quasar-wayland-examples
-            hpkgs.quasar-wayland-gles
             hpkgs.quasar-wayland-skia
           ];
           nativeBuildInputs = [
@@ -100,9 +89,9 @@
             pkgs.ghcid
             pkgs.hlint
           ];
-          # Provide libEGL/libGLES2 to ghci (`librarySystemDepends` does not
-          # seem to work with `shellFor`. It worked with a shell based on
-          # `<package>.env`).
+          # Provide libEGL/libGLES2 and skia to ghci (`librarySystemDepends`
+          # does not seem to work with `shellFor`. It worked with a shell based
+          # on `<package>.env`).
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.libGL pkgs.skia_quasar-wayland ];
         };
       }

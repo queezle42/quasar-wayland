@@ -1,15 +1,15 @@
-module Quasar.Wayland.Gles.Utils.InlineC (
+module Quasar.Wayland.Skia.Utils.InlineC (
   ctx
 ) where
 
 import Data.Map.Strict as Map
-import Quasar.Wayland.Gles.Egl.Types
-import Quasar.Wayland.Gles.Types
 import Foreign
 import Language.C.Inline.Context
 import Language.C.Types
 import Language.Haskell.TH
 import Quasar.Prelude
+import Quasar.Wayland.Skia.GL.Egl.Types
+import Quasar.Wayland.Skia.GL.Types
 import System.Posix.Types (COff(..))
 
 ctx :: Context

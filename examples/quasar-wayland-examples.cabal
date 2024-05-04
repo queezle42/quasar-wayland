@@ -67,6 +67,5 @@ executable quasar-wayland-example-skia
     quasar,
     quasar-timer,
     quasar-wayland,
-    quasar-wayland-gles,
     quasar-wayland-skia,
   main-is: Skia.hs

@@ -14,13 +14,13 @@ import Language.C.Inline.Cpp.Unsafe qualified as CPPU
 import Language.C.Inline.Unsafe qualified as CU
 import Language.C.Types qualified as C
 import Quasar.Prelude
-import Quasar.Wayland.Gles (initializeGles, glGenTexture)
-import Quasar.Wayland.Gles.Dmabuf
-import Quasar.Wayland.Gles.Egl
-import Quasar.Wayland.Gles.Egl.Types (EGLImage)
-import Quasar.Wayland.Gles.Types
 import Quasar.Wayland.Skia
 import Quasar.Wayland.Skia.CTypes
+import Quasar.Wayland.Skia.Dmabuf
+import Quasar.Wayland.Skia.GL.Egl
+import Quasar.Wayland.Skia.GL.Egl.Types (EGLImage)
+import Quasar.Wayland.Skia.GL.Types
+import Quasar.Wayland.Skia.GL.Gles (initializeGles, glGenTexture)
 import Quasar.Wayland.Skia.Thread
 import Text.Interpolation.Nyan (int)
 

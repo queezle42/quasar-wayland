@@ -1,4 +1,4 @@
-module Quasar.Wayland.Gles.Types (
+module Quasar.Wayland.Skia.GL.Types (
   GLenum,
   GLsizei,
   GLuint,

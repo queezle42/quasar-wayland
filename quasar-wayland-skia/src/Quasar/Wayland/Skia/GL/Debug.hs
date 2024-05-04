@@ -1,16 +1,16 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Quasar.Wayland.Gles.Debug (
+module Quasar.Wayland.Skia.GL.Debug (
   initializeGlDebugHandler,
 ) where
 
 import Foreign
 import Foreign.C
-import Quasar.Wayland.Gles.Types
-import Quasar.Wayland.Gles.Utils.InlineC
 import Language.C.Inline qualified as C
 import Language.C.Inline.Unsafe qualified as CU
 import Quasar.Prelude
+import Quasar.Wayland.Skia.GL.Types
+import Quasar.Wayland.Skia.Utils.InlineC
 
 C.context ctx
 

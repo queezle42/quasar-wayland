@@ -1,6 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Quasar.Wayland.Gles.Egl.Debug (
+module Quasar.Wayland.Skia.GL.Egl.Debug (
   initializeEglDebugHandler,
   toErrorMessage,
 
@@ -10,13 +10,13 @@ module Quasar.Wayland.Gles.Egl.Debug (
 ) where
 
 import Data.List (intersperse, singleton)
-import Quasar.Wayland.Gles.Egl.Types
-import Quasar.Wayland.Gles.Utils.InlineC
 import Foreign
 import Foreign.C
 import Language.C.Inline qualified as C
 import Language.C.Inline.Unsafe qualified as CU
 import Quasar.Prelude
+import Quasar.Wayland.Skia.GL.Egl.Types
+import Quasar.Wayland.Skia.Utils.InlineC
 
 C.context ctx
 

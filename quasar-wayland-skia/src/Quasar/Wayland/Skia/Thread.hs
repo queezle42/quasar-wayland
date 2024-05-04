@@ -11,9 +11,9 @@ import Control.Concurrent (forkOSWithUnmask)
 import Control.Exception (mask_, try)
 import Control.Monad (MonadPlus)
 import Data.Bifunctor qualified as Bifunctor
+import Quasar.Exceptions (AsyncException(..))
 import Quasar.Future
 import Quasar.Prelude
-import Quasar.Exceptions (AsyncException(..))
 
 
 data SkiaJob = forall a. SkiaJob (IO a) (PromiseEx '[AsyncException] a)
