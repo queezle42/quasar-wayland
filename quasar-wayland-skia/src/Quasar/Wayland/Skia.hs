@@ -40,12 +40,12 @@ import Quasar.Resources.DisposableVar
 import Quasar.Resources.Rc
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
+import Quasar.Wayland.Dmabuf
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry (Global)
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Skia.CTypes
-import Quasar.Wayland.Skia.Dmabuf
 import Quasar.Wayland.Skia.Thread
 
 

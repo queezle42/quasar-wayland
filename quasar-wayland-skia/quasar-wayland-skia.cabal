@@ -54,7 +54,6 @@ library
     Quasar.Wayland.Skia.CTypes
     Quasar.Wayland.Skia.GL
   other-modules:
-    Quasar.Wayland.Skia.Dmabuf
     Quasar.Wayland.Skia.GL.Debug
     Quasar.Wayland.Skia.GL.Egl
     Quasar.Wayland.Skia.GL.Egl.Debug
@@ -63,7 +62,6 @@ library
     Quasar.Wayland.Skia.GL.Types
     Quasar.Wayland.Skia.Thread
     Quasar.Wayland.Skia.Utils.InlineC
-    Quasar.Wayland.Skia.Utils.Stat
 
   build-depends:
     base,

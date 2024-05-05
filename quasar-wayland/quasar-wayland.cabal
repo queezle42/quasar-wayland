@@ -62,6 +62,7 @@ library
     Quasar.Wayland.Client.Sync
     Quasar.Wayland.Client.XdgShell
     Quasar.Wayland.Connection
+    Quasar.Wayland.Dmabuf
     Quasar.Wayland.Protocol
     Quasar.Wayland.Protocol.Generated
     Quasar.Wayland.Protocol.TH
@@ -81,6 +82,7 @@ library
     Quasar.Wayland.Shm
     Quasar.Wayland.Utils.SharedFd
     Quasar.Wayland.Utils.SharedMemory
+    Quasar.Wayland.Utils.Stat
   other-modules:
     Quasar.Wayland.Protocol.Core
     Quasar.Wayland.Utils.InlineC

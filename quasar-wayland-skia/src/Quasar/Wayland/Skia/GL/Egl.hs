@@ -20,13 +20,13 @@ import Foreign.C
 import Language.C.Inline qualified as C
 import Language.C.Inline.Unsafe qualified as CU
 import Quasar.Prelude
-import Quasar.Wayland.Skia.Dmabuf
+import Quasar.Wayland.Dmabuf
 import Quasar.Wayland.Skia.GL.Egl.Debug
 import Quasar.Wayland.Skia.GL.Egl.Types
 import Quasar.Wayland.Skia.GL.Types
 import Quasar.Wayland.Skia.Utils.InlineC
-import Quasar.Wayland.Skia.Utils.Stat
 import Quasar.Wayland.Utils.SharedFd
+import Quasar.Wayland.Utils.Stat
 import System.Posix.Types (Fd(Fd))
 
 
