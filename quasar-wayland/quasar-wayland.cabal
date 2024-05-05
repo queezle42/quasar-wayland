@@ -80,6 +80,7 @@ library
     Quasar.Wayland.Shared.WindowApi
     Quasar.Wayland.Shared.WindowMultiplexer
     Quasar.Wayland.Shm
+    Quasar.Wayland.Utils.Resources
     Quasar.Wayland.Utils.SharedFd
     Quasar.Wayland.Utils.SharedMemory
     Quasar.Wayland.Utils.Stat

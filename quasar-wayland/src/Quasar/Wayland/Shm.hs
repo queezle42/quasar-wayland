@@ -1,5 +1,5 @@
 module Quasar.Wayland.Shm (
-  IsShmBufferBackend(..),
+  IsShmBufferBackend,
   ShmBufferBackend(..),
   ShmPool,
   ShmBuffer,
@@ -17,7 +17,7 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Quasar.Future
 import Quasar.Prelude
-import Quasar.Resources (Disposer, TDisposer, newUnmanagedTDisposer, disposeTDisposer, Disposable(..), TDisposable, disposerElementKey, isDisposed)
+import Quasar.Resources
 import Quasar.Resources.DisposableVar
 import Quasar.Resources.Rc
 import Quasar.Wayland.Client
@@ -25,11 +25,12 @@ import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Shared.Surface
+import Quasar.Wayland.Utils.Resources
 
 -- | Simple buffer backend that only supports shared memory buffers.
 data ShmBufferBackend = ShmBufferBackend
 
-data ShmBufferFrame = ShmBufferFrame Disposer ShmBuffer
+data ShmBufferFrame = ShmBufferFrame TDisposer (Rc (Borrowed ShmBuffer))
 
 instance Disposable ShmBufferFrame where
   getDisposer (ShmBufferFrame tdisposer _) = getDisposer tdisposer
@@ -37,11 +38,15 @@ instance Disposable ShmBufferFrame where
 instance RenderBackend ShmBufferBackend where
   type Frame ShmBufferBackend = ShmBufferFrame
 
-class RenderBackend b => IsShmBufferBackend b where
-  importShmBuffer :: b -> ShmBuffer -> Disposer -> STMc NoRetry '[] (Frame b)
+type IsShmBufferBackend b = IsBufferBackend ShmBuffer b
 
-instance IsShmBufferBackend ShmBufferBackend where
-  importShmBuffer ShmBufferBackend shmBuffer disposer = pure (ShmBufferFrame disposer shmBuffer)
+instance IsBufferBackend ShmBuffer ShmBufferBackend where
+  type ExternalBuffer ShmBuffer ShmBufferBackend = Borrowed ShmBuffer
+  newExternalBuffer :: ShmBufferBackend -> Borrowed ShmBuffer -> STMc NoRetry '[] (Borrowed ShmBuffer)
+  newExternalBuffer ShmBufferBackend borrowed = pure borrowed
+  createExternalBufferFrame :: ShmBufferBackend -> TDisposer -> Rc (Borrowed ShmBuffer) -> STMc NoRetry '[] ShmBufferFrame
+  createExternalBufferFrame ShmBufferBackend frameRelease rc =
+    pure (ShmBufferFrame frameRelease rc)
 
 -- | Wrapper for an externally managed shm pool
 data ShmPool = ShmPool {
@@ -165,16 +170,22 @@ instance ClientBufferBackend ShmBufferBackend where
   renderFrame = pure
 
   getExportBufferId :: ShmBufferFrame -> STMc NoRetry '[] Unique
-  getExportBufferId (ShmBufferFrame _ (ShmBuffer var)) = pure (disposerElementKey var)
+  getExportBufferId (ShmBufferFrame _ rc) =
+    tryReadRc rc >>= \case
+      Nothing -> undefined -- "ShmBufferBackend: Trying to get export id for a disposed frame"
+      Just (Borrowed _ (ShmBuffer var)) -> pure (disposerElementKey var)
 
   exportWlBuffer :: ClientShmManager -> ShmBufferFrame -> IO (NewObject 'Client Interface_wl_buffer)
-  exportWlBuffer client (ShmBufferFrame _ (ShmBuffer var)) = atomicallyC do
-    tryReadTDisposableVar var >>= \case
-      Nothing -> throwM (userError "ShmBufferBackend: Trying to export already disposed buffer")
-      Just state -> do
-        wlShmPool <- getClientShmPool client state.pool
-        -- NOTE no event handlers are attached here, since the caller (usually `Quasar.Wayland.Surface`) has that responsibility.
-        wlShmPool.create_buffer state.offset state.width state.height state.stride state.format
+  exportWlBuffer client (ShmBufferFrame _ rc) = atomicallyC do
+    tryReadRc rc >>= \case
+      Nothing -> throwM (userError "ShmBufferBackend: Trying to export already disposed frame")
+      Just (Borrowed _ (ShmBuffer var)) -> do
+        tryReadTDisposableVar var >>= \case
+          Nothing -> throwM (userError "ShmBufferBackend: Trying to export already disposed buffer")
+          Just state -> do
+            wlShmPool <- getClientShmPool client state.pool
+            -- NOTE no event handlers are attached here, since the caller (usually `Quasar.Wayland.Surface`) has that responsibility.
+            wlShmPool.create_buffer state.offset state.width state.height state.stride state.format
 
   syncExportBuffer :: ShmBufferFrame -> IO ()
   syncExportBuffer _ = pure ()

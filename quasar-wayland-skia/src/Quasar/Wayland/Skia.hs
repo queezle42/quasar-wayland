@@ -47,6 +47,7 @@ import Quasar.Wayland.Server.Registry (Global)
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Skia.CTypes
 import Quasar.Wayland.Skia.Thread
+import Quasar.Wayland.Utils.Resources
 
 
 C.context (CPP.cppCtx <> C.fptrCtx <> mempty {
@@ -160,13 +161,8 @@ data ReadonlySkiaSurface = ReadonlySkiaSurface {
 --}
 
 
-data Borrowed a = Borrowed Disposer a
 
-instance Disposable (Borrowed a) where
-  getDisposer (Borrowed disposer _) = disposer
-
-
-data ExternalDmabuf = ExternalDmabuf Unique Dmabuf
+data ExternalDmabuf = ExternalDmabuf Unique (Borrowed Dmabuf)
 
 instance Disposable ExternalDmabuf where
   getDisposer (ExternalDmabuf key dmabuf) = getDisposer dmabuf
@@ -352,28 +348,24 @@ newFrameFromRenderedFrame renderedFrameRc =
   SkiaFrame <$> newDisposableVarIO (SkiaFrameSparked (getDisposer renderedFrameRc) (pure renderedFrameRc))
 
 
+
 data SkiaDmabufProperties = SkiaDmabufProperties {
   version1Formats :: [DrmFormat],
   version3FormatTable :: DmabufFormatTable,
   feedback :: CompiledDmabufFeedback
 }
 
-instance IsSkiaBackend s => IsDmabufBackend (Skia s) where
-  type MappedDmabuf (Skia s) = Rc ExternalDmabuf
+instance IsSkiaBackend s => IsBufferBackend Dmabuf (Skia s) where
+  type ExternalBuffer Dmabuf (Skia s) = ExternalDmabuf
 
-  mapDmabuf :: Skia s -> Dmabuf -> STMc NoRetry '[] (Rc ExternalDmabuf)
-  mapDmabuf skia dmabuf = do
+  newExternalBuffer :: Skia s -> Borrowed Dmabuf -> STMc NoRetry '[] ExternalDmabuf
+  newExternalBuffer _skia dmabuf = do
     key <- newUniqueSTM
-    newRc (ExternalDmabuf key dmabuf)
+    pure (ExternalDmabuf key dmabuf)
 
-  createDmabufFrame :: Skia s -> Rc ExternalDmabuf -> TDisposer -> STMc NoRetry '[] (SkiaFrame s)
-  createDmabufFrame skia rc tdisposer = do
-    tryDuplicateRc rc >>= \case
-      Nothing ->
-        -- Frame was created from an unmapped buffer, which would probably be a
-        -- bug in Server/Surface.hs
-        undefined
-      Just rc2 -> newSkiaFrame (SkiaFrameExternalDmabuf skia tdisposer rc2)
+  createExternalBufferFrame :: Skia s -> TDisposer -> Rc ExternalDmabuf -> STMc NoRetry '[] (SkiaFrame s)
+  createExternalBufferFrame skia tdisposer rc = do
+    newSkiaFrame (SkiaFrameExternalDmabuf skia tdisposer rc)
 
 skiaDmabufGlobal :: IsSkiaBackend s => Skia s -> Global
 skiaDmabufGlobal skia =

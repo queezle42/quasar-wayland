@@ -1,23 +1,26 @@
 module Quasar.Wayland.Server.Surface (
+  -- * wl_buffer
+  initializeWlBuffer,
+
+  -- * wl_surface
   ServerSurface,
   initializeServerSurface,
   initializeServerSubsurface,
   getServerSurface,
   assignSurfaceRole,
   removeSurfaceRole,
-  initializeWlBuffer,
-  --getImage,
 ) where
 
 import Control.Monad.Catch
 import Quasar.Prelude
+import Quasar.Resources
 import Quasar.Resources.Rc
 import Quasar.Wayland.Protocol
+import Quasar.Wayland.Protocol.Core (attachOrRunFinalizer)
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (appAsRect)
 import Quasar.Wayland.Shared.Surface
-import Quasar.Wayland.Protocol.Core (attachOrRunFinalizer)
-import Quasar.Resources (Disposer, TDisposer, newUnmanagedTDisposer, disposeEventually_)
+import Quasar.Wayland.Utils.Resources
 
 
 data ServerSurface b = ServerSurface {
@@ -194,6 +197,7 @@ addFrameCallback serverSurface wlCallback = do
     -- TODO improve error handling
     cb time = unlessM wlCallback.isDestroyed (tryCall (wlCallback.done time))
 
+
 -- | Called by a buffer implementation (e.g. the implementation for
 -- @wl_shm@, @zwp_linux_dmabuf_v1@ or @wp_single_pixel_buffer_manager_v1@) to
 -- initialize a new @wl_buffer@ object.
@@ -213,25 +217,36 @@ addFrameCallback serverSurface wlCallback = do
 -- invalidate its content (therefore all frames created from the buffer remain
 -- valid until they are destroyed).
 initializeWlBuffer ::
-  forall b. (RenderBackend b) =>
+  forall buffer backend. (IsBufferBackend buffer backend, Disposable buffer) =>
+  backend ->
   NewObject 'Server Interface_wl_buffer ->
-  (TDisposer -> STMc NoRetry '[] (Frame b)) ->
-  Disposer ->
+  buffer ->
   STMc NoRetry '[] ()
-initializeWlBuffer wlBuffer createFrame unmapBufferDisposer = do
+initializeWlBuffer backend wlBuffer buffer = do
+  mappedBuffer <- newExternalBuffer backend (Borrowed (getDisposer buffer) buffer)
+  rc <- newRc mappedBuffer
   let serverBuffer = ServerBuffer {
     wlBuffer,
-    createFrame
+    createFrame = createFrameImpl rc
   }
-  setInterfaceData wlBuffer (serverBuffer :: ServerBuffer b)
+  setInterfaceData wlBuffer (serverBuffer :: ServerBuffer backend)
   setRequestHandler wlBuffer RequestHandler_wl_buffer {
     destroy = pure ()
   }
-  -- TODO This removes back pressure for released buffers. We should await the 
+  -- TODO This removes back pressure for released buffers. We should await the
   -- @unmapBufferDisposer@ somewhere in the chain of new buffer allocations.
   -- The best place would probably be to delay the frame callback, but I'm not
   -- sure how to do that properly and cleanly.
-  attachOrRunFinalizer wlBuffer (disposeEventually_ unmapBufferDisposer)
+  attachOrRunFinalizer wlBuffer (disposeEventually_ rc)
+
+  where
+    createFrameImpl rc frameRelease = do
+      tryDuplicateRc rc >>= \case
+        Nothing ->
+          -- Frame was created from an unmapped buffer, which would probably be
+          -- a bug somewhere in this module.
+          undefined
+        Just dupedRc -> createExternalBufferFrame @buffer @backend backend frameRelease dupedRc
 
 
 getServerBuffer :: forall b. RenderBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (ServerBuffer b)
@@ -240,9 +255,6 @@ getServerBuffer wlBuffer = do
   case ifd of
     Just buffer -> pure buffer
     Nothing -> throwM $ InternalError ("Missing interface data on " <> show wlBuffer)
-
---getImage :: forall b. RenderBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (TRc (Image b))
---getImage wlBuffer = (.image) <$> getServerBuffer wlBuffer
 
 
 assignSurfaceRole :: forall i b. IsInterfaceSide 'Server i => ServerSurface b -> SurfaceDownstream b -> STMc NoRetry '[SomeException] ()

@@ -2,6 +2,10 @@ module Quasar.Wayland.Shared.Surface (
   -- * Render backend
   RenderBackend(..),
 
+  -- * Buffer import backend
+  IsBufferBackend(..),
+  newFrameConsumeBuffer,
+
   -- * Surface
   Damage(..),
   addDamage,
@@ -17,13 +21,39 @@ module Quasar.Wayland.Shared.Surface (
 import Data.Typeable
 import Quasar.Future (Future)
 import Quasar.Prelude
-import Quasar.Resources (Disposable, getDisposer, Disposer)
+import Quasar.Resources
 import Quasar.Resources.Rc
 import Quasar.Wayland.Region (Rectangle(..))
+import Quasar.Wayland.Utils.Resources
 
 type RenderBackend :: Type -> Constraint
 class (Typeable b, Disposable (Frame b)) => RenderBackend b where
   type Frame b :: Type
+
+
+class (RenderBackend backend, Disposable (ExternalBuffer buffer backend)) => IsBufferBackend buffer backend where
+  type ExternalBuffer buffer backend
+  -- | Import an external buffer. The buffer may be mutable shared memory.
+  --
+  -- Takes ownership of the provided `Borrowed`-object.
+  --
+  -- Ownership of the resulting @ExternalBuffer@-object is transferred to the
+  -- caller, who will `dispose` it later.
+  newExternalBuffer :: backend -> Borrowed buffer -> STMc NoRetry '[] (ExternalBuffer buffer backend)
+
+  -- | Create a frame from an @ExternalBuffer@.
+  createExternalBufferFrame :: backend -> TDisposer -> Rc (ExternalBuffer buffer backend) -> STMc NoRetry '[] (Frame backend)
+
+
+-- | Create a new frame by taking ownership of a buffer. The buffer will be
+-- disposed when the frame is disposed.
+--
+-- The caller takes ownership of the resulting frame.
+newFrameConsumeBuffer :: forall buffer backend. (IsBufferBackend buffer backend, Disposable buffer) => backend -> buffer -> STMc NoRetry '[] (Frame backend)
+newFrameConsumeBuffer backend buffer = do
+  externalBuffer <- newExternalBuffer backend (Borrowed (getDisposer buffer) buffer)
+  rc <- newRc externalBuffer
+  createExternalBufferFrame @buffer backend mempty rc
 
 
 data Damage = DamageAll | DamageList [Rectangle]
