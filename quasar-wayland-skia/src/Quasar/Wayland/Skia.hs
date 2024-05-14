@@ -45,6 +45,7 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry (Global)
 import Quasar.Wayland.Shared.Surface
+import Quasar.Wayland.SinglePixelBuffer
 import Quasar.Wayland.Skia.CTypes
 import Quasar.Wayland.Skia.Thread
 import Quasar.Wayland.Utils.Resources
@@ -191,16 +192,11 @@ data SkiaFrameOp s
   = SkiaFrameExternalDmabuf (Skia s) TDisposer (Rc ExternalDmabuf)
   --- | SkiaFrameShaderOp
   --- | SkiaFrameExported (Rc (SkiaExportBuffer s))
-  | SkiaFrameSinglePixel SkiaSinglePixelBuffer
+  | SkiaFrameSinglePixel SinglePixelBuffer
 
 instance Disposable (SkiaFrameOp s) where
   getDisposer (SkiaFrameExternalDmabuf _ disposer rc) = getDisposer disposer <> getDisposer rc
   getDisposer (SkiaFrameSinglePixel _) = mempty
-
-data SkiaSinglePixelBuffer = SkiaSinglePixelBuffer Word32 Word32 Word32 Word32
-  deriving (Eq, Generic)
-
-instance Hashable SkiaSinglePixelBuffer
 
 
 data SkiaRenderedFrame s
@@ -211,7 +207,7 @@ data SkiaRenderedFrame s
   -- "returned" to the owner once the frame is destroyed.
   | SkiaRenderedFrameBorrowedSurface (Borrowed (SkiaSurface s))
   | SkiaRenderedFrameImportedDmabuf TDisposer ReadonlySkiaSurface (Rc ExternalDmabuf)
-  | SkiaRenderedFrameSinglePixel SkiaSinglePixelBuffer
+  | SkiaRenderedFrameSinglePixel SinglePixelBuffer
 
 instance Disposable (SkiaRenderedFrame s) where
   getDisposer (SkiaRenderedFrameOwnedSurface surface) = getDisposer surface
@@ -227,11 +223,11 @@ newtype SkiaClientBufferManager s = SkiaClientBufferManager {
 data SkiaExportBuffer s
   = SkiaExportBufferSurface (SkiaSurface s)
   | SkiaExportBufferImportedDmabuf ExternalDmabuf
-  | SkiaExportBufferSinglePixel SkiaSinglePixelBuffer
+  | SkiaExportBufferSinglePixel SinglePixelBuffer
 
 data SkiaExportBufferId
   = SkiaExportBufferIdUnique Unique
-  | SkiaExportBufferIdSinglePixel SkiaSinglePixelBuffer
+  | SkiaExportBufferIdSinglePixel SinglePixelBuffer
   deriving (Eq, Generic)
 
 instance Hashable SkiaExportBufferId
@@ -347,6 +343,12 @@ newFrameConsumeSurface surface = do
 newFrameFromRenderedFrame :: Rc (SkiaRenderedFrame s) -> IO (SkiaFrame s)
 newFrameFromRenderedFrame renderedFrameRc =
   SkiaFrame <$> newDisposableVarIO (SkiaFrameSparked (getDisposer renderedFrameRc) (pure renderedFrameRc))
+
+
+
+instance IsSkiaBackend s => IsSinglePixelBufferBackend (Skia s) where
+  createSinglePixelBufferFrame :: Skia s -> SinglePixelBuffer -> STMc NoRetry '[] (SkiaFrame s)
+  createSinglePixelBufferFrame _skia pixel = newSkiaFrame (SkiaFrameSinglePixel pixel)
 
 
 
