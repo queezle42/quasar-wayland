@@ -1,5 +1,5 @@
 module Quasar.Wayland.Skia.Utils.InlineC (
-  ctx
+  glContext,
 ) where
 
 import Data.Map.Strict as Map
@@ -12,8 +12,8 @@ import Quasar.Wayland.Skia.GL.Egl.Types
 import Quasar.Wayland.Skia.GL.Types
 import System.Posix.Types (COff(..))
 
-ctx :: Context
-ctx = baseCtx <> extraTypesCtx
+glContext :: Context
+glContext = baseCtx <> extraTypesCtx
 
 extraTypesCtx :: Context
 extraTypesCtx =

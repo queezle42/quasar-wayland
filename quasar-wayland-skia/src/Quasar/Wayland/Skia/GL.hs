@@ -5,6 +5,8 @@ module Quasar.Wayland.Skia.GL (
 ) where
 
 import Data.Map.Strict as Map
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Foreign
 import Foreign.C
 import Language.C.Inline qualified as C
@@ -14,25 +16,30 @@ import Language.C.Inline.Cpp.Unsafe qualified as CPPU
 import Language.C.Inline.Unsafe qualified as CU
 import Language.C.Types qualified as C
 import Quasar.Prelude
+import Quasar.Resources
 import Quasar.Wayland.Dmabuf
 import Quasar.Wayland.Skia
 import Quasar.Wayland.Skia.CTypes
+import Quasar.Wayland.Skia.GL.Debug
 import Quasar.Wayland.Skia.GL.Egl
 import Quasar.Wayland.Skia.GL.Egl.Types (EGLImage)
-import Quasar.Wayland.Skia.GL.Gles (initializeGles, glGenTexture)
 import Quasar.Wayland.Skia.GL.Types
 import Quasar.Wayland.Skia.Thread
+import Quasar.Wayland.Skia.Utils.InlineC (glContext)
 import Text.Interpolation.Nyan (int)
 
 
-C.context (CPP.cppCtx <> C.fptrCtx <> mempty {
+
+C.context (glContext <> CPP.cppCtx <> C.fptrCtx <> mempty {
   C.ctxTypesTable = Map.fromList [
-    (C.TypeName "GLuint", [t|GLuint|]),
-    (C.TypeName "GLsizei", [t|GLsizei|]),
     (C.TypeName "GrDirectContext", [t|GrDirectContext|]),
-    (C.TypeName "SkSurface", [t|SkSurface|])
+    (C.TypeName "SkSurface", [t|SkSurface|]),
+    (C.TypeName "SkImage", [t|SkImage|])
   ]
 })
+
+C.include "<stdint.h>"
+C.include "<unistd.h>"
 
 C.include "<iostream>"
 
@@ -55,7 +62,12 @@ C.include "include/gpu/GrDirectContext.h"
 C.include "include/gpu/GrBackendSurface.h"
 C.include "include/gpu/ganesh/gl/GrGLDirectContext.h"
 C.include "include/gpu/ganesh/gl/GrGLBackendSurface.h"
+-- Provides SkSurfaces namespace
 C.include "include/gpu/ganesh/SkSurfaceGanesh.h"
+-- Provides SkImages namespace
+C.include "include/gpu/ganesh/SkImageGanesh.h"
+
+C.verbatim "PFNGLEGLIMAGETARGETTEXTURE2DOESPROC glEGLImageTargetTexture2DOES;"
 
 C.verbatim [int||
 static GrGLFuncPtr egl_get_gl_proc(void* ctx, const char name[]) {
@@ -178,34 +190,35 @@ static GrGLFuncPtr egl_get_gl_proc(void* ctx, const char name[]) {
 
 data GL
 
-data GlContext = GlContext {
+newtype GlContext = GlContext {
   egl :: Egl
+}
+
+data GlTextureStorage = GlTextureStorage {
+  eglImage :: EGLImage,
+  glTexture :: GLuint
 }
 
 instance IsSkiaBackend GL where
   type SkiaBackendContext GL = GlContext
-  type SkiaTextureStorage GL = EGLImage
+  type SkiaTextureStorage GL = GlTextureStorage
   initializeSkiaBackend = initializeSkiaGles
+  destroySkiaBackendContext = destroyGles
   newSkiaBackendTexture = newSkiaGLTexture
   destroySkiaTextureStorage = destroySkiaGLTexture
   exportSkiaSurfaceDmabuf = exportDmabuf
+  skiaImportDmabuf = skiaGLImportDmabuf
 
 exportDmabuf :: SkiaSurfaceState GL -> SkiaIO Dmabuf
 exportDmabuf surfaceState = liftIO do
-  eglExportDmabuf surfaceState.skia.context.egl surfaceState.storage surfaceState.width surfaceState.height
-
-destroySkiaGLTexture :: Skia GL -> SkiaSurfaceState GL -> SkiaIO ()
-destroySkiaGLTexture skia surfaceState = liftIO do
-  eglDestroyImage surfaceState.skia.context.egl surfaceState.storage
-  -- Prevent skia destructor to run befor all surfaces are deallocated
-  touchForeignPtr skia.grDirectContext
+  eglExportDmabuf surfaceState.skia.context.egl surfaceState.storage.eglImage surfaceState.width surfaceState.height
 
 -- | Initialize Skia using the OpenGL ES backend.
-initializeSkiaGles :: SkiaIO (ForeignPtr GrDirectContext, GlContext, SkiaDmabufProperties)
+initializeSkiaGles :: SkiaIO (Ptr GrDirectContext, GlContext, SkiaDmabufProperties)
 initializeSkiaGles = liftIO do
   egl <- initializeGles
 
-  rawSkiaContext <- [CPPU.throwBlock|GrDirectContext* {
+  grDirectContext <- [CPPU.throwBlock|GrDirectContext* {
     SkGraphics::Init();
 
     auto grGLInterface = GrGLMakeAssembledInterface(nullptr, egl_get_gl_proc);
@@ -241,24 +254,6 @@ initializeSkiaGles = liftIO do
     return grDirectContext.release();
   }|]
 
-  when (rawSkiaContext == nullPtr) do
-    throwIO $ userError "Failed to initialize skia"
-
-  let finalizerFunPtr = [C.funPtr|void deleteGrDirectContext(GrDirectContext* ctx) {
-    ctx->releaseResourcesAndAbandonContext();
-    bool unique = ctx->unique();
-    if (unique) {
-      delete ctx;
-    } else {
-      // This can happen when the skia ForeignPtr is finalized before all
-      // textures are deinitialized. Forced finalization of the ForeignPtr
-      // should only happen on program exit, where this has no consequence.
-      std::clog << "Skipping skia finalization: Reference is not unique\n";
-    }
-  }|]
-
-  grDirectContext <- newForeignPtr finalizerFunPtr rawSkiaContext
-
   (dmabufFormats, dmabufModifiers) <- eglQueryDmabufFormats egl
   feedback <- getDmabufFeedback egl
 
@@ -274,9 +269,63 @@ initializeSkiaGles = liftIO do
 
   pure (grDirectContext, context, dmabuf)
 
+initializeGles :: IO Egl
+initializeGles = do
+  egl <- initializeEgl
+  vendor <- glGetString [CU.pure|GLenum { GL_VENDOR }|]
+  renderer <- glGetString [CU.pure|GLenum { GL_RENDERER }|]
+  version <- glGetString [CU.pure|GLenum { GL_VERSION }|]
+  shadingLanguageVersion <- glGetString [CU.pure|GLenum { GL_SHADING_LANGUAGE_VERSION }|]
+  extensionsString <- glGetString [CU.pure|GLenum { GL_EXTENSIONS }|]
+  traceIO $ "GL vendor: " <> vendor
+  traceIO $ "GL renderer: " <> renderer
+  traceIO $ "GL version: " <> version
+  traceIO $ "GL shading language version: " <> shadingLanguageVersion
+  traceIO $ "GL extensions: " <> extensionsString
+
+  let
+    extensions = Set.fromList (words extensionsString)
+    requiredExtensions :: Set String = Set.fromList [
+      "GL_KHR_debug",
+      "GL_OES_required_internalformat",
+      "GL_OES_EGL_image"
+      --"GL_OES_EGL_image_external"
+      ]
+    missingExtensions = Set.difference requiredExtensions extensions
+
+  unless (Set.null missingExtensions) $
+    fail $ "Missing GL extensions: " <> intercalate " " missingExtensions
+
+  initializeGlDebugHandler
+
+  [CU.block|void {
+    glEGLImageTargetTexture2DOES = (PFNGLEGLIMAGETARGETTEXTURE2DOESPROC)eglGetProcAddress("glEGLImageTargetTexture2DOES");
+  }|]
+
+  pure egl
+
+destroyGles :: GlContext -> SkiaIO ()
+destroyGles _context = pure () -- TODO
 
 
-newSkiaGLTexture :: Skia GL -> Int32 -> Int32 -> SkiaIO (ForeignPtr SkSurface, SkiaTextureStorage GL)
+glGetString :: GLenum -> IO String
+glGetString name = do
+  peekCString =<< throwErrnoIfNull "eglQueryString"
+    [CU.exp|const char* { (const char*) glGetString($(GLenum name)) }|]
+
+
+glGenTexture :: IO GLuint
+glGenTexture =
+  alloca \ptr -> do
+    [CU.exp| void { glGenTextures(1, $(GLuint* ptr)) } |]
+    peek ptr
+
+glDeleteTexture :: GLuint -> IO ()
+glDeleteTexture texture =
+  [CU.exp|void { glDeleteTextures(1, &$(GLuint texture)) }|]
+
+
+newSkiaGLTexture :: Skia GL -> Int32 -> Int32 -> SkiaIO (Ptr SkSurface, SkiaTextureStorage GL)
 newSkiaGLTexture Skia{grDirectContext, context} width height = liftIO do
   texture <- glGenTexture
 
@@ -295,8 +344,8 @@ newSkiaGLTexture Skia{grDirectContext, context} width height = liftIO do
   -- Map texture to EGL image
   eglImage <- eglCreateGLImage context.egl texture
 
-  rawSkSurface <- [CPPU.throwBlock|SkSurface* {
-    GrDirectContext* grDirectContext = $fptr-ptr:(GrDirectContext* grDirectContext);
+  skSurface <- [CPPU.throwBlock|SkSurface* {
+    GrDirectContext* grDirectContext = $(GrDirectContext* grDirectContext);
 
     GrGLTextureInfo textureInfo;
     textureInfo.fTarget = GL_TEXTURE_2D;
@@ -323,14 +372,83 @@ newSkiaGLTexture Skia{grDirectContext, context} width height = liftIO do
     return skSurface.release();
   }|]
 
-  when (rawSkSurface == nullPtr) do
-    throwIO $ userError "Failed to initialize skia"
+  when (skSurface == nullPtr) do
+    throwIO $ userError "Failed to create skia surface"
 
-  -- TODO validate if this also deletes the glTexture
-  let finalizerFunPtr = [C.funPtr|void deleteSkSurface(SkSurface* skSurface) {
-    delete skSurface;
+  pure (skSurface, GlTextureStorage {eglImage, glTexture = texture})
+
+destroySkiaGLTexture :: Skia GL -> SkiaSurfaceState GL -> SkiaIO ()
+destroySkiaGLTexture skia surfaceState = liftIO do
+  eglDestroyImage surfaceState.skia.context.egl surfaceState.storage.eglImage
+  glDeleteTexture surfaceState.storage.glTexture
+
+
+skiaGLImportDmabuf :: Skia GL -> Dmabuf -> SkiaIO SkiaImage
+skiaGLImportDmabuf skia dmabuf = liftIO do
+  let grDirectContext = skia.grDirectContext
+
+  let
+    width = dmabuf.width
+    cWidth = fromIntegral width
+    height = dmabuf.height
+    cHeight = fromIntegral height
+
+  -- Import dmabuf to texture
+  eglImage <- eglImportDmabuf skia.context.egl dmabuf
+
+  traceIO "Mapping imported dmabuf to texture"
+  texture <- glGenTexture
+  [CU.block|void {
+    GLuint oldTexture;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, (GLint*)&oldTexture);
+
+    glBindTexture(GL_TEXTURE_2D, $(GLuint texture));
+
+    // load external image
+    glEGLImageTargetTexture2DOES(GL_TEXTURE_2D, $(GLeglImageOES eglImage));
+
+    // load external image (alternative using GL_TEXTURE_EXTERNAL_OES)
+    //glEGLImageTargetTexture2DOES(GL_TEXTURE_EXTERNAL_OES, $(GLeglImageOES eglImage));
+
+    glBindTexture(GL_TEXTURE_2D, oldTexture);
+  }|]
+  traceIO "Mapped imported dmabuf to texture"
+
+  eglDestroyImage skia.context.egl eglImage
+
+  skImage <- [CPPU.throwBlock|SkImage* {
+    GrDirectContext* grDirectContext = $(GrDirectContext* grDirectContext);
+
+    GrGLTextureInfo textureInfo;
+    textureInfo.fTarget = GL_TEXTURE_2D;
+    textureInfo.fID = $(GLuint texture);
+    textureInfo.fFormat = GL_RGB8_OES;
+
+    GrBackendTexture backendTexture = GrBackendTextures::MakeGL($(int cWidth), $(int cHeight), skgpu::Mipmapped::kNo, textureInfo);
+    std::clog << "Skia GrBackendTexture created from GL texture\n";
+
+
+    GrSurfaceOrigin origin = GrSurfaceOrigin::kTopLeft_GrSurfaceOrigin;
+    SkColorType colorType = kRGB_888x_SkColorType;
+
+    sk_sp<SkImage> skImage = SkImages::AdoptTextureFrom(grDirectContext, backendTexture, origin, colorType);
+
+    std::clog << "Skia image created from external texture\n";
+
+    // Release the base pointer from the shared pointer, since we will track the
+    // lifetime by using a Haskell ForeignPtr.
+    return skImage.release();
   }|]
 
-  skSurface <- newForeignPtr finalizerFunPtr rawSkSurface
+  when (skImage == nullPtr) do
+    throwIO $ userError "Failed to create skia image from external texture"
 
-  pure (skSurface, eglImage)
+  disposer <- atomicallyC do
+    newUnmanagedIODisposer [CPPU.throwBlock|void {
+      delete $(SkImage* skImage);
+    }|] skia.exceptionSink
+
+  pure SkiaImage {
+    skImage,
+    disposer
+  }

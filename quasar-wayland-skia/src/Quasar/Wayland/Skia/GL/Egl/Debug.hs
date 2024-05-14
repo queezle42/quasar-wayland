@@ -18,7 +18,7 @@ import Quasar.Prelude
 import Quasar.Wayland.Skia.GL.Egl.Types
 import Quasar.Wayland.Skia.Utils.InlineC
 
-C.context ctx
+C.context glContext
 
 C.include "<stdint.h>"
 C.include "<unistd.h>"

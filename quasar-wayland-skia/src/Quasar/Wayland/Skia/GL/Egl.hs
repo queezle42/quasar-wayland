@@ -30,7 +30,7 @@ import Quasar.Wayland.Utils.Stat
 import System.Posix.Types (Fd(Fd))
 
 
-C.context ctx
+C.context glContext
 
 C.include "<stdint.h>"
 C.include "<unistd.h>"
