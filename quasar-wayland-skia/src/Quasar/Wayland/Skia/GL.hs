@@ -246,7 +246,15 @@ initializeSkiaGles = liftIO do
 
   let finalizerFunPtr = [C.funPtr|void deleteGrDirectContext(GrDirectContext* ctx) {
     ctx->releaseResourcesAndAbandonContext();
-    delete ctx;
+    bool unique = ctx->unique();
+    if (unique) {
+      delete ctx;
+    } else {
+      // This can happen when the skia ForeignPtr is finalized before all
+      // textures are deinitialized. Forced finalization of the ForeignPtr
+      // should only happen on program exit, where this has no consequence.
+      std::clog << "Skipping skia finalization: Reference is not unique\n";
+    }
   }|]
 
   grDirectContext <- newForeignPtr finalizerFunPtr rawSkiaContext
