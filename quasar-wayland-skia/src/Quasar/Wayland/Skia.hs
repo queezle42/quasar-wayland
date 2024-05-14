@@ -79,7 +79,7 @@ class
     type SkiaTextureStorage s
     initializeSkiaBackend :: SkiaIO (ForeignPtr GrDirectContext, SkiaBackendContext s, SkiaDmabufProperties)
     newSkiaBackendTexture :: Skia s -> Int32 -> Int32 -> SkiaIO (ForeignPtr SkSurface, SkiaTextureStorage s)
-    destroySkiaTextureStorage :: SkiaSurfaceState s -> SkiaIO ()
+    destroySkiaTextureStorage :: Skia s -> SkiaSurfaceState s -> SkiaIO ()
     exportSkiaSurfaceDmabuf :: SkiaSurfaceState s -> SkiaIO Dmabuf
 
 data Skia s = Skia {
@@ -116,6 +116,7 @@ data SkiaSurfaceState s = SkiaSurfaceState {
 }
 
 newSkiaSurface ::
+  forall s.
   IsSkiaBackend s =>
   Skia s ->
   Int32 ->
@@ -131,10 +132,10 @@ newSkiaSurface skia width height = runSkiaIO skia.thread do
     height
   }
   where
-    destroySurface :: forall s. IsSkiaBackend s => SkiaSurfaceState s -> IO ()
+    destroySurface :: SkiaSurfaceState s -> IO ()
     destroySurface state = runSkiaIO skia.thread do
-      destroySkiaTextureStorage @s state
       liftIO $ finalizeForeignPtr state.skSurface
+      destroySkiaTextureStorage @s skia state
 
 skiaSurfaceKey :: SkiaSurface s -> Unique
 skiaSurfaceKey (SkiaSurface var) = disposerElementKey var

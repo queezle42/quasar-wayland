@@ -194,8 +194,11 @@ exportDmabuf :: SkiaSurfaceState GL -> SkiaIO Dmabuf
 exportDmabuf surfaceState = liftIO do
   eglExportDmabuf surfaceState.skia.context.egl surfaceState.storage surfaceState.width surfaceState.height
 
-destroySkiaGLTexture :: SkiaSurfaceState GL -> SkiaIO ()
-destroySkiaGLTexture surfaceState = liftIO $ eglDestroyImage surfaceState.skia.context.egl surfaceState.storage
+destroySkiaGLTexture :: Skia GL -> SkiaSurfaceState GL -> SkiaIO ()
+destroySkiaGLTexture skia surfaceState = liftIO do
+  eglDestroyImage surfaceState.skia.context.egl surfaceState.storage
+  -- Prevent skia destructor to run befor all surfaces are deallocated
+  touchForeignPtr skia.grDirectContext
 
 -- | Initialize Skia using the OpenGL ES backend.
 initializeSkiaGles :: SkiaIO (ForeignPtr GrDirectContext, GlContext, SkiaDmabufProperties)
