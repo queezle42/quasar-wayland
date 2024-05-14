@@ -2,7 +2,7 @@
 
 FILTER=$1
 OUT=skia-deps.nix
-REVISION=chrome/m123
+REVISION=chrome/m126
 DEPS=$(curl -s https://raw.githubusercontent.com/google/skia/$REVISION/DEPS)
 THIRD_PARTY_DEPS=$(echo "$DEPS" | grep third_party | grep "#" -v | sed 's/"//g')
 

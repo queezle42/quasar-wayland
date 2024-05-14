@@ -8,13 +8,13 @@ let
 in
 stdenv.mkDerivation (finalAttrs: {
   name = "skia_quasar-wayland";
-  version = "chrome/m123";
+  version = "chrome/m126";
 
   src = fetchFromGitHub {
     owner = "google";
     repo = "skia";
     rev = finalAttrs.version;
-    hash = "sha256-jSKvffBMyk/Y7kQ/MGDaXOHr4VLB7opdE8sCM7qnm8I=";
+    hash = "sha256-u4uLKRb42217eT1/I69q5N/9asTMGD0Aog7HQAAl2+Q=";
   };
 
   nativeBuildInputs = [ python3 gn ninja pkg-config validatePkgConfig ];
@@ -35,7 +35,6 @@ stdenv.mkDerivation (finalAttrs: {
     ln -s ${depSrcs.angle2} third_party/externals/angle2
     ln -s ${depSrcs.dng_sdk} third_party/externals/dng_sdk
     ln -s ${depSrcs.piex} third_party/externals/piex
-    ln -s ${depSrcs.sfntly} third_party/externals/sfntly
     ln -s ${depSrcs.wuffs} third_party/externals/wuffs
 
     ln -s ${depSrcs.spirv-tools} third_party/externals/spirv-tools

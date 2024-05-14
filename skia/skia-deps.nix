@@ -2,8 +2,8 @@
 {
   angle2 = fetchgit {
     url = "https://chromium.googlesource.com/angle/angle.git";
-    rev = "e04b7c7392d9d05907db6d453c8b8e577d306a7e";
-    sha256 = "134313bxjh40lck4x5k148saphqp7hyq1wsal88npv10hnsqc1ny";
+    rev = "66bc9cfa00143312cc7545556041622a92745a91";
+    sha256 = "15fp5ddmiya2sy1bf0x633w7qxbzmah48jqlxg6d7y6f0rvrqzwq";
   };
   brotli = fetchgit {
     url = "https://skia.googlesource.com/external/github.com/google/brotli.git";
@@ -17,8 +17,8 @@
   };
   dawn = fetchgit {
     url = "https://dawn.googlesource.com/dawn.git";
-    rev = "d3e0bd4770cc8115d1342a8dc051a36e50e8bd26";
-    sha256 = "0iam5qgsqa1zwrjq6gynl63anwgvfc8s3jflnwzhkimqq79pdj7y";
+    rev = "1b2d3eb175fdf83e21e21b6167a34225a03d2bc2";
+    sha256 = "0zx5xnh9f7xbg1cda6mq6k3y3w4fzlnl4mfxs8psf6hh77f4hb2r";
   };
   jinja2 = fetchgit {
     url = "https://chromium.googlesource.com/chromium/src/third_party/jinja2";
@@ -57,13 +57,13 @@
   };
   freetype = fetchgit {
     url = "https://chromium.googlesource.com/chromium/src/third_party/freetype2.git";
-    rev = "47574f7ea445c8bb751da0fa716424c9c29a6807";
-    sha256 = "064x9na83dvf44zd7a8ipff96j76zdxp6fdm063z4rhhig4f8lki";
+    rev = "a46424228f0998a72c715f32e18dca8a7a764c1f";
+    sha256 = "0ikhqdsf4n2zi566d08hixvgds4d2wjds9l4fmzlmqn3v6krhmb4";
   };
   harfbuzz = fetchgit {
     url = "https://chromium.googlesource.com/external/github.com/harfbuzz/harfbuzz.git";
-    rev = "4cfc6d8e173e800df086d7be078da2e8c5cfca19";
-    sha256 = "126r5ikhggalwmfrn0jrh7hx9jb32902jnajh0cvy4gv1k42vfxf";
+    rev = "b74a7ecc93e283d059df51ee4f46961a782bcdb8";
+    sha256 = "11la2l2by0fwwbfzw5an0z46ajjlamvxx9pwwmj30bxgqnx2r5px";
   };
   highway = fetchgit {
     url = "https://chromium.googlesource.com/external/github.com/google/highway.git";
@@ -72,13 +72,13 @@
   };
   icu = fetchgit {
     url = "https://chromium.googlesource.com/chromium/deps/icu.git";
-    rev = "a0718d4f121727e30b8d52c7a189ebf5ab52421f";
-    sha256 = "1qxws2p91f6dmhy7d3967r5ygz06r88pkmpm97px067x0zzdz384";
+    rev = "364118a1d9da24bb5b770ac3d762ac144d6da5a4";
+    sha256 = "1y4y24xamafvghs4n2rjz477r7zsg5fgf15va122q5i2hg0jdfvy";
   };
   icu4x = fetchgit {
     url = "https://chromium.googlesource.com/external/github.com/unicode-org/icu4x.git";
-    rev = "4f81635489681ecf7707623177123cb78d6a66a0";
-    sha256 = "11ir5w718plaj0k3f7214bz7nyv3ncxyrx0c4akqa5cwfrnj5rdw";
+    rev = "bcf4f7198d4dc5f3127e84a6ca657c88e7d07a13";
+    sha256 = "1hfc031ihzk83ds3906m3x1fammz0bnc2m4n4m2k1hgkvsdvj5if";
   };
   imgui = fetchgit {
     url = "https://skia.googlesource.com/external/github.com/ocornut/imgui.git";
@@ -112,13 +112,13 @@
   };
   libpng = fetchgit {
     url = "https://skia.googlesource.com/third_party/libpng.git";
-    rev = "144b348e072a78e8130ed0acc452c9f039a67bf2";
-    sha256 = "0haayi2gcfwzff6b3qlxjc1s6yvhlq13va2xm572vqaip2mpncbr";
+    rev = "ed217e3e601d8e462f7fd1e04bed43ac42212429";
+    sha256 = "0fv97xl79yhk35k076i9m067adl2ngpdmwmidy488slm7gqlr39j";
   };
   libwebp = fetchgit {
     url = "https://chromium.googlesource.com/webm/libwebp.git";
-    rev = "2af26267cdfcb63a88e5c74a85927a12d6ca1d76";
-    sha256 = "0xahv6vnc14n6nmmhj019331nga6nxl524l6wv3n36gvnp260m3c";
+    rev = "845d5476a866141ba35ac133f856fa62f0b7445f";
+    sha256 = "0fp9nxxddhxvikjn51r46sjrc3iiggr7mivabfgz02426skp0zll";
   };
   libyuv = fetchgit {
     url = "https://chromium.googlesource.com/libyuv/libyuv.git";
@@ -150,15 +150,10 @@
     rev = "bb217acdca1cc0c16b704669dd6f91a1b509c406";
     sha256 = "05ipmag6k55jmidbyvg5mkqm69zfw03gfkqhi9jnjlmlbg31y412";
   };
-  sfntly = fetchgit {
-    url = "https://chromium.googlesource.com/external/github.com/googlei18n/sfntly.git";
-    rev = "b55ff303ea2f9e26702b514cf6a3196a2e3e2974";
-    sha256 = "1qi5rfzmwfrji46x95g6dsb03i1v26700kifl2hpgm3pqhr7afpz";
-  };
   swiftshader = fetchgit {
     url = "https://swiftshader.googlesource.com/SwiftShader";
-    rev = "eb75201a4e0354a36d315dd01077092ec9aa2356";
-    sha256 = "1nxyag0d6r48ydrjjsdl97za369snxicmmqxj0v2ha859fx8g9a8";
+    rev = "da334852e70510d259bfa8cbaa7c5412966b2f41";
+    sha256 = "0l08scgk2pmhx6m6af5yc3jbmw5v38a2qvm9y9aj0g91rbhyx1ng";
   };
   vulkanmemoryallocator = fetchgit {
     url = "https://chromium.googlesource.com/external/github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator";
@@ -167,8 +162,8 @@
   };
   vulkan-deps = fetchgit {
     url = "https://chromium.googlesource.com/vulkan-deps";
-    rev = "13783d616289ab4ff6cad96e570d04183b24f2e0";
-    sha256 = "0fl3a5f9ip10q13h24rbjkjl5w4r4xlxgr78c16vi2pi5dipxk5r";
+    rev = "f1dcf238ad742f936794809f28b0ad0511b6585b";
+    sha256 = "0hhfw3znisdpzcb2vyx66j5d3c4zx9387wvqjp0c83r28d93ykqi";
   };
   spirv-cross = fetchgit {
     url = "https://chromium.googlesource.com/external/github.com/KhronosGroup/SPIRV-Cross";
@@ -177,33 +172,33 @@
   };
   spirv-headers = fetchgit {
     url = "https://skia.googlesource.com/external/github.com/KhronosGroup/SPIRV-Headers.git";
-    rev = "05cc486580771e4fa7ddc89f5c9ee1e97382689a";
-    sha256 = "0z526x4qfv5qnf7376hripx9727jrb5lkdxlpw85rmax5ncq9hyf";
+    rev = "49a1fceb9b1d087f3c25ad5ec077bb0e46231297";
+    sha256 = "180dfnvfd5jc43j32ksy1zb0s7f33wvg8igjhdg1clwszb0c9jzs";
   };
   spirv-tools = fetchgit {
     url = "https://skia.googlesource.com/external/github.com/KhronosGroup/SPIRV-Tools.git";
-    rev = "dc6676445be97ab19d8191fee019af62e2aaf774";
-    sha256 = "0nkv35siq7yj42cahyrnz09g3zcdaf65qpkcd80aa8lc3w6ib8kh";
+    rev = "199038f10cbe56bf7cbfeb5472eb0a25af2f09f5";
+    sha256 = "18hnl7sjp49bk7s8hl0hxq3a6qrdw43vzzjl9z5lvh7diazb4wpq";
   };
   vello = fetchgit {
     url = "https://skia.googlesource.com/external/github.com/linebender/vello.git";
-    rev = "e04b6028651dfd6b87067c0d27c1207c7f735a6d";
-    sha256 = "09qjqmxgv96xmmixfp0d2nynvgxa8g3v9vypsmbnsqv1g5c28iag";
+    rev = "6938a2893d6a2ba658709d1d04720f6c6033700f";
+    sha256 = "0vcj4smvsp1ks4fms4xr5jwn95cvdx2w3hqx4fy0pyxpyq58kzw5";
   };
   vulkan-headers = fetchgit {
     url = "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Headers";
-    rev = "31aa7f634b052d87ede4664053e85f3f4d1d50d3";
-    sha256 = "1aazv1d2dqj6hkb8szsp2z5jzjmlngcg20k6agvah82kmyy2zgsg";
+    rev = "5677bafb820e476441e9e1f745371b72133407d3";
+    sha256 = "10jjwhp7jf5lmjxjg4klzkq1a83kzrxd4hfj982dqxgppnkhpckd";
   };
   vulkan-tools = fetchgit {
     url = "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Tools";
-    rev = "069bd14c0548556e130fc9e205adc918b7a01891";
-    sha256 = "01iqv7kqv6h8m521bw07g9aady5p96430150vgc544473y6v8j5k";
+    rev = "df8e710224f563a04b7db2680f72d31619c4b259";
+    sha256 = "04gm3a537vc596vnz972fzrpj2xiink14n298418a25b5ahv9yz8";
   };
   vulkan-utility-libraries = fetchgit {
     url = "https://chromium.googlesource.com/external/github.com/KhronosGroup/Vulkan-Utility-Libraries";
-    rev = "1b8b60bf7f271a09eeda032d117d51a43ed506cd";
-    sha256 = "0j2zdbf21h3adngykps60iachsqjf9vy4rn1cg59v2cdwj7j61xk";
+    rev = "358a107a6ff284906dcccbabe5b0183c03fd85b6";
+    sha256 = "051h27j2nq7k5r630sd9sl0icwqc04l184sbd575vn7wh6j1h1j0";
   };
   unicodetools = fetchgit {
     url = "https://chromium.googlesource.com/external/github.com/unicode-org/unicodetools";
