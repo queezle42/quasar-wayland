@@ -21,6 +21,7 @@ main = do
     traceIO "Connected"
 
     configurationVar <- newEmptyTMVarIO
+    closeRequestedVar <- newTVarIO False
 
     let properties = defaultWindowProperties {
       title = "quasar-wayland-example-client"
@@ -28,7 +29,8 @@ main = do
 
     window <- atomicallyC do
       windowManager <- getClientWindowManager @ShmBufferBackend client
-      newWindow windowManager properties (writeTMVar configurationVar) undefined
+      newWindow windowManager properties (writeTMVar configurationVar) \case
+        WindowRequestClose -> writeTVar closeRequestedVar True
 
     forM_ [solidColor, gradient, gradient2, gradient3, gradient4] \img -> do
       -- Blocks until first configure event
