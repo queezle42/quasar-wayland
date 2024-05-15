@@ -168,7 +168,7 @@ readSkiaSurfaceStateIO (SkiaSurface var) =
     Nothing -> undefined
     Just surfaceState -> pure surfaceState
 
-newtype SkiaImage = SkiaImage (DisposableVar (Ptr SkImage))
+newtype SkiaImage s = SkiaImage (DisposableVar (Ptr SkImage))
   deriving Disposable
 
 --newtype ManagedSkiaSurface = ManagedSkiaSurface {
@@ -212,7 +212,7 @@ data SkiaRenderedFrame s
   -- Borrowed surface, i.e. a surface that is used by the frame and will be
   -- "returned" to the owner once the frame is destroyed.
   | SkiaRenderedFrameBorrowedSurface (Borrowed (SkiaSurface s))
-  | SkiaRenderedFrameImportedDmabuf TDisposer SkiaImage (Rc ExternalDmabuf)
+  | SkiaRenderedFrameImportedDmabuf TDisposer (SkiaImage s) (Rc ExternalDmabuf)
   | SkiaRenderedFrameSinglePixel SinglePixelBuffer
 
 instance Disposable (SkiaRenderedFrame s) where
@@ -418,14 +418,14 @@ importDmabuf skia frameRelease rc = do
       liftIO $ newRcIO (SkiaRenderedFrameImportedDmabuf frameRelease skiaImage rc)
 
 
-newSkiaImage :: Skia s -> Ptr SkImage -> IO SkiaImage
+newSkiaImage :: Skia s -> Ptr SkImage -> IO (SkiaImage s)
 newSkiaImage skia skImage =
   SkiaImage <$> newFnDisposableVarIO skia.exceptionSink destroyImage skImage
   where
     destroyImage :: Ptr SkImage -> IO ()
-    destroyImage ptr = runSkiaIO skia.thread $ liftIO do
+    destroyImage img = runSkiaIO skia.thread $ liftIO do
       [CPPU.throwBlock|void {
-        delete $(SkImage* ptr);
+        delete $(SkImage* img);
       }|]
 
 skiaDmabufGlobal :: IsSkiaBackend s => Skia s -> Global
