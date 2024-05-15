@@ -69,3 +69,13 @@ executable example-client
     quasar-wayland,
     quasar-wayland-skia,
   main-is: Client.hs
+
+executable example-proxy
+  import: shared-executable-properties
+  build-depends:
+    base,
+    quasar,
+    quasar-timer,
+    quasar-wayland,
+    quasar-wayland-skia,
+  main-is: Proxy.hs
