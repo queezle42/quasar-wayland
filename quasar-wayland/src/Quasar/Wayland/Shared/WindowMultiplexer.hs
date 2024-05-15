@@ -6,7 +6,8 @@ module Quasar.Wayland.Shared.WindowMultiplexer (
 ) where
 
 import Quasar.Prelude
-import Quasar.Resources (Disposer, Disposable(getDisposer), TDisposer, disposeEventually)
+import Quasar.Resources
+import Quasar.Resources.Rc
 import Quasar.Resources.DisposableVar
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
@@ -37,12 +38,18 @@ instance RenderBackend b => IsWindow b (WindowMultiplexer b) where
         [] -> pure ()
         (primary:_) -> setFullscreen primary fullscreen
   commitWindowContent (WindowMultiplexer var) serial commit = do
-    tryReadTDisposableVar var >>= \case
+    future <- tryReadTDisposableVar var >>= \case
       Nothing -> pure (pure ()) -- ignore commits when disposed
       Just state -> do
         windows <- readTVar state.downstreams
         -- TODO use correct per-downstream serial
-        mconcat <$> forM windows \window -> commitWindowContent window serial commit
+        mconcat <$> forM windows \window -> do
+          frc <- duplicateRc commit.frame
+          commitWindowContent window serial commit {
+            frame = frc
+          }
+    disposeEventually_ commit
+    pure future
   ackWindowConfigure multiplexer serial = do
     withState multiplexer \state -> do
       windows <- readTVar state.downstreams
