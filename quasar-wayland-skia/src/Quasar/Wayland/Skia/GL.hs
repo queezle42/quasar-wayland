@@ -383,7 +383,7 @@ destroySkiaGLTexture skia surfaceState = liftIO do
   glDeleteTexture surfaceState.storage.glTexture
 
 
-skiaGLImportDmabuf :: Skia GL -> Dmabuf -> SkiaIO SkiaImage
+skiaGLImportDmabuf :: Skia GL -> Dmabuf -> SkiaIO (Ptr SkImage)
 skiaGLImportDmabuf skia dmabuf = liftIO do
   let grDirectContext = skia.grDirectContext
 
@@ -443,12 +443,4 @@ skiaGLImportDmabuf skia dmabuf = liftIO do
   when (skImage == nullPtr) do
     throwIO $ userError "Failed to create skia image from external texture"
 
-  disposer <- atomicallyC do
-    newUnmanagedIODisposer [CPPU.throwBlock|void {
-      delete $(SkImage* skImage);
-    }|] skia.exceptionSink
-
-  pure SkiaImage {
-    skImage,
-    disposer
-  }
+  pure skImage

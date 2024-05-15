@@ -56,7 +56,8 @@ import Quasar.Wayland.Utils.Resources
 C.context (CPP.cppCtx <> C.fptrCtx <> mempty {
   C.ctxTypesTable = Map.fromList [
     (C.TypeName "GrDirectContext", [t|GrDirectContext|]),
-    (C.TypeName "SkSurface", [t|SkSurface|])
+    (C.TypeName "SkSurface", [t|SkSurface|]),
+    (C.TypeName "SkImage", [t|SkImage|])
   ]
 })
 
@@ -82,7 +83,7 @@ class Typeable s => IsSkiaBackend s where
   newSkiaBackendTexture :: Skia s -> Int32 -> Int32 -> SkiaIO (Ptr SkSurface, SkiaTextureStorage s)
   destroySkiaTextureStorage :: Skia s -> SkiaSurfaceState s -> SkiaIO ()
   exportSkiaSurfaceDmabuf :: SkiaSurfaceState s -> SkiaIO Dmabuf
-  skiaImportDmabuf :: Skia s -> Dmabuf -> SkiaIO SkiaImage
+  skiaImportDmabuf :: Skia s -> Dmabuf -> SkiaIO (Ptr SkImage)
 
 data Skia s = Skia {
   disposer :: Disposer,
@@ -167,13 +168,8 @@ readSkiaSurfaceStateIO (SkiaSurface var) =
     Nothing -> undefined
     Just surfaceState -> pure surfaceState
 
-data SkiaImage = SkiaImage {
-  skImage :: Ptr SkImage,
-  disposer :: Disposer
-}
-
-instance Disposable SkiaImage where
-  getDisposer surface = surface.disposer
+newtype SkiaImage = SkiaImage (DisposableVar (Ptr SkImage))
+  deriving Disposable
 
 --newtype ManagedSkiaSurface = ManagedSkiaSurface {
 --  skSurface :: ForeignPtr SkSurface
@@ -416,8 +412,21 @@ importDmabuf skia frameRelease rc = do
   atomicallyC (tryReadRc rc) >>= \case
     Nothing -> undefined
     Just (ExternalDmabuf _ (Borrowed _ dmabuf)) -> do
-      readonlySurface <- skiaImportDmabuf skia dmabuf
-      liftIO $ newRcIO (SkiaRenderedFrameImportedDmabuf frameRelease readonlySurface rc)
+      skImage <- skiaImportDmabuf skia dmabuf
+      skiaImage <- liftIO $ newSkiaImage skia skImage
+
+      liftIO $ newRcIO (SkiaRenderedFrameImportedDmabuf frameRelease skiaImage rc)
+
+
+newSkiaImage :: Skia s -> Ptr SkImage -> IO SkiaImage
+newSkiaImage skia skImage =
+  SkiaImage <$> newFnDisposableVarIO skia.exceptionSink destroyImage skImage
+  where
+    destroyImage :: Ptr SkImage -> IO ()
+    destroyImage ptr = runSkiaIO skia.thread $ liftIO do
+      [CPPU.throwBlock|void {
+        delete $(SkImage* ptr);
+      }|]
 
 skiaDmabufGlobal :: IsSkiaBackend s => Skia s -> Global
 skiaDmabufGlobal skia =
