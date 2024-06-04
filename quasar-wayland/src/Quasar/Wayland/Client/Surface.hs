@@ -100,9 +100,9 @@ getClientBufferManager client =
 
 -- | Requests a wl_buffer for a locked buffer and changes it's state to attached.
 --
--- Takes ownership of the buffer lock.
+-- Takes ownership of the frame rc.
 requestWlBuffer :: forall b. ClientBufferBackend b => ClientSurfaceManager b -> ExportBufferId b -> Rc (RenderedFrame b) -> IO (Object 'Client Interface_wl_buffer)
-requestWlBuffer client bufferId buffer = do
+requestWlBuffer client bufferId frame = do
   join $ atomically do
     bufferMap <- readTVar client.bufferMap
     case HM.lookup bufferId bufferMap of
@@ -111,30 +111,32 @@ requestWlBuffer client bufferId buffer = do
         readTVar clientBuffer.state >>= \case
           Released -> do
             -- Unlock buffer on wl_buffer release
-            writeTVar clientBuffer.state (Attached (getDisposer buffer))
+            writeTVar clientBuffer.state (Attached (getDisposer frame))
             pure (pure clientBuffer.wlBuffer)
 
           -- TODO using (z)wp_linux_buffer_release a buffer could be attached to multiple surfaces
-          Attached _ -> pure $ newSingleUseWlBuffer client buffer
+          Attached _ -> pure $ newSingleUseWlBuffer client frame
 
           -- This should not happen - disposed ClientBuffers are removed from the buffer map
           Destroyed -> throwM (userError "ClientBuffer.requestClientBuffer called on a destroyed ClientBuffer")
       -- Buffer is currently not exported to client
       Nothing -> pure do
-        clientBuffer <- newClientBuffer client bufferId buffer
+        clientBuffer <- newClientBuffer client bufferId frame
         pure clientBuffer.wlBuffer
 
 
 
 -- | Create a reusable client buffer in attached state.
+--
+-- Takes ownership of the frame rc.
 newClientBuffer :: forall b. ClientBufferBackend b => ClientSurfaceManager b -> ExportBufferId b -> Rc (RenderedFrame b) -> IO (ClientBuffer b)
-newClientBuffer client bufferId buffer = do
-  atomically (tryReadRc buffer) >>= \case
+newClientBuffer client bufferId frame = do
+  atomically (tryReadRc frame) >>= \case
     Nothing -> throwM (userError "ClientBuffer.newClientBuffer called with a disposed buffer")
     Just rawFrame -> do
       wlBuffer <- exportWlBuffer @b client.bufferManager rawFrame
 
-      state <- newTVarIO (Attached (getDisposer buffer))
+      state <- newTVarIO (Attached (getDisposer frame))
       let clientBuffer = ClientBuffer {
         wlBuffer,
         state
@@ -182,17 +184,19 @@ destroyClientBuffer clientBuffer = do
 --
 -- This function creates single-use buffers, that is, buffers that are destroyed
 -- as soon as they receive a `release`-event.
+--
+-- Takes ownership of the frame rc.
 newSingleUseWlBuffer :: forall b. ClientBufferBackend b => ClientSurfaceManager b -> Rc (RenderedFrame b) -> IO (Object 'Client Interface_wl_buffer)
-newSingleUseWlBuffer surfaceManager buffer = do
-  atomicallyC (tryReadRc buffer) >>= \case
+newSingleUseWlBuffer surfaceManager frame = do
+  atomicallyC (tryReadRc frame) >>= \case
     Nothing -> throwM (userError "ClientBuffer.newSingleUseWlBuffer called with a disposed buffer")
-    Just rawBuffer -> do
-      wlBuffer <- exportWlBuffer @b surfaceManager.bufferManager rawBuffer
+    Just rawFrame -> do
+      wlBuffer <- exportWlBuffer @b surfaceManager.bufferManager rawFrame
 
       atomicallyC do
         -- Attach ownership/cleanup of buffer lock to wl_buffer
         -- TODO do we need to handle the disposer future?
-        attachFinalizer wlBuffer (disposeEventually_ buffer)
+        attachFinalizer wlBuffer (disposeEventually_ frame)
         setEventHandler wlBuffer EventHandler_wl_buffer {
           release = wlBuffer.destroy
         }
