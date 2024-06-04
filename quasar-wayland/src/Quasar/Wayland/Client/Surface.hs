@@ -16,6 +16,7 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Typeable (Typeable)
 import Quasar.Async.Fork (forkSTM_)
+import Quasar.Exceptions
 import Quasar.Exceptions.ExceptionSink (loggingExceptionSink)
 import Quasar.Future (Future, Promise, ToFuture (toFuture), newPromise, peekFuture, fulfillPromise, MonadAwait (await), callOnceCompleted_)
 import Quasar.Prelude
@@ -56,7 +57,7 @@ class (RenderBackend b, Typeable (ClientBufferManager b), Hashable (ExportBuffer
   --
   -- This should return the id of an internal buffer that the frame has been
   -- rendered to.
-  getExportBufferId :: RenderedFrame b -> STMc NoRetry '[] (ExportBufferId b)
+  getExportBufferId :: HasCallStack => RenderedFrame b -> STMc NoRetry '[DisposedException] (ExportBufferId b)
 
   -- | Called by the `Surface`-implementation when a buffer should be mapped
   -- from the wayland client to the wayland server. This usually shares memory
@@ -69,8 +70,8 @@ class (RenderBackend b, Typeable (ClientBufferManager b), Hashable (ExportBuffer
   -- The caller takes ownership of the resulting @wl_buffer@ and will attach the
   -- event handler.
   --
-  -- The buffer argument is owned by the caller and must not be disposed by
-  -- the callee.
+  -- The @RenderedFrame@ argument is owned by the caller and must not be
+  -- disposed by the callee.
   exportWlBuffer :: ClientBufferManager b -> RenderedFrame b -> IO (NewObject 'Client Interface_wl_buffer)
 
   syncExportBuffer :: RenderedFrame b -> IO ()

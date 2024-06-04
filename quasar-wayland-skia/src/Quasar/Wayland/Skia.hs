@@ -32,7 +32,7 @@ import Language.C.Inline.Context qualified as C
 import Language.C.Inline.Cpp qualified as CPP
 import Language.C.Inline.Cpp.Unsafe qualified as CPPU
 import Language.C.Types qualified as C
-import Quasar.Exceptions (AsyncException(..), mkDisposedException, ExceptionSink)
+import Quasar.Exceptions (AsyncException(..), mkDisposedException, ExceptionSink, DisposedException)
 import Quasar.Exceptions.ExceptionSink (loggingExceptionSink)
 import Quasar.Future
 import Quasar.Prelude
@@ -156,11 +156,8 @@ newSkiaSurface skia width height = runSkiaIO skia.thread do
 skiaSurfaceKey :: SkiaSurface s -> Unique
 skiaSurfaceKey (SkiaSurface var) = disposerElementKey var
 
-readSkiaSurfaceState :: SkiaSurface s -> STMc NoRetry '[] (SkiaSurfaceState s)
-readSkiaSurfaceState (SkiaSurface var) =
-  tryReadDisposableVar var >>= \case
-    Nothing -> undefined
-    Just surfaceState -> pure surfaceState
+readSkiaSurfaceState :: SkiaSurface s -> STMc NoRetry '[DisposedException] (SkiaSurfaceState s)
+readSkiaSurfaceState (SkiaSurface var) = readDisposableVar var
 
 readSkiaSurfaceStateIO :: SkiaSurface s -> IO (SkiaSurfaceState s)
 readSkiaSurfaceStateIO (SkiaSurface var) =
@@ -255,15 +252,16 @@ instance IsSkiaBackend s => ClientBufferBackend (Skia s) where
   renderFrame :: Rc (SkiaFrame s) -> IO (Rc (SkiaRenderedFrame s))
   renderFrame frame = renderFrameInternal frame
 
-  getExportBufferId :: SkiaRenderedFrame s -> STMc NoRetry '[] SkiaExportBufferId
+  getExportBufferId ::
+    HasCallStack =>
+    SkiaRenderedFrame s -> STMc NoRetry '[DisposedException] SkiaExportBufferId
   getExportBufferId (SkiaRenderedFrameOwnedSurface surface) =
     pure (SkiaExportBufferIdUnique (skiaSurfaceKey surface))
   getExportBufferId (SkiaRenderedFrameBorrowedSurface (Borrowed _ surface)) =
     pure (SkiaExportBufferIdUnique (skiaSurfaceKey surface))
-  getExportBufferId (SkiaRenderedFrameImportedDmabuf _ _ rc) =
-    tryReadRc rc >>= \case
-      Nothing -> undefined
-      Just (ExternalDmabuf key _) -> pure (SkiaExportBufferIdUnique key)
+  getExportBufferId (SkiaRenderedFrameImportedDmabuf _ _ rc) = do
+    (ExternalDmabuf key _) <- readRc rc
+    pure (SkiaExportBufferIdUnique key)
   getExportBufferId (SkiaRenderedFrameSinglePixel pixel) = pure (SkiaExportBufferIdSinglePixel pixel)
 
   exportWlBuffer :: SkiaClientBufferManager s -> SkiaRenderedFrame s -> IO (NewObject 'Client Interface_wl_buffer)

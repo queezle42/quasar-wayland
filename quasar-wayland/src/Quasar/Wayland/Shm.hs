@@ -13,6 +13,7 @@ import Data.HashMap.Strict qualified as HM
 import Data.Hashable (Hashable(hash, hashWithSalt))
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Quasar.Exceptions
 import Quasar.Future
 import Quasar.Observable.Core
 import Quasar.Prelude
@@ -119,11 +120,10 @@ instance ClientBufferBackend ShmBufferBackend where
   renderFrame :: Rc ShmBufferFrame -> IO (Rc ShmBufferFrame)
   renderFrame = pure
 
-  getExportBufferId :: ShmBufferFrame -> STMc NoRetry '[] Unique
-  getExportBufferId (ShmBufferFrame _ bufferRc) =
-    tryReadRc bufferRc >>= \case
-      Nothing -> undefined -- "ShmBufferBackend: Trying to get export id for a disposed frame"
-      Just (Borrowed _ buffer) -> pure buffer.key
+  getExportBufferId :: HasCallStack => ShmBufferFrame -> STMc NoRetry '[DisposedException] Unique
+  getExportBufferId (ShmBufferFrame _ bufferRc) = do
+    (Borrowed _ buffer) <- readRc bufferRc
+    pure buffer.key
 
   exportWlBuffer :: ClientShmManager -> ShmBufferFrame -> IO (NewObject 'Client Interface_wl_buffer)
   exportWlBuffer client (ShmBufferFrame _ rc) = atomicallyC do
