@@ -42,6 +42,12 @@ class (RenderBackend backend, Disposable (ExternalBuffer buffer backend)) => IsB
   newExternalBuffer :: backend -> Borrowed buffer -> STMc NoRetry '[] (ExternalBuffer buffer backend)
 
   -- | Create a frame from an @ExternalBuffer@.
+  --
+  -- The `TDisposer` argument is the "frame release" disposer, it has to be
+  -- disposed when the frame is disposed.
+  --
+  -- Ownership of the `ExternalBuffer` rc is transferred to the frame, it has
+  -- to be disposed when the frame is disposed.
   createExternalBufferFrame :: backend -> TDisposer -> Rc (ExternalBuffer buffer backend) -> STMc NoRetry '[] (Frame backend)
 
 

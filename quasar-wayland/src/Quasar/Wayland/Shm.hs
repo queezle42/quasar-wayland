@@ -31,7 +31,7 @@ data ShmBufferBackend = ShmBufferBackend
 data ShmBufferFrame = ShmBufferFrame TDisposer (Rc (Borrowed ShmBuffer))
 
 instance Disposable ShmBufferFrame where
-  getDisposer (ShmBufferFrame tdisposer _) = getDisposer tdisposer
+  getDisposer (ShmBufferFrame tdisposer rc) = getDisposer tdisposer <> getDisposer rc
 
 instance RenderBackend ShmBufferBackend where
   type Frame ShmBufferBackend = ShmBufferFrame
