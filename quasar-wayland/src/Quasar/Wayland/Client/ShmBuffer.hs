@@ -7,20 +7,20 @@ module Quasar.Wayland.Client.ShmBuffer (
 import Control.Monad.Catch
 import Foreign
 import Quasar.Prelude
-import Quasar.Wayland.Shared.Surface
+import Quasar.Resources.Rc
 import Quasar.Wayland.Shm
 import Quasar.Wayland.Utils.SharedFd
 import Quasar.Wayland.Utils.SharedMemory
 
 
-newLocalShmPool :: Int32 -> IO (ShmPool, ForeignPtr Word8)
+newLocalShmPool :: Int32 -> IO (Rc ShmPool, ForeignPtr Word8)
 newLocalShmPool size = do
   fd <- memfdCreate (fromIntegral size)
 
   ptr <- mmap MmapReadWrite fd (fromIntegral size)
 
   -- Passes ownership of the fd to the pool
-  pool <- atomicallyC (newShmPool fd size)
+  pool <- atomicallyC (newShmPool fd (pure size))
     `onException`
       (disposeSharedFd fd >> finalizeForeignPtr ptr)
 
@@ -33,10 +33,8 @@ newLocalShmBuffer width height = do
   (pool, ptr) <- newLocalShmPool size
 
   atomicallyC do
+    -- Buffer takes ownership of the pool
     buffer <- newShmBuffer pool offset width height stride pixelFormat
-
-    -- Pool won't be reused
-    destroyShmPool pool
 
     pure (buffer, castForeignPtr ptr)
 
