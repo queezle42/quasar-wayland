@@ -24,7 +24,7 @@ module Quasar.Wayland.Skia (
   --ManagedSkiaSurface,
 ) where
 
-import Data.Map.Strict as Map
+import Data.Map.Strict qualified as Map
 import Data.Typeable (Typeable)
 import Foreign.Ptr
 import Language.C.Inline qualified as C
