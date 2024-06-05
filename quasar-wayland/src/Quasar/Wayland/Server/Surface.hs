@@ -12,6 +12,7 @@ module Quasar.Wayland.Server.Surface (
 ) where
 
 import Control.Monad.Catch
+import Quasar.Exceptions
 import Quasar.Prelude
 import Quasar.Resources
 import Quasar.Resources.Rc
@@ -53,7 +54,7 @@ data MappedServerSurface b = MappedServerSurface {
 
 data ServerBuffer b = ServerBuffer {
   wlBuffer :: Object 'Server Interface_wl_buffer,
-  createFrame :: TDisposer -> STMc NoRetry '[] (Frame b)
+  createFrame :: TDisposer -> STMc NoRetry '[DisposedException] (Frame b)
 }
 
 newServerSurface :: STMc NoRetry '[] (ServerSurface b)
@@ -223,7 +224,7 @@ initializeWlBuffer ::
   buffer ->
   STMc NoRetry '[] ()
 initializeWlBuffer backend wlBuffer buffer = do
-  mappedBuffer <- newExternalBuffer backend (Borrowed (getDisposer buffer) buffer)
+  mappedBuffer <- newExternalBuffer backend buffer
   rc <- newRc mappedBuffer
   let serverBuffer = ServerBuffer {
     wlBuffer,
@@ -234,19 +235,24 @@ initializeWlBuffer backend wlBuffer buffer = do
     destroy = pure ()
   }
   -- TODO This removes back pressure for released buffers. We should await the
-  -- @unmapBufferDisposer@ somewhere in the chain of new buffer allocations.
+  -- disposer somewhere in the chain of new buffer allocations.
   -- The best place would probably be to delay the frame callback, but I'm not
-  -- sure how to do that properly and cleanly.
+  -- sure how to do that in a clean way.
+  -- We don't want to delay the whole rendering backend (since that could be
+  -- rendering content for/from multiple clients).
   attachOrRunFinalizer wlBuffer (disposeEventually_ rc)
 
   where
+    createFrameImpl :: Rc (ExternalBuffer buffer backend) -> TDisposer -> STMc NoRetry '[DisposedException] (Frame backend)
     createFrameImpl rc frameRelease = do
-      tryDuplicateRc rc >>= \case
-        Nothing ->
-          -- Frame was created from an unmapped buffer, which would probably be
-          -- a bug somewhere in this module.
-          undefined
-        Just dupedRc -> createExternalBufferFrame @buffer @backend backend frameRelease dupedRc
+      -- If duplicating the frame rc fails, the frame was created from an
+      -- unmapped buffer, which would probably be a bug somewhere in this module.
+      dupedRc <- duplicateRc rc
+      externalBuffer <- readRc dupedRc
+      let combinedRelease = getDisposer frameRelease <> getDisposer dupedRc
+      liftSTMc do
+        createExternalBufferFrame @buffer @backend backend
+          (Borrowed combinedRelease externalBuffer)
 
 
 getServerBuffer :: forall b. RenderBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (ServerBuffer b)

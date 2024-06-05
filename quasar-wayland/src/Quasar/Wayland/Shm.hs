@@ -29,10 +29,10 @@ import Quasar.Wayland.Utils.Resources
 -- | Simple buffer backend that only supports shared memory buffers.
 data ShmBufferBackend = ShmBufferBackend
 
-data ShmBufferFrame = ShmBufferFrame TDisposer (Rc (Borrowed ShmBuffer))
+newtype ShmBufferFrame = ShmBufferFrame (Borrowed ShmBuffer)
 
 instance Disposable ShmBufferFrame where
-  getDisposer (ShmBufferFrame tdisposer rc) = getDisposer tdisposer <> getDisposer rc
+  getDisposer (ShmBufferFrame borrowed) = getDisposer borrowed
 
 instance RenderBackend ShmBufferBackend where
   type Frame ShmBufferBackend = ShmBufferFrame
@@ -40,12 +40,12 @@ instance RenderBackend ShmBufferBackend where
 type IsShmBufferBackend b = IsBufferBackend ShmBuffer b
 
 instance IsBufferBackend ShmBuffer ShmBufferBackend where
-  type ExternalBuffer ShmBuffer ShmBufferBackend = Borrowed ShmBuffer
-  newExternalBuffer :: ShmBufferBackend -> Borrowed ShmBuffer -> STMc NoRetry '[] (Borrowed ShmBuffer)
-  newExternalBuffer ShmBufferBackend borrowed = pure borrowed
-  createExternalBufferFrame :: ShmBufferBackend -> TDisposer -> Rc (Borrowed ShmBuffer) -> STMc NoRetry '[] ShmBufferFrame
-  createExternalBufferFrame ShmBufferBackend frameRelease rc =
-    pure (ShmBufferFrame frameRelease rc)
+  type ExternalBuffer ShmBuffer ShmBufferBackend = ShmBuffer
+  newExternalBuffer :: ShmBufferBackend -> ShmBuffer -> STMc NoRetry '[] ShmBuffer
+  newExternalBuffer ShmBufferBackend shmBuffer = pure shmBuffer
+  createExternalBufferFrame :: ShmBufferBackend -> Borrowed ShmBuffer -> STMc NoRetry '[] ShmBufferFrame
+  createExternalBufferFrame ShmBufferBackend borrowed =
+    pure (ShmBufferFrame borrowed)
 
 -- | Wrapper for an externally managed shm pool
 data ShmPool = ShmPool {
@@ -120,26 +120,21 @@ instance ClientBufferBackend ShmBufferBackend where
   renderFrame :: Rc ShmBufferFrame -> IO (Rc ShmBufferFrame)
   renderFrame = pure
 
-  getExportBufferId :: HasCallStack => ShmBufferFrame -> STMc NoRetry '[DisposedException] Unique
-  getExportBufferId (ShmBufferFrame _ bufferRc) = do
-    (Borrowed _ buffer) <- readRc bufferRc
-    pure buffer.key
+  getExportBufferId :: ShmBufferFrame -> STMc NoRetry '[DisposedException] Unique
+  getExportBufferId (ShmBufferFrame (Borrowed _ buffer)) = pure buffer.key
 
   exportWlBuffer :: ClientShmManager -> ShmBufferFrame -> IO (NewObject 'Client Interface_wl_buffer)
-  exportWlBuffer client (ShmBufferFrame _ rc) = atomicallyC do
-    tryReadRc rc >>= \case
-      Nothing -> throwM (userError "ShmBufferBackend: Trying to export already disposed frame")
-      Just (Borrowed _ buffer) -> do
-        pool <- readRc buffer.pool
-        wlShmPool <- getClientShmPool client pool
-        -- NOTE no event handlers are attached here, since the caller (usually `Quasar.Wayland.Surface`) has that responsibility.
-        wlShmPool.create_buffer buffer.offset buffer.width buffer.height buffer.stride buffer.format
+  exportWlBuffer client (ShmBufferFrame (Borrowed _ buffer)) = atomicallyC do
+    pool <- readRc buffer.pool
+    wlShmPool <- getClientShmPool client pool
+    -- NOTE no event handlers are attached here, since the caller (usually `Quasar.Wayland.Surface`) has that responsibility.
+    wlShmPool.create_buffer buffer.offset buffer.width buffer.height buffer.stride buffer.format
 
   syncExportBuffer :: ShmBufferFrame -> IO ()
   syncExportBuffer _ = pure ()
 
   getExportBufferDestroyedFuture :: ShmBufferFrame -> STMc NoRetry '[] (Future '[] ())
-  getExportBufferDestroyedFuture (ShmBufferFrame _ shmBuffer) = pure $ isDisposed shmBuffer
+  getExportBufferDestroyedFuture (ShmBufferFrame (Borrowed _ externalBuffer)) = pure $ isDisposed externalBuffer
 
 data ClientShmManager = ClientShmManager {
   key :: Unique,

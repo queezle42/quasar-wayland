@@ -35,11 +35,12 @@ class (RenderBackend backend, Disposable (ExternalBuffer buffer backend)) => IsB
   type ExternalBuffer buffer backend
   -- | Import an external buffer. The buffer may be mutable shared memory.
   --
-  -- Takes ownership of the provided `Borrowed`-object.
+  -- Takes ownership of the provided buffer object (the buffer has to be
+  -- by the ExternalBuffer when that is disposed).
   --
   -- Ownership of the resulting @ExternalBuffer@-object is transferred to the
   -- caller, who will `dispose` it later.
-  newExternalBuffer :: backend -> Borrowed buffer -> STMc NoRetry '[] (ExternalBuffer buffer backend)
+  newExternalBuffer :: Disposable buffer => backend -> buffer -> STMc NoRetry '[] (ExternalBuffer buffer backend)
 
   -- | Create a frame from an @ExternalBuffer@.
   --
@@ -48,7 +49,7 @@ class (RenderBackend backend, Disposable (ExternalBuffer buffer backend)) => IsB
   --
   -- Ownership of the `ExternalBuffer` rc is transferred to the frame, it has
   -- to be disposed when the frame is disposed.
-  createExternalBufferFrame :: backend -> TDisposer -> Rc (ExternalBuffer buffer backend) -> STMc NoRetry '[] (Frame backend)
+  createExternalBufferFrame :: backend -> Borrowed (ExternalBuffer buffer backend) -> STMc NoRetry '[] (Frame backend)
 
 
 -- | Create a new frame by taking ownership of a buffer. The buffer will be
@@ -57,9 +58,8 @@ class (RenderBackend backend, Disposable (ExternalBuffer buffer backend)) => IsB
 -- The caller takes ownership of the resulting frame.
 newFrameConsumeBuffer :: forall buffer backend. (IsBufferBackend buffer backend, Disposable buffer) => backend -> buffer -> STMc NoRetry '[] (Frame backend)
 newFrameConsumeBuffer backend buffer = do
-  externalBuffer <- newExternalBuffer backend (Borrowed (getDisposer buffer) buffer)
-  rc <- newRc externalBuffer
-  createExternalBufferFrame @buffer backend mempty rc
+  externalBuffer <- newExternalBuffer backend buffer
+  createExternalBufferFrame @buffer backend (Borrowed (getDisposer externalBuffer) externalBuffer)
 
 
 data Damage = DamageAll | DamageList [Rectangle]
