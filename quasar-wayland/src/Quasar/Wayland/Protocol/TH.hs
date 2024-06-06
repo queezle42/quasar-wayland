@@ -5,6 +5,7 @@ module Quasar.Wayland.Protocol.TH (
   generateWaylandProcols,
 ) where
 
+import Control.Monad (mapAndUnzipM)
 import Control.Monad.Writer
 import Data.ByteString qualified as BS
 import Data.List (intersperse, singleton)

@@ -31,7 +31,7 @@
   in {
     packages = forAllSystems (pkgs:
     let
-      haskellPackages = getHaskellPackages pkgs "ghc94.";
+      haskellPackages = getHaskellPackages pkgs "ghc96.";
     in rec {
       default = quasar-wayland-examples;
       quasar-wayland = haskellPackages.quasar-wayland;
@@ -71,7 +71,7 @@
 
     devShells = forAllSystems (pkgs:
       let
-        haskellPackages = getHaskellPackages pkgs "ghc94.";
+        haskellPackages = getHaskellPackages pkgs "ghc96.";
       in rec {
         default = haskellPackages.shellFor {
           packages = hpkgs: [

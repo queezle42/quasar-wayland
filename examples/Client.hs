@@ -49,7 +49,7 @@ main = do
       foo <- atomicallyC $ tryDuplicateRc frame
 
       commit <- atomicallyC do
-        commitWindowContent window configuration.configureSerial ((defaultSurfaceCommit frame) {
+        commitWindowContent window configuration.configureSerial ((defaultSurfaceCommit @(Skia GL) frame) {
           bufferDamage = Just DamageAll
         })
 
