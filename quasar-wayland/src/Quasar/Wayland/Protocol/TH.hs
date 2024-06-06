@@ -278,7 +278,7 @@ interfaceDecs interface = do
         fromWireArgument :: ArgumentType -> Q Exp -> Q Exp
         fromWireArgument (ObjectArgument _) objIdE = [|getObject $objIdE|]
         fromWireArgument (NullableObjectArgument _) objIdE = [|getNullableObject $objIdE|]
-        fromWireArgument (NewIdArgument _) objIdE = [|newObjectFromId Nothing $objectE.version $objIdE|]
+        fromWireArgument (NewIdArgument _) objIdE = [|newObjectFromId Nothing (objectVersion $objectE) $objIdE|]
         fromWireArgument _ x = [|pure $x|]
 
 messageProxyInstanceDecs :: Side -> [MessageContext] -> Q [Dec]
@@ -314,7 +314,7 @@ messageProxyInstanceDecs side messageContexts = mapM messageProxyInstanceD messa
 
         -- Constructor: the first argument becomes the return value
         ctorE :: Q Exp
-        ctorE = [|newObject Nothing $objectE.version >>= \(newObj, newId) -> newObj <$ (sendMessage object =<< $(msgE [|pure newId|]))|]
+        ctorE = [|newObject Nothing (objectVersion $objectE) >>= \(newObj, newId) -> newObj <$ (sendMessage object =<< $(msgE [|pure newId|]))|]
           where
             msgE :: Q Exp -> Q Exp
             msgE idArgE = mkWireMsgE (idArgE : (wireArgE <$> args))

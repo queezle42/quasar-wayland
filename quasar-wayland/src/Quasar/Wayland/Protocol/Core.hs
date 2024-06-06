@@ -20,6 +20,7 @@ module Quasar.Wayland.Protocol.Core (
   interfaceVersion,
   IsInterfaceSide(..),
   Object(objectProtocol, version),
+  objectVersion,
   setEventHandler,
   setRequestHandler,
   setMessageHandler,
@@ -361,6 +362,9 @@ instance HasField "isDestroyed" (Object s i) (STMc NoRetry '[] Bool) where
 
 instance HasField "isDestroyed" (SomeObject s) (STMc NoRetry '[] Bool) where
   getField (SomeObject obj) = isObjectDestroyed obj
+
+objectVersion :: Object s i -> Version
+objectVersion = (.version)
 
 
 getMessageHandler :: (IsInterfaceSide s i, MonadSTMc NoRetry '[SomeException] m) => Object s i -> m (MessageHandler s i)
