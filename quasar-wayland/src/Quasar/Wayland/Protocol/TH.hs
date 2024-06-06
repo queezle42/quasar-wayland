@@ -1,8 +1,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Quasar.Wayland.Protocol.TH (
-  generateWaylandProcol,
-  generateWaylandProcols,
+  generateWaylandProtocol,
+  generateWaylandProtocols,
 ) where
 
 import Control.Monad (mapAndUnzipM)
@@ -111,16 +111,16 @@ withWlDoc (toWlDoc -> Just doc) = withDecDoc doc
 withWlDoc _ = id
 
 
-generateWaylandProcol :: FilePath -> Q [Dec]
-generateWaylandProcol protocolFile = do
+generateWaylandProtocol :: FilePath -> Q [Dec]
+generateWaylandProtocol protocolFile = do
   addDependentFile protocolFile
   xml <- liftIO (BS.readFile protocolFile)
   protocol <- parseProtocol xml
   (public, internals) <- mapAndUnzipM interfaceDecs protocol.interfaces
   pure $ mconcat public <> mconcat internals
 
-generateWaylandProcols :: [FilePath] -> Q [Dec]
-generateWaylandProcols protocolFiles = do
+generateWaylandProtocols :: [FilePath] -> Q [Dec]
+generateWaylandProtocols protocolFiles = do
   mapM_ addDependentFile protocolFiles
   xmls <- mapM (liftIO . BS.readFile) protocolFiles
   protocol <- mconcat <$> mapM parseProtocol xmls

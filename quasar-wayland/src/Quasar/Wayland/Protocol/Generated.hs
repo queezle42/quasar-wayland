@@ -16,7 +16,7 @@ import Quasar.Prelude
 import Quasar.Wayland.Protocol.Core
 import Quasar.Wayland.Protocol.TH
 
-$(generateWaylandProcols [
+$(generateWaylandProtocols [
   "protocols/wayland.xml",
   "protocols/xdg-shell.xml",
   "protocols/wlr-layer-shell-unstable-v1.xml",
