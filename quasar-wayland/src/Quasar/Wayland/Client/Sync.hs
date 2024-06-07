@@ -3,7 +3,6 @@ module Quasar.Wayland.Client.Sync (
   lowLevelSyncFuture,
 ) where
 
-import Control.Monad.STM
 import Quasar.Future
 import Quasar.Prelude
 import Quasar.Wayland.Protocol
