@@ -16,6 +16,7 @@ module Quasar.Wayland.Protocol (
   getInterfaceData,
   isObjectDestroyed,
   attachFinalizer,
+  attachOrRunFinalizer,
 
   -- ** Wayland types
   WlFixed(..),
