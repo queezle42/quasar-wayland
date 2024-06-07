@@ -34,12 +34,15 @@ data Global = Global {
   version :: Word32
 }
 
-createRegistry :: Object 'Client Interface_wl_display -> STMc NoRetry '[SomeException] (FutureEx '[SomeException] Registry)
+createRegistry :: Object 'Client Interface_wl_display -> STMc NoRetry '[SomeException] (Future '[SomeException] Registry)
 createRegistry wlDisplay = mfixExtra \clientRegistry -> do
   globals <- ObservableMap.newVar mempty
 
   wlRegistry <- wlDisplay.get_registry
   setMessageHandler wlRegistry (messageHandler clientRegistry)
+
+  -- Clear globals on disconnect
+  attachFinalizer wlRegistry (ObservableMap.clearVar globals)
 
   -- Manual sync (without high-level wrapper) to prevent a dependency loop to the Client module
   initialSyncComplete <- lowLevelSyncFuture wlDisplay
