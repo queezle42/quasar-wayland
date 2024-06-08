@@ -56,6 +56,7 @@ library
     Quasar.Wayland.Client.JuicyPixels
     Quasar.Wayland.Client.Output
     Quasar.Wayland.Client.Registry
+    Quasar.Wayland.Client.Seat
     Quasar.Wayland.Client.ShmBuffer
     Quasar.Wayland.Client.Socket
     Quasar.Wayland.Client.Surface
