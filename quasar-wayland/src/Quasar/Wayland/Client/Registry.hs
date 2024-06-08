@@ -3,7 +3,8 @@ module Quasar.Wayland.Client.Registry (
   createRegistry,
   bindSingleton,
   tryBindSingleton,
-  interfaceGlobals,
+  bindGlobals,
+  traverseGlobals,
   Version,
   maxVersion,
 ) where
@@ -12,14 +13,16 @@ import Control.Monad.Catch
 import Data.Map.Strict qualified as Map
 import Data.String (IsString(..))
 import Quasar
-import Quasar.Observable.Map (ObservableMap, ObservableMapVar, toObservableMap, readObservableMap)
-import Quasar.Observable.Map qualified as ObservableMap
 import Quasar.Observable.Core (NoLoad)
+import Quasar.Observable.List (ObservableList)
+import Quasar.Observable.List qualified as ObservableList
+import Quasar.Observable.Map (ObservableMapVar, toObservableMap, readObservableMap)
+import Quasar.Observable.Map qualified as ObservableMap
 import Quasar.Prelude
+import Quasar.Utils.Fix (mfixExtra)
 import Quasar.Wayland.Client.Sync
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
-import Quasar.Utils.Fix (mfixExtra)
 
 -- * wl_registry
 
@@ -94,6 +97,48 @@ bindGlobal registry global version = do
   registry.wlRegistry.bind global.name newId
   pure object
 
-interfaceGlobals :: forall i. IsInterfaceSide 'Client i => Registry -> ObservableMap NoLoad '[] Word32 (Version -> STMc NoRetry '[SomeException] (NewObject 'Client i))
+interfaceGlobals :: forall i. IsInterfaceSide 'Client i => Registry -> ObservableList NoLoad '[] (Version -> STMc NoRetry '[SomeException] (NewObject 'Client i))
 interfaceGlobals registry =
-  bindGlobal registry <$> ObservableMap.filter (isInterface @i) (toObservableMap registry.globals)
+  ObservableMap.values (bindGlobal registry <$> ObservableMap.filter (isInterface @i) (toObservableMap registry.globals))
+
+
+-- | Bind a new client object for each compositor globals of the chosen
+-- interface @i@.
+--
+-- The @addFn@ argument is called for each created object; it must attach an
+-- event handler to the new wayland object.
+--
+-- The @removeFn@ argument is called for each removed global; it should destroy
+-- the associated wayland object (i.e. call the finalizer) if possible,
+-- otherwise the wayland object will be leaked.
+--
+-- The operation will continue until the returned `TDisposer` is disposed.
+-- When the wayland connection is terminated, @removeFn@ is called for all
+-- active objects.
+bindGlobals ::
+  forall i a. IsInterfaceSide 'Client i =>
+  Registry ->
+  Version ->
+  (NewObject 'Client i -> STMc NoRetry '[] a) ->
+  (a -> STMc NoRetry '[] ()) ->
+  STMc NoRetry '[] TDisposer
+bindGlobals registry version addFn removeFn =
+  -- This runs in the same STM transaction where the global is announced, so
+  -- bind should not be able to fail.
+  ObservableList.attachForEach (\bindFn -> addFn =<< catchAllSTMc (bindFn version) unreachableCodePath) removeFn (interfaceGlobals registry)
+
+-- | Provides an observable list of compositor globals, bound in a similar way
+-- to `bindInterfaceGlobals`.
+--
+-- The produced observable list is lazy. The objects are only created while the
+-- list is observed. When multiple observers are attached to the list, multiple
+-- copies of the objects are created (use `ObservableList.share` to avoid this).
+traverseGlobals ::
+  forall i a. IsInterfaceSide 'Client i =>
+  Registry ->
+  Version ->
+  (NewObject 'Client i -> STMc NoRetry '[] a) ->
+  (a -> STMc NoRetry '[] ()) ->
+  ObservableList NoLoad '[] a
+traverseGlobals registry version addFn removeFn =
+  ObservableList.traverse (\bindFn -> addFn =<< catchAllSTMc (bindFn version) unreachableCodePath) removeFn (interfaceGlobals registry)
