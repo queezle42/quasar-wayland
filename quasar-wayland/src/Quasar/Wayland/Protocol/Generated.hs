@@ -21,6 +21,5 @@ $(generateWaylandProtocols [
   "protocols/wayland.xml",
   "protocols/xdg-shell.xml",
   "protocols/wlr-layer-shell-unstable-v1.xml",
-  "protocols/linux-dmabuf-unstable-v1.xml",
-  "protocols/linux-explicit-synchronization-unstable-v1.xml"
+  "protocols/linux-dmabuf-unstable-v1.xml"
   ])
