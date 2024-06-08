@@ -113,7 +113,9 @@ newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} properties configu
     xdgToplevel <- xdgSurface.get_toplevel
     setEventHandler xdgToplevel EventHandler_xdg_toplevel {
       configure = \width height states -> modifyTVar configurationAccumulator \x -> x { width = width, height = height, states = states },
-      close = liftSTMc $ requestCallback WindowRequestClose
+      close = liftSTMc $ requestCallback WindowRequestClose,
+      configure_bounds = undefined,
+      wm_capabilities = undefined
     }
 
     (d1, initialTitle) <- liftSTMc $ attachSimpleObserver properties.title do

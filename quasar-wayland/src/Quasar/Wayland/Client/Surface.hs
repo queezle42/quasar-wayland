@@ -266,7 +266,9 @@ newClientSurface client initializeSurfaceRoleFn = do
   -- TODO event handling
   setEventHandler wlSurface EventHandler_wl_surface {
     enter = \_ -> pure (),
-    leave = \_ -> pure ()
+    leave = \_ -> pure (),
+    preferred_buffer_scale = \_ -> pure (),
+    preferred_buffer_transform = \_ -> pure ()
   }
   fnResult <- initializeSurfaceRoleFn wlSurface
 

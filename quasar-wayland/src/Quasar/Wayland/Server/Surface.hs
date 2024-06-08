@@ -17,7 +17,6 @@ import Quasar.Prelude
 import Quasar.Resources
 import Quasar.Resources.Rc
 import Quasar.Wayland.Protocol
-import Quasar.Wayland.Protocol.Core (attachOrRunFinalizer)
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (appAsRect)
 import Quasar.Wayland.Shared.Surface
@@ -181,7 +180,8 @@ initializeServerSurface wlSurface = do
     commit = liftSTMc $ commitServerSurface serverSurface,
     set_buffer_transform = \transform -> pure (),
     set_buffer_scale = \scale -> pure (),
-    damage_buffer = appAsRect (damageBuffer serverSurface)
+    damage_buffer = appAsRect (damageBuffer serverSurface),
+    offset = \_x _y -> undefined -- TODO not implemented
   }
   setInterfaceData wlSurface serverSurface
 

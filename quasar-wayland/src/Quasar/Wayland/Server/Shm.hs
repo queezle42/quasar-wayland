@@ -28,7 +28,8 @@ shmGlobal backend = createGlobal @Interface_wl_shm maxVersion initializeWlShm
 
     shmRequestHandler :: RequestHandler_wl_shm
     shmRequestHandler = RequestHandler_wl_shm {
-      create_pool = initializeWlShmPool
+      create_pool = initializeWlShmPool,
+      release = pure ()
     }
 
     initializeWlShmPool ::
