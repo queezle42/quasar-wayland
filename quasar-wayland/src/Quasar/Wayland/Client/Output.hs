@@ -23,7 +23,7 @@ getOutputs :: WaylandClient -> STMc NoRetry '[] (ObservableList NoLoad '[] Outpu
 getOutputs client = getClientComponent (newOutputList client) client
 
 newOutputList :: WaylandClient -> STMc NoRetry '[] (ObservableList NoLoad '[] Output)
-newOutputList client = ObservableList.cache (traverseGlobals client.registry 4 initializeOutput finalizeOutput)
+newOutputList client = ObservableList.share (traverseGlobals client.registry 4 initializeOutput finalizeOutput)
 
 initializeOutput ::
   NewObject 'Client Interface_wl_output ->

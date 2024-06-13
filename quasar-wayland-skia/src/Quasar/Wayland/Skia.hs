@@ -32,13 +32,13 @@ import Language.C.Inline.Context qualified as C
 import Language.C.Inline.Cpp qualified as CPP
 import Language.C.Inline.Cpp.Unsafe qualified as CPPU
 import Language.C.Types qualified as C
+import Quasar.Disposer
+import Quasar.Disposer.DisposableVar
+import Quasar.Disposer.Rc
 import Quasar.Exceptions (AsyncException(..), mkDisposedException, ExceptionSink, DisposedException)
 import Quasar.Exceptions.ExceptionSink (loggingExceptionSink)
 import Quasar.Future
 import Quasar.Prelude
-import Quasar.Resources
-import Quasar.Resources.DisposableVar
-import Quasar.Resources.Rc
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Dmabuf
@@ -50,7 +50,7 @@ import Quasar.Wayland.Shm
 import Quasar.Wayland.SinglePixelBuffer
 import Quasar.Wayland.Skia.CTypes
 import Quasar.Wayland.Skia.Thread
-import Quasar.Wayland.Utils.Resources
+import Quasar.Wayland.Utils.Disposer
 
 
 C.context (CPP.cppCtx <> C.fptrCtx <> mempty {
@@ -100,7 +100,7 @@ initializeSkia = do
   thread <- newSkiaThread
   future <- atomically (queueSkiaIO thread (initializeSkiaBackend @s))
   (grDirectContext, context, dmabuf) <- await future
-  disposer <- atomicallyC $ newUnmanagedIODisposer (destroySkia thread grDirectContext context) exceptionSink
+  disposer <- atomicallyC $ newDisposer (destroySkia thread grDirectContext context) exceptionSink
   pure Skia {
     disposer,
     exceptionSink,

@@ -3,10 +3,10 @@ module Quasar.Wayland.Server.XdgShell (
 ) where
 
 import Control.Monad.Catch
+import Quasar.Disposer (disposeEventually)
 import Quasar.Observable.Core (toObservable)
 import Quasar.Observable.ObservableVar
 import Quasar.Prelude
-import Quasar.Resources (disposeEventually)
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry

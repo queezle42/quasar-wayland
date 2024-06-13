@@ -20,10 +20,10 @@ module Quasar.Wayland.Shared.WindowApi (
 ) where
 
 import Data.ByteString qualified as BS
+import Quasar.Disposer (Disposable (getDisposer))
 import Quasar.Future (Future)
 import Quasar.Observable.Core (Observable, NoLoad)
 import Quasar.Prelude
-import Quasar.Resources (Disposable (getDisposer))
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Shared.Surface
 

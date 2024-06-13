@@ -16,12 +16,12 @@ import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
 import Data.Typeable (Typeable)
 import Quasar.Async.Fork (forkSTM_)
+import Quasar.Disposer (Disposer, disposeEventually, disposeEventually_, isDisposed, getDisposer)
+import Quasar.Disposer.Rc
 import Quasar.Exceptions
 import Quasar.Exceptions.ExceptionSink (loggingExceptionSink)
 import Quasar.Future (Future, Promise, ToFuture (toFuture), newPromise, peekFuture, fulfillPromise, MonadAwait (await), callOnceCompleted_)
 import Quasar.Prelude
-import Quasar.Resources (Disposer, disposeEventually, disposeEventually_, isDisposed, getDisposer)
-import Quasar.Resources.Rc
 import Quasar.Wayland.Client
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated

@@ -19,17 +19,17 @@ module Quasar.Wayland.Client.XdgShell (
   WindowRequestCallback,
 ) where
 
+import Quasar.Disposer (Disposable (getDisposer), TDisposer)
+import Quasar.Disposer.DisposableVar
+import Quasar.Future (Future)
 import Quasar.Observable.Core (attachSimpleObserver)
 import Quasar.Prelude
-import Quasar.Resources (Disposable (getDisposer), TDisposer)
-import Quasar.Resources.DisposableVar
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
-import Quasar.Future (Future)
 
 
 type ClientWindowManager :: Type -> Type

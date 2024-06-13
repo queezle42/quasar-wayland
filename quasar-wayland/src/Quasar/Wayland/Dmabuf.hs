@@ -40,9 +40,9 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import Foreign
 import GHC.Records
+import Quasar.Disposer (Disposable (getDisposer), TDisposer)
 import Quasar.Future
 import Quasar.Prelude
-import Quasar.Resources (Disposable (getDisposer), TDisposer)
 import Quasar.Wayland.Client
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated

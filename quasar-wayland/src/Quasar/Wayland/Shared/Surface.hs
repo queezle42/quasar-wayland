@@ -19,12 +19,12 @@ module Quasar.Wayland.Shared.Surface (
 ) where
 
 import Data.Typeable
+import Quasar.Disposer
+import Quasar.Disposer.Rc
 import Quasar.Future (Future)
 import Quasar.Prelude
-import Quasar.Resources
-import Quasar.Resources.Rc
 import Quasar.Wayland.Region (Rectangle(..))
-import Quasar.Wayland.Utils.Resources
+import Quasar.Wayland.Utils.Disposer
 
 type RenderBackend :: Type -> Constraint
 class (Typeable b, Disposable (Frame b)) => RenderBackend b where

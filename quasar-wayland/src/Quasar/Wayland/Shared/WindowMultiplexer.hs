@@ -5,10 +5,10 @@ module Quasar.Wayland.Shared.WindowMultiplexer (
   attachDownstreamWindow,
 ) where
 
+import Quasar.Disposer
+import Quasar.Disposer.DisposableVar
+import Quasar.Disposer.Rc
 import Quasar.Prelude
-import Quasar.Resources
-import Quasar.Resources.Rc
-import Quasar.Resources.DisposableVar
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
 

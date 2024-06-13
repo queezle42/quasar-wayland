@@ -10,7 +10,6 @@ import Quasar.Prelude
 import Quasar.Wayland.Client.ShmBuffer
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shm
-import Quasar.Resources (getDisposer)
 
 loadImageFile ::
   IsShmBufferBackend b =>

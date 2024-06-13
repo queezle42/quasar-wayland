@@ -13,18 +13,18 @@ import Data.HashMap.Strict qualified as HM
 import Data.Hashable (Hashable(hash, hashWithSalt))
 import Data.Set (Set)
 import Data.Set qualified as Set
+import Quasar.Disposer
+import Quasar.Disposer.Rc
 import Quasar.Exceptions
 import Quasar.Future
 import Quasar.Observable.Core
 import Quasar.Prelude
-import Quasar.Resources
-import Quasar.Resources.Rc
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Shared.Surface
-import Quasar.Wayland.Utils.Resources
+import Quasar.Wayland.Utils.Disposer
 
 -- | Simple buffer backend that only supports shared memory buffers.
 data ShmBufferBackend = ShmBufferBackend

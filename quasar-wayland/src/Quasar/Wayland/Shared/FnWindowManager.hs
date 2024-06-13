@@ -5,9 +5,9 @@ module Quasar.Wayland.Shared.FnWindowManager (
   toFnWindow,
 ) where
 
+import Quasar.Disposer (Disposer, Disposable(getDisposer))
 import Quasar.Future (Future)
 import Quasar.Prelude
-import Quasar.Resources (Disposer, Disposable(getDisposer))
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
 

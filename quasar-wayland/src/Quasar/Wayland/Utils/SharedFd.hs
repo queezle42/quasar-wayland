@@ -13,10 +13,10 @@ module Quasar.Wayland.Utils.SharedFd (
 
 import Control.Exception (finally, mask_)
 import GHC.Stack (callStack, prettyCallStack)
+import Quasar.Disposer (Disposable (getDisposer), dispose)
+import Quasar.Disposer.DisposableVar
 import Quasar.Exceptions.ExceptionSink (loggingExceptionSink)
 import Quasar.Prelude hiding (dup)
-import Quasar.Resources (Disposable (getDisposer), dispose)
-import Quasar.Resources.DisposableVar
 import System.Posix.IO (closeFd, dup)
 import System.Posix.Types (Fd)
 

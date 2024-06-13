@@ -1,8 +1,8 @@
-module Quasar.Wayland.Utils.Resources (
+module Quasar.Wayland.Utils.Disposer (
   Borrowed(..),
 ) where
 
-import Quasar.Resources
+import Quasar.Disposer
 
 data Borrowed a = Borrowed Disposer a
 

@@ -2,8 +2,8 @@ module Main (main) where
 
 --import Quasar.Resources.TRcVar
 import Quasar
+import Quasar.Disposer.Rc (newRcIO, tryDuplicateRc)
 import Quasar.Prelude
-import Quasar.Resources.Rc (newRcIO, tryDuplicateRc)
 import Quasar.Timer
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.XdgShell

@@ -1,6 +1,8 @@
 module Main (main) where
 
+import Codec.Picture as JuicyPixels
 import Quasar
+import Quasar.Disposer.Rc (newRcIO)
 import Quasar.Prelude
 import Quasar.Timer
 import Quasar.Wayland.Client
@@ -9,8 +11,6 @@ import Quasar.Wayland.Client.XdgShell
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
 import Quasar.Wayland.Shm
-import Codec.Picture as JuicyPixels
-import Quasar.Resources.Rc (newRcIO)
 
 
 main :: IO ()

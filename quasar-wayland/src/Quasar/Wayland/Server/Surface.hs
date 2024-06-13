@@ -12,15 +12,15 @@ module Quasar.Wayland.Server.Surface (
 ) where
 
 import Control.Monad.Catch
+import Quasar.Disposer
+import Quasar.Disposer.Rc
 import Quasar.Exceptions
 import Quasar.Prelude
-import Quasar.Resources
-import Quasar.Resources.Rc
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (appAsRect)
 import Quasar.Wayland.Shared.Surface
-import Quasar.Wayland.Utils.Resources
+import Quasar.Wayland.Utils.Disposer
 
 
 data ServerSurface b = ServerSurface {
@@ -117,7 +117,7 @@ commitMappedServerSurface surface mapped = do
       when (isJust frameCallback) $ throwM $ userError "Must not attach frame callback when unmapping surface"
       unmapSurfaceDownstream mapped.surfaceDownstream
     Just sb -> do
-      frameRelease <- newUnmanagedTDisposer (tryCall sb.wlBuffer.release)
+      frameRelease <- newTDisposer (tryCall sb.wlBuffer.release)
 
       rawFrame <- liftSTMc $ sb.createFrame frameRelease
       frame <- newRc rawFrame

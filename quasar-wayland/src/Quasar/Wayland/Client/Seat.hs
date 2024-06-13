@@ -22,7 +22,7 @@ getSeats :: WaylandClient -> STMc NoRetry '[] (ObservableList NoLoad '[] Seat)
 getSeats client = getClientComponent (newSeatList client) client
 
 newSeatList :: WaylandClient -> STMc NoRetry '[] (ObservableList NoLoad '[] Seat)
-newSeatList client = ObservableList.cache (traverseGlobals client.registry 9 initializeSeat finalizeSeat)
+newSeatList client = ObservableList.share (traverseGlobals client.registry 9 initializeSeat finalizeSeat)
 
 initializeSeat ::
   NewObject 'Client Interface_wl_seat ->
