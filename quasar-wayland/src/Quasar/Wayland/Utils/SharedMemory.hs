@@ -11,6 +11,9 @@ module Quasar.Wayland.Utils.SharedMemory (
   memfdCreateFd,
   mmapFd,
   withMmapFd,
+
+  -- ** Using a Disposer for releasing the memory
+  mmapDisposer,
 ) where
 
 import Control.Exception (bracket, mask_)
@@ -19,6 +22,8 @@ import Foreign.C
 import Foreign.Concurrent qualified as FC
 import Language.C.Inline qualified as C
 import Language.C.Inline.Unsafe qualified as CU
+import Quasar.Disposer
+import Quasar.Exceptions.ExceptionSink (loggingExceptionSink)
 import Quasar.Prelude
 import Quasar.Wayland.Utils.InlineC
 import Quasar.Wayland.Utils.SharedFd
@@ -58,9 +63,15 @@ mmap :: MmapMode -> SharedFd -> CSize -> IO (ForeignPtr Word8)
 mmap mode sfd size = withSharedFd sfd \fd -> mmapFd mode fd size
 
 mmapFd :: MmapMode -> Fd -> CSize -> IO (ForeignPtr Word8)
-mmapFd mode fd size = do
+mmapFd mode fd size = mask_ do
   ptr <- mmapPtr mode fd size
   FC.newForeignPtr ptr (munmapPtr ptr size)
+
+mmapDisposer :: MmapMode -> SharedFd -> CSize -> IO (Disposer, Ptr Word8)
+mmapDisposer mode sfd size = withSharedFd sfd \fd -> do
+  ptr <- mmapPtr mode fd size
+  d <- atomicallyC $ newDisposer (munmapPtr ptr size) loggingExceptionSink
+  pure (d, ptr)
 
 withMmap :: MmapMode -> SharedFd -> CSize -> (Ptr Word8 -> IO b) -> IO b
 withMmap mode sfd size =

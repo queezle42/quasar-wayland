@@ -38,6 +38,7 @@ import Quasar.Disposer.Rc
 import Quasar.Exceptions (AsyncException(..), mkDisposedException, ExceptionSink, DisposedException)
 import Quasar.Exceptions.ExceptionSink (loggingExceptionSink)
 import Quasar.Future
+import Quasar.Observable.Core (readObservable)
 import Quasar.Prelude
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
@@ -51,22 +52,25 @@ import Quasar.Wayland.SinglePixelBuffer
 import Quasar.Wayland.Skia.CTypes
 import Quasar.Wayland.Skia.Thread
 import Quasar.Wayland.Utils.Disposer
+import Quasar.Wayland.Utils.SharedMemory
 
 
 C.context (CPP.cppCtx <> C.fptrCtx <> mempty {
   C.ctxTypesTable = Map.fromList [
     (C.TypeName "GrDirectContext", [t|GrDirectContext|]),
     (C.TypeName "SkSurface", [t|SkSurface|]),
-    (C.TypeName "SkImage", [t|SkImage|])
+    (C.TypeName "SkImage", [t|SkImage|]),
+    (C.TypeName "SkImages::RasterReleaseProc", [t|FunPtr (Ptr () -> Ptr () -> IO ())|])
   ]
 })
 
 C.include "<iostream>"
 
 C.include "include/core/SkGraphics.h"
-C.include "include/core/SkSurface.h"
 C.include "include/core/SkCanvas.h"
 C.include "include/core/SkColorSpace.h"
+C.include "include/core/SkImage.h"
+C.include "include/core/SkSurface.h"
 
 C.include "include/gpu/GrDirectContext.h"
 C.include "include/gpu/GrBackendSurface.h"
@@ -117,6 +121,8 @@ initializeSkia = do
       }|]
       destroySkiaBackendContext @s backendContext
 
+-- | High-level wrapper for a skia surface. This type of surface is backed by
+-- native rendering backend storage.
 newtype SkiaSurface s = SkiaSurface (DisposableVar (SkiaSurfaceState s))
   deriving (Eq, Hashable, Disposable)
 
@@ -192,13 +198,15 @@ instance Disposable (SkiaFrameState s) where
   getDisposer (SkiaFrameSparked disposer _) = disposer
 
 data SkiaFrameOp s
-  = SkiaFrameExternalDmabuf (Skia s) (Borrowed ExternalDmabuf)
+  = SkiaFrameExternalDmabuf (ExternalFrame Dmabuf (Skia s))
+  | SkiaFrameExternalShm (ExternalFrame ShmBuffer (Skia s))
   --- | SkiaFrameShaderOp
   --- | SkiaFrameExported (Rc (SkiaExportBuffer s))
   | SkiaFrameSinglePixel SinglePixelBuffer
 
 instance Disposable (SkiaFrameOp s) where
-  getDisposer (SkiaFrameExternalDmabuf _ borrowed) = getDisposer borrowed
+  getDisposer (SkiaFrameExternalDmabuf ext) = getDisposer ext
+  getDisposer (SkiaFrameExternalShm ext) = getDisposer ext
   getDisposer (SkiaFrameSinglePixel _) = mempty
 
 
@@ -209,13 +217,15 @@ data SkiaRenderedFrame s
   -- Borrowed surface, i.e. a surface that is used by the frame and will be
   -- "returned" to the owner once the frame is destroyed.
   | SkiaRenderedFrameBorrowedSurface (Borrowed (SkiaSurface s))
-  | SkiaRenderedFrameImportedDmabuf (SkiaImage s) (Borrowed ExternalDmabuf)
+  | SkiaRenderedFrameImportedDmabuf (SkiaImage s) (Borrowed (ExternalDmabuf s))
+  | SkiaRenderedFrameImportedShm (SkiaImage s) (Borrowed (ExternalShmBuffer s))
   | SkiaRenderedFrameSinglePixel SinglePixelBuffer
 
 instance Disposable (SkiaRenderedFrame s) where
   getDisposer (SkiaRenderedFrameOwnedSurface surface) = getDisposer surface
   getDisposer (SkiaRenderedFrameBorrowedSurface rc) = getDisposer rc
   getDisposer (SkiaRenderedFrameImportedDmabuf image borrowed) = getDisposer image <> getDisposer borrowed
+  getDisposer (SkiaRenderedFrameImportedShm image borrowed) = getDisposer image <> getDisposer borrowed
   getDisposer (SkiaRenderedFrameSinglePixel _) = mempty
 
 newtype SkiaClientBufferManager s = SkiaClientBufferManager {
@@ -225,7 +235,8 @@ newtype SkiaClientBufferManager s = SkiaClientBufferManager {
 
 data SkiaExportBuffer s
   = SkiaExportBufferSurface (SkiaSurface s)
-  | SkiaExportBufferImportedDmabuf ExternalDmabuf
+  | SkiaExportBufferImportedDmabuf (ExternalDmabuf s)
+  | SkiaExportBufferImportedShmBuffer (ExternalShmBuffer s)
   | SkiaExportBufferSinglePixel SinglePixelBuffer
 
 data SkiaExportBufferId
@@ -253,13 +264,14 @@ instance IsSkiaBackend s => ClientBufferBackend (Skia s) where
   renderFrame frame = renderFrameInternal frame
 
   getExportBufferId ::
-    HasCallStack =>
     SkiaRenderedFrame s -> STMc NoRetry '[DisposedException] SkiaExportBufferId
   getExportBufferId (SkiaRenderedFrameOwnedSurface surface) =
     pure (SkiaExportBufferIdUnique (skiaSurfaceKey surface))
   getExportBufferId (SkiaRenderedFrameBorrowedSurface (Borrowed _ surface)) =
     pure (SkiaExportBufferIdUnique (skiaSurfaceKey surface))
-  getExportBufferId (SkiaRenderedFrameImportedDmabuf _ (Borrowed _ (ExternalDmabuf key _))) = do
+  getExportBufferId (SkiaRenderedFrameImportedShm _ (Borrowed _ (ExternalShmBuffer _ key _))) = do
+    pure (SkiaExportBufferIdUnique key)
+  getExportBufferId (SkiaRenderedFrameImportedDmabuf _ (Borrowed _ (ExternalDmabuf _ key _))) = do
     pure (SkiaExportBufferIdUnique key)
   getExportBufferId (SkiaRenderedFrameSinglePixel pixel) = pure (SkiaExportBufferIdSinglePixel pixel)
 
@@ -267,7 +279,8 @@ instance IsSkiaBackend s => ClientBufferBackend (Skia s) where
   exportWlBuffer manager renderedFrame =
     atomicallyC (getExportBuffer renderedFrame) >>= \case
       SkiaExportBufferSurface surface -> exportSkiaSurface manager surface
-      SkiaExportBufferImportedDmabuf (ExternalDmabuf _ dmabuf) ->
+      SkiaExportBufferImportedShmBuffer (ExternalShmBuffer _ _ _) -> undefined
+      SkiaExportBufferImportedDmabuf (ExternalDmabuf _ _ dmabuf) ->
         atomicallyC $ sharedDmabufExportWlBuffer manager.dmabufSingleton dmabuf
       SkiaExportBufferSinglePixel pixel -> undefined
 
@@ -277,6 +290,8 @@ instance IsSkiaBackend s => ClientBufferBackend (Skia s) where
       SkiaExportBufferSurface surface ->
         -- TODO use fence instead of full cpu sync if available
         flushAndSync surface
+      SkiaExportBufferImportedShmBuffer _ ->
+        pure () -- upstream is responsible for sync
       SkiaExportBufferImportedDmabuf _ ->
         pure () -- upstream is responsible for sync
       SkiaExportBufferSinglePixel _ ->
@@ -286,6 +301,7 @@ instance IsSkiaBackend s => ClientBufferBackend (Skia s) where
   getExportBufferDestroyedFuture renderedFrame = do
     getExportBuffer renderedFrame >>= \case
       SkiaExportBufferSurface surface -> pure (isDisposed surface)
+      SkiaExportBufferImportedShmBuffer importedShmBuffer -> pure (toFuture (getDisposer importedShmBuffer))
       SkiaExportBufferImportedDmabuf importedDmabuf -> pure (toFuture (getDisposer importedDmabuf))
       SkiaExportBufferSinglePixel pixel -> undefined
 
@@ -294,6 +310,8 @@ getExportBuffer (SkiaRenderedFrameOwnedSurface surface) =
   pure (SkiaExportBufferSurface surface)
 getExportBuffer (SkiaRenderedFrameBorrowedSurface (Borrowed _ surface)) =
   pure (SkiaExportBufferSurface surface)
+getExportBuffer (SkiaRenderedFrameImportedShm _ (Borrowed _ externalShmBuffer)) = do
+  pure (SkiaExportBufferImportedShmBuffer externalShmBuffer)
 getExportBuffer (SkiaRenderedFrameImportedDmabuf _ (Borrowed _ externalDmabuf)) = do
   pure (SkiaExportBufferImportedDmabuf externalDmabuf)
 getExportBuffer (SkiaRenderedFrameSinglePixel pixel) =
@@ -331,8 +349,12 @@ renderFrameInternal frameRc = do
 
 -- Takes ownership of the SkiaFrameOp.
 sparkFrameOp :: IsSkiaBackend s => SkiaFrameOp s -> STM (Future '[AsyncException] (Rc (SkiaRenderedFrame s)))
-sparkFrameOp (SkiaFrameExternalDmabuf skia borrowedExternalBuffer) =
-  queueSkiaIO skia.thread (importDmabuf skia borrowedExternalBuffer)
+sparkFrameOp (SkiaFrameExternalShm externalFrame@(ExternalFrame _ rc)) = do
+  (ExternalShmBuffer skia _ _) <- readRc rc
+  queueSkiaIO skia.thread (importShmBuffer externalFrame)
+sparkFrameOp (SkiaFrameExternalDmabuf externalFrame@(ExternalFrame _ rc)) = do
+  (ExternalDmabuf skia _ _) <- readRc rc
+  queueSkiaIO skia.thread (importDmabuf externalFrame)
 sparkFrameOp (SkiaFrameSinglePixel singlePixelBuffer) =
   pure <$> newRc (SkiaRenderedFrameSinglePixel singlePixelBuffer)
 
@@ -351,30 +373,70 @@ newFrameFromRenderedFrameIO :: Rc (SkiaRenderedFrame s) -> IO (SkiaFrame s)
 newFrameFromRenderedFrameIO renderedFrameRc =
   SkiaFrame <$> newDisposableVarIO (SkiaFrameSparked (getDisposer renderedFrameRc) (pure renderedFrameRc))
 
+makeExportable :: Rc (SkiaRenderedFrame x) -> IO (SkiaFrame s)
+makeExportable = undefined
 
 
 instance IsSkiaBackend s => IsSinglePixelBufferBackend (Skia s) where
   createSinglePixelBufferFrame :: Skia s -> SinglePixelBuffer -> STMc NoRetry '[] (SkiaFrame s)
   createSinglePixelBufferFrame _skia pixel =
     newSkiaFrame (SkiaFrameSinglePixel pixel)
-    --newFrameFromRenderedFrame =<< newRc (SkiaRenderedFrameSinglePixel pixel)
 
 
 
-data ExternalShmBuffer
+data ExternalShmBuffer s = ExternalShmBuffer (Skia s) Unique ShmBuffer
 
-instance Disposable ExternalShmBuffer where
-  getDisposer = \case {}
+instance Disposable (ExternalShmBuffer s) where
+  getDisposer (ExternalShmBuffer _ _ borrowedBuffer) = getDisposer borrowedBuffer
 
 instance IsSkiaBackend s => IsBufferBackend ShmBuffer (Skia s) where
-  type ExternalBuffer ShmBuffer (Skia s) = ExternalShmBuffer
+  type ExternalBuffer ShmBuffer (Skia s) = (ExternalShmBuffer s)
 
-  newExternalBuffer :: Skia s -> ShmBuffer -> STMc NoRetry '[] ExternalShmBuffer
-  newExternalBuffer _skia shmBuffer = undefined
+  newExternalBuffer :: Skia s -> ShmBuffer -> STMc NoRetry '[] (ExternalShmBuffer s)
+  newExternalBuffer skia shmBuffer = do
+    key <- newUniqueSTM
+    pure (ExternalShmBuffer skia key shmBuffer)
 
-  createExternalBufferFrame :: Skia s -> Borrowed ExternalShmBuffer -> STMc NoRetry '[] (SkiaFrame s)
-  createExternalBufferFrame skia borrowed = undefined
+  wrapExternalFrame :: ExternalFrame ShmBuffer (Skia s) -> STMc NoRetry '[DisposedException] (SkiaFrame s)
+  wrapExternalFrame externalFrame = liftSTMc do
+    newSkiaFrame (SkiaFrameExternalShm externalFrame)
 
+importShmBuffer :: ExternalFrame ShmBuffer (Skia s) -> SkiaIO (Rc (SkiaRenderedFrame s))
+importShmBuffer (ExternalFrame _ rc) = liftIO do
+  x@(ExternalShmBuffer skia _ shmBuffer) <- readRcIO rc
+
+  let offset = fromIntegral shmBuffer.offset
+  let rowBytes = fromIntegral shmBuffer.stride
+  let height = fromIntegral shmBuffer.height
+  let width = fromIntegral shmBuffer.width
+  let format = shmBuffer.format
+  let grDirectContext = skia.grDirectContext
+
+  pool <- readRcIO shmBuffer.pool
+  size <- atomicallyC $ readObservable pool.size
+  (disposer, ptr) <- mmapDisposer MmapReadOnly pool.fd (fromIntegral size)
+
+  rasterReleaseProc <- $(C.mkFunPtr [t|Ptr () -> Ptr () -> IO ()|]) \_ _ -> do
+    traceIO $ "Callback from C: releasing shm memory"
+    dispose disposer
+    -- TODO propagate memory release up
+    -- That would invalidate the ShmBuffer, so it's only correct if we don't
+    -- want to forward the buffer.
+
+  skImage <- [CPPU.throwBlock|SkImage* {
+    GrDirectContext* grDirectContext = $(GrDirectContext* grDirectContext);
+
+    auto colorType = $(uint32_t format) == 0 ? kRGBA_8888_SkColorType : kRGB_888x_SkColorType;
+    SkImageInfo info = SkImageInfo::Make($(int width), $(int height), colorType, kPremul_SkAlphaType);
+    SkPixmap pixmap(info, (void*)($(uint8_t* ptr) + $(size_t offset)), $(size_t rowBytes));
+
+    auto skImage = SkImages::RasterFromPixmap(pixmap, $(SkImages::RasterReleaseProc rasterReleaseProc), nullptr);
+    return skImage.release();
+  }|]
+
+  skiaImage <- liftIO $ newSkiaImage skia skImage
+
+  liftIO $ newRcIO (SkiaRenderedFrameImportedShm skiaImage (Borrowed (getDisposer rc) x))
 
 
 
@@ -384,30 +446,32 @@ data SkiaDmabufProperties = SkiaDmabufProperties {
   feedback :: CompiledDmabufFeedback
 }
 
-data ExternalDmabuf = ExternalDmabuf Unique Dmabuf
+data ExternalDmabuf s = ExternalDmabuf (Skia s) Unique Dmabuf
 
-instance Disposable ExternalDmabuf where
-  getDisposer (ExternalDmabuf _ borrow) = getDisposer borrow
+instance Disposable (ExternalDmabuf s) where
+  getDisposer (ExternalDmabuf _ _ borrow) = getDisposer borrow
 
 
 instance IsSkiaBackend s => IsBufferBackend Dmabuf (Skia s) where
-  type ExternalBuffer Dmabuf (Skia s) = ExternalDmabuf
+  type ExternalBuffer Dmabuf (Skia s) = (ExternalDmabuf s)
 
-  newExternalBuffer :: Skia s -> Dmabuf -> STMc NoRetry '[] ExternalDmabuf
-  newExternalBuffer _skia dmabuf = do
+  newExternalBuffer :: Skia s -> Dmabuf -> STMc NoRetry '[] (ExternalDmabuf s)
+  newExternalBuffer skia dmabuf = do
     key <- newUniqueSTM
-    pure (ExternalDmabuf key dmabuf)
+    pure (ExternalDmabuf skia key dmabuf)
 
-  createExternalBufferFrame :: Skia s -> Borrowed ExternalDmabuf -> STMc NoRetry '[] (SkiaFrame s)
-  createExternalBufferFrame skia borrowed = do
-    newSkiaFrame (SkiaFrameExternalDmabuf skia borrowed)
+  wrapExternalFrame :: ExternalFrame Dmabuf (Skia s) -> STMc NoRetry '[DisposedException] (SkiaFrame s)
+  wrapExternalFrame externalFrame = liftSTMc do
+    newSkiaFrame (SkiaFrameExternalDmabuf externalFrame)
 
-importDmabuf :: IsSkiaBackend s => Skia s -> Borrowed ExternalDmabuf -> SkiaIO (Rc (SkiaRenderedFrame s))
-importDmabuf skia x@(Borrowed _ (ExternalDmabuf _ dmabuf)) = do
+importDmabuf :: IsSkiaBackend s => ExternalFrame Dmabuf (Skia s) -> SkiaIO (Rc (SkiaRenderedFrame s))
+importDmabuf (ExternalFrame _ rc) = do
+  x@(ExternalDmabuf skia _ dmabuf) <- readRcIO rc
+
   skImage <- skiaImportDmabuf skia dmabuf
   skiaImage <- liftIO $ newSkiaImage skia skImage
 
-  liftIO $ newRcIO (SkiaRenderedFrameImportedDmabuf skiaImage x)
+  liftIO $ newRcIO (SkiaRenderedFrameImportedDmabuf skiaImage (Borrowed (getDisposer rc) x))
 
 
 newSkiaImage :: Skia s -> Ptr SkImage -> IO (SkiaImage s)

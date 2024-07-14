@@ -20,7 +20,6 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (appAsRect)
 import Quasar.Wayland.Shared.Surface
-import Quasar.Wayland.Utils.Disposer
 
 
 data ServerSurface b = ServerSurface {
@@ -248,11 +247,7 @@ initializeWlBuffer backend wlBuffer buffer = do
       -- If duplicating the frame rc fails, the frame was created from an
       -- unmapped buffer, which would probably be a bug somewhere in this module.
       dupedRc <- duplicateRc rc
-      externalBuffer <- readRc dupedRc
-      let combinedRelease = getDisposer frameRelease <> getDisposer dupedRc
-      liftSTMc do
-        createExternalBufferFrame @buffer @backend backend
-          (Borrowed combinedRelease externalBuffer)
+      createExternalBufferFrame @buffer @backend frameRelease dupedRc
 
 
 getServerBuffer :: forall b. RenderBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (ServerBuffer b)

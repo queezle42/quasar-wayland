@@ -2,10 +2,6 @@ module Quasar.Wayland.Shared.Surface (
   -- * Render backend
   RenderBackend(..),
 
-  -- * Buffer import backend
-  IsBufferBackend(..),
-  newFrameConsumeBuffer,
-
   -- * Surface
   Damage(..),
   addDamage,
@@ -14,6 +10,14 @@ module Quasar.Wayland.Shared.Surface (
   SurfaceDownstream,
   defaultSurfaceCommit,
 
+  -- * Buffer import backend
+  IsBufferBackend(..),
+  ExternalFrame(..),
+  createExternalBufferFrame,
+
+  -- ** High-level usage
+  newFrameConsumeBuffer,
+
   -- * Reexports
   Rectangle(..),
 ) where
@@ -21,10 +25,10 @@ module Quasar.Wayland.Shared.Surface (
 import Data.Typeable
 import Quasar.Disposer
 import Quasar.Disposer.Rc
+import Quasar.Exceptions
 import Quasar.Future (Future)
 import Quasar.Prelude
 import Quasar.Wayland.Region (Rectangle(..))
-import Quasar.Wayland.Utils.Disposer
 
 type RenderBackend :: Type -> Constraint
 class (Typeable b, Disposable (Frame b)) => RenderBackend b where
@@ -33,33 +37,62 @@ class (Typeable b, Disposable (Frame b)) => RenderBackend b where
 
 class (RenderBackend backend, Disposable (ExternalBuffer buffer backend)) => IsBufferBackend buffer backend where
   type ExternalBuffer buffer backend
+  type instance ExternalBuffer buffer _backend = buffer
+
   -- | Import an external buffer. The buffer may be mutable shared memory.
   --
   -- Takes ownership of the provided buffer object (the buffer has to be
-  -- by the ExternalBuffer when that is disposed).
+  -- disposed by the ExternalBuffer when that is disposed).
   --
   -- Ownership of the resulting @ExternalBuffer@-object is transferred to the
-  -- caller, who will `dispose` it later.
-  newExternalBuffer :: Disposable buffer => backend -> buffer -> STMc NoRetry '[] (ExternalBuffer buffer backend)
+  -- caller, who will ensure it is `dispose`d later.
+  newExternalBuffer ::
+    (Disposable buffer, IsBufferBackend buffer backend) =>
+    backend -> buffer -> STMc NoRetry '[] (ExternalBuffer buffer backend)
 
-  -- | Create a frame from an @ExternalBuffer@.
+  -- | Create a backend-specific `Frame` from an `ExternalFrame`.
   --
-  -- The `TDisposer` argument is the "frame release" disposer, it has to be
-  -- disposed when the frame is disposed.
-  --
-  -- Ownership of the `ExternalBuffer` rc is transferred to the frame, it has
-  -- to be disposed when the frame is disposed.
-  createExternalBufferFrame :: backend -> Borrowed (ExternalBuffer buffer backend) -> STMc NoRetry '[] (Frame backend)
+  -- Ownership of the `ExternalFrame` is transferred to the callee, ownership
+  -- of the resulting `Frame` is transferred to the caller.
+  wrapExternalFrame :: ExternalFrame buffer backend -> STMc NoRetry '[DisposedException] (Frame backend)
+
+data ExternalFrame buffer backend = ExternalFrame TDisposer (Rc (ExternalBuffer buffer backend))
+
+instance Disposable (ExternalFrame buffer backend) where
+  getDisposer (ExternalFrame frameRelease externalBufferRc) =
+    getDisposer frameRelease <> getDisposer externalBufferRc
+
+
+-- | Create a frame from an @ExternalBuffer@.
+--
+-- The `TDisposer` argument is used to signal the frame release and will be
+-- disposed when the frame is disposed.
+--
+-- Ownership of the `ExternalBuffer` rc is transferred to the callee, it will
+-- also be disposed when the frame is disposed.
+--
+-- Intended for internal use.
+createExternalBufferFrame ::
+  forall buffer backend.
+  IsBufferBackend buffer backend =>
+  TDisposer ->
+  Rc (ExternalBuffer buffer backend) ->
+  STMc NoRetry '[DisposedException] (Frame backend)
+createExternalBufferFrame frameRelease externalBufferRc = do
+  wrapExternalFrame @buffer @backend (ExternalFrame frameRelease externalBufferRc)
 
 
 -- | Create a new frame by taking ownership of a buffer. The buffer will be
 -- disposed when the frame is disposed.
 --
 -- The caller takes ownership of the resulting frame.
-newFrameConsumeBuffer :: forall buffer backend. (IsBufferBackend buffer backend, Disposable buffer) => backend -> buffer -> STMc NoRetry '[] (Frame backend)
+newFrameConsumeBuffer ::
+  forall buffer backend. (IsBufferBackend buffer backend, Disposable buffer) =>
+  backend -> buffer -> STMc NoRetry '[DisposedException] (Frame backend)
 newFrameConsumeBuffer backend buffer = do
-  externalBuffer <- newExternalBuffer backend buffer
-  createExternalBufferFrame @buffer backend (Borrowed (getDisposer externalBuffer) externalBuffer)
+  externalBuffer <- liftSTMc $ newExternalBuffer backend buffer
+  externalBufferRc <- newRc externalBuffer
+  createExternalBufferFrame @buffer @backend mempty externalBufferRc
 
 
 data Damage = DamageAll | DamageList [Rectangle]
