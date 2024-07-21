@@ -6,14 +6,14 @@ module Quasar.Wayland.Client.ShmBuffer (
 
 import Control.Monad.Catch
 import Foreign
-import Quasar.Disposer.Rc
+import Quasar.Disposer
 import Quasar.Prelude
 import Quasar.Wayland.Shm
 import Quasar.Wayland.Utils.SharedFd
 import Quasar.Wayland.Utils.SharedMemory
 
 
-newLocalShmPool :: Int32 -> IO (Rc ShmPool, ForeignPtr Word8)
+newLocalShmPool :: Int32 -> IO (Owned ShmPool, ForeignPtr Word8)
 newLocalShmPool size = do
   fd <- memfdCreate (fromIntegral size)
 
@@ -28,7 +28,7 @@ newLocalShmPool size = do
 
 
 newLocalShmBuffer ::
-  Int32 -> Int32 -> IO (ShmBuffer, ForeignPtr Word32)
+  Int32 -> Int32 -> IO (Owned ShmBuffer, ForeignPtr Word32)
 newLocalShmBuffer width height = do
   (pool, ptr) <- newLocalShmPool size
 

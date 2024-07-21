@@ -253,6 +253,7 @@ instance IsSkiaBackend s => ClientBufferBackend (Skia s) where
   type ClientBufferManager (Skia s) = SkiaClientBufferManager s
   type RenderedFrame (Skia s) = SkiaRenderedFrame s
   type ExportBufferId (Skia s) = SkiaExportBufferId
+
   newClientBufferManager :: WaylandClient -> STMc NoRetry '[SomeException] (SkiaClientBufferManager s)
   newClientBufferManager client = do
     dmabufSingleton <- getClientDmabufSingleton client

@@ -30,7 +30,6 @@ import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Shared.Surface
-import Quasar.Wayland.Utils.Disposer
 
 -- | Simple buffer backend that only supports shared memory buffers.
 data ShmBufferBackend = ShmBufferBackend
@@ -48,11 +47,11 @@ type IsShmBufferBackend b = IsBufferBackend ShmBuffer b
 instance IsBufferBackend ShmBuffer ShmBufferBackend where
   type ExternalBuffer ShmBuffer ShmBufferBackend = ShmBuffer
 
-  newExternalBuffer :: ShmBufferBackend -> ShmBuffer -> STMc NoRetry '[] ShmBuffer
+  newExternalBuffer :: ShmBufferBackend -> Owned ShmBuffer -> STMc NoRetry '[] (Owned ShmBuffer)
   newExternalBuffer ShmBufferBackend shmBuffer = pure shmBuffer
 
-  wrapExternalFrame :: ExternalFrame ShmBuffer ShmBufferBackend -> STMc NoRetry '[DisposedException] (Frame ShmBufferBackend)
-  wrapExternalFrame external = pure (ShmBufferFrame external)
+  wrapExternalFrame :: ExternalFrame ShmBuffer ShmBufferBackend -> STMc NoRetry '[DisposedException] (Owned (Frame ShmBufferBackend))
+  wrapExternalFrame external = pure (ownedDisposable (ShmBufferFrame external))
 
 -- | Wrapper for an externally managed shm pool
 data ShmPool = ShmPool {
@@ -74,7 +73,7 @@ instance Hashable ShmPool where
 
 data ShmBuffer = ShmBuffer {
   key :: Unique,
-  pool :: Rc ShmPool,
+  pool :: ShmPool,
   offset :: Int32,
   width :: Int32,
   height :: Int32,
@@ -94,10 +93,10 @@ instance Disposable ShmBuffer where
 
 -- | Create an `ShmPool` for externally managed memory. Takes ownership of the
 -- passed file descriptor. Needs to be disposed when it is no longer required.
-newShmPool :: SharedFd -> Observable NoLoad '[] Int32 -> STMc NoRetry '[] (Rc ShmPool)
+newShmPool :: SharedFd -> Observable NoLoad '[] Int32 -> STMc NoRetry '[] (Owned ShmPool)
 newShmPool fd size = do
   key <- newUniqueSTM
-  newRc ShmPool {
+  pure $ ownedDisposable ShmPool {
     key,
     fd,
     size
@@ -108,10 +107,10 @@ newShmPool fd size = do
 --
 -- Takes ownership of the @Rc ShmPool@.
 newShmBuffer ::
-  Rc ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STMc NoRetry '[] ShmBuffer
-newShmBuffer poolRc offset width height stride format = do
+  Owned ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STMc NoRetry '[] (Owned ShmBuffer)
+newShmBuffer pool offset width height stride format = do
   key <- newUniqueSTM
-  pure (ShmBuffer key poolRc offset width height stride format)
+  pure $ ShmBuffer key (fromOwned pool) offset width height stride format <$ pool
 
 
 -- * Wayland client
@@ -135,8 +134,7 @@ instance ClientBufferBackend ShmBufferBackend where
   exportWlBuffer :: ClientShmManager -> ShmBufferFrame -> IO (NewObject 'Client Interface_wl_buffer)
   exportWlBuffer client (ShmBufferFrame (ExternalFrame _ rc)) = atomicallyC do
     buffer <- readRc rc
-    pool <- readRc buffer.pool
-    wlShmPool <- getClientShmPool client pool
+    wlShmPool <- getClientShmPool client buffer.pool
     -- NOTE no event handlers are attached here, since the caller (usually `Quasar.Wayland.Surface`) has that responsibility.
     wlShmPool.create_buffer buffer.offset buffer.width buffer.height buffer.stride buffer.format
 

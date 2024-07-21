@@ -44,7 +44,7 @@ instance RenderBackend b => IsWindow b (WindowMultiplexer b) where
         windows <- readTVar state.downstreams
         -- TODO use correct per-downstream serial
         mconcat <$> forM windows \window -> do
-          frc <- duplicateRc commit.frame
+          frc <- cloneRc commit.frame
           commitWindowContent window serial commit {
             frame = frc
           }

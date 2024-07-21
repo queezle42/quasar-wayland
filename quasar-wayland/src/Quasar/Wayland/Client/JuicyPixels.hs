@@ -6,6 +6,7 @@ module Quasar.Wayland.Client.JuicyPixels (
 
 import Codec.Picture
 import Foreign
+import Quasar.Disposer
 import Quasar.Prelude
 import Quasar.Wayland.Client.ShmBuffer
 import Quasar.Wayland.Shared.Surface
@@ -13,14 +14,14 @@ import Quasar.Wayland.Shm
 
 loadImageFile ::
   IsShmBufferBackend b =>
-  b -> FilePath -> IO (Frame b)
+  b -> FilePath -> IO (Owned (Frame b))
 loadImageFile backend path = do
   image <- either fail (pure . convertRGBA8) =<< readImage path
   toImage backend image
 
 toImage ::
   IsShmBufferBackend b =>
-  b -> Codec.Picture.Image PixelRGBA8 -> IO (Frame b)
+  b -> Codec.Picture.Image PixelRGBA8 -> IO (Owned (Frame b))
 toImage backend image = do
   (buffer, ptr) <- newLocalShmBuffer (fromIntegral (imageWidth image)) (fromIntegral (imageHeight image))
   let

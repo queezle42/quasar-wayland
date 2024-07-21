@@ -52,7 +52,7 @@ data MappedServerSurface b = MappedServerSurface {
 
 data ServerBuffer b = ServerBuffer {
   wlBuffer :: Object 'Server Interface_wl_buffer,
-  createFrame :: TDisposer -> STMc NoRetry '[DisposedException] (Frame b)
+  createFrame :: TDisposer -> STMc NoRetry '[DisposedException] (Owned (Frame b))
 }
 
 newServerSurface :: STMc NoRetry '[] (ServerSurface b)
@@ -217,10 +217,10 @@ addFrameCallback serverSurface wlCallback = do
 -- invalidate its content (therefore all frames created from the buffer remain
 -- valid until they are destroyed).
 initializeWlBuffer ::
-  forall buffer backend. (IsBufferBackend buffer backend, Disposable buffer) =>
+  forall buffer backend. IsBufferBackend buffer backend =>
   backend ->
   NewObject 'Server Interface_wl_buffer ->
-  buffer ->
+  Owned buffer ->
   STMc NoRetry '[] ()
 initializeWlBuffer backend wlBuffer buffer = do
   mappedBuffer <- newExternalBuffer backend buffer
@@ -242,11 +242,11 @@ initializeWlBuffer backend wlBuffer buffer = do
   attachOrRunFinalizer wlBuffer (disposeEventually_ rc)
 
   where
-    createFrameImpl :: Rc (ExternalBuffer buffer backend) -> TDisposer -> STMc NoRetry '[DisposedException] (Frame backend)
+    createFrameImpl :: Rc (ExternalBuffer buffer backend) -> TDisposer -> STMc NoRetry '[DisposedException] (Owned (Frame backend))
     createFrameImpl rc frameRelease = do
       -- If duplicating the frame rc fails, the frame was created from an
       -- unmapped buffer, which would probably be a bug somewhere in this module.
-      dupedRc <- duplicateRc rc
+      dupedRc <- cloneRc rc
       createExternalBufferFrame @buffer @backend frameRelease dupedRc
 
 

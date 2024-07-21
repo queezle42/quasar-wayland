@@ -39,11 +39,11 @@ shmGlobal backend = createGlobal @Interface_wl_shm maxVersion initializeWlShm
       STMc NoRetry '[SomeException] ()
     initializeWlShmPool wlShmPool fd size = liftSTMc do
       sizeVar <- newObservableVar size
-      poolRc <- newShmPool fd (toObservable sizeVar)
-      attachFinalizer wlShmPool (disposeEventually_ poolRc)
+      pool <- newShmPool fd (toObservable sizeVar)
+      attachFinalizer wlShmPool (disposeEventually_ pool)
       setRequestHandler wlShmPool RequestHandler_wl_shm_pool {
-        create_buffer = initializeWlShmBuffer poolRc,
-        destroy = disposeEventually_ poolRc,
+        create_buffer = initializeWlShmBuffer pool,
+        destroy = disposeEventually_ pool,
         resize = \s -> do
           oldSize <- readObservableVar sizeVar
           when (oldSize > s) $ throwC $ ProtocolUsageError (mconcat ["wl_shm: Invalid resize from ", show oldSize, " to ", show size])
@@ -51,7 +51,7 @@ shmGlobal backend = createGlobal @Interface_wl_shm maxVersion initializeWlShm
       }
 
     initializeWlShmBuffer ::
-      Rc ShmPool ->
+      Owned ShmPool ->
       NewObject 'Server Interface_wl_buffer ->
       Int32 ->
       Int32 ->

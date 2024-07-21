@@ -31,11 +31,11 @@ import Quasar.Prelude
 import Quasar.Wayland.Region (Rectangle(..))
 
 type RenderBackend :: Type -> Constraint
-class (Typeable b, Disposable (Frame b)) => RenderBackend b where
+class Typeable b => RenderBackend b where
   type Frame b :: Type
 
 
-class (RenderBackend backend, Disposable (ExternalBuffer buffer backend)) => IsBufferBackend buffer backend where
+class RenderBackend backend => IsBufferBackend buffer backend where
   type ExternalBuffer buffer backend
   type instance ExternalBuffer buffer _backend = buffer
 
@@ -47,14 +47,13 @@ class (RenderBackend backend, Disposable (ExternalBuffer buffer backend)) => IsB
   -- Ownership of the resulting @ExternalBuffer@-object is transferred to the
   -- caller, who will ensure it is `dispose`d later.
   newExternalBuffer ::
-    (Disposable buffer, IsBufferBackend buffer backend) =>
-    backend -> buffer -> STMc NoRetry '[] (ExternalBuffer buffer backend)
+    backend -> Owned buffer -> STMc NoRetry '[] (Owned (ExternalBuffer buffer backend))
 
   -- | Create a backend-specific `Frame` from an `ExternalFrame`.
   --
   -- Ownership of the `ExternalFrame` is transferred to the callee, ownership
   -- of the resulting `Frame` is transferred to the caller.
-  wrapExternalFrame :: ExternalFrame buffer backend -> STMc NoRetry '[DisposedException] (Frame backend)
+  wrapExternalFrame :: ExternalFrame buffer backend -> STMc NoRetry '[DisposedException] (Owned (Frame backend))
 
 data ExternalFrame buffer backend = ExternalFrame TDisposer (Rc (ExternalBuffer buffer backend))
 
@@ -77,7 +76,7 @@ createExternalBufferFrame ::
   IsBufferBackend buffer backend =>
   TDisposer ->
   Rc (ExternalBuffer buffer backend) ->
-  STMc NoRetry '[DisposedException] (Frame backend)
+  STMc NoRetry '[DisposedException] (Owned (Frame backend))
 createExternalBufferFrame frameRelease externalBufferRc = do
   wrapExternalFrame @buffer @backend (ExternalFrame frameRelease externalBufferRc)
 
@@ -87,8 +86,8 @@ createExternalBufferFrame frameRelease externalBufferRc = do
 --
 -- The caller takes ownership of the resulting frame.
 newFrameConsumeBuffer ::
-  forall buffer backend. (IsBufferBackend buffer backend, Disposable buffer) =>
-  backend -> buffer -> STMc NoRetry '[DisposedException] (Frame backend)
+  forall buffer backend. IsBufferBackend buffer backend =>
+  backend -> Owned buffer -> STMc NoRetry '[DisposedException] (Owned (Frame backend))
 newFrameConsumeBuffer backend buffer = do
   externalBuffer <- liftSTMc $ newExternalBuffer backend buffer
   externalBufferRc <- newRc externalBuffer
