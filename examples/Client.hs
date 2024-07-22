@@ -2,7 +2,7 @@ module Main (main) where
 
 --import Quasar.Resources.TRcVar
 import Quasar
-import Quasar.Disposer.Rc (newRcIO, tryDuplicateRc)
+import Quasar.Disposer.Rc
 import Quasar.Prelude
 import Quasar.Timer
 import Quasar.Wayland.Client
@@ -46,7 +46,7 @@ main = do
       liftIO $ clearSkiaSurface surface
 
       frame <- newRcIO =<< liftIO (newFrameConsumeSurface surface)
-      foo <- atomicallyC $ tryDuplicateRc frame
+      foo <- atomicallyC $ tryCloneRc frame
 
       commit <- atomicallyC do
         commitWindowContent window configuration.configureSerial ((defaultSurfaceCommit @(Skia GL) frame) {

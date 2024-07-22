@@ -88,8 +88,8 @@ instance Hashable ShmBuffer where
   hash x = hash x.key
   hashWithSalt salt x = hashWithSalt salt x.key
 
-instance Disposable ShmBuffer where
-  getDisposer x = getDisposer x.pool
+instance ToFuture '[] () ShmBuffer where
+  toFuture x = toFuture (getDisposer x.pool)
 
 -- | Create an `ShmPool` for externally managed memory. Takes ownership of the
 -- passed file descriptor. Needs to be disposed when it is no longer required.
@@ -108,9 +108,9 @@ newShmPool fd size = do
 -- Takes ownership of the @Rc ShmPool@.
 newShmBuffer ::
   Owned ShmPool -> Int32 -> Int32 -> Int32 -> Int32 -> Word32 -> STMc NoRetry '[] (Owned ShmBuffer)
-newShmBuffer pool offset width height stride format = do
+newShmBuffer ownedPool offset width height stride format = do
   key <- newUniqueSTM
-  pure $ ShmBuffer key (fromOwned pool) offset width height stride format <$ pool
+  pure $ (\pool -> ShmBuffer key pool offset width height stride format) <$> ownedPool
 
 
 -- * Wayland client

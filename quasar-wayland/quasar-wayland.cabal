@@ -82,7 +82,6 @@ library
     Quasar.Wayland.Shared.WindowMultiplexer
     Quasar.Wayland.Shm
     Quasar.Wayland.SinglePixelBuffer
-    Quasar.Wayland.Utils.Disposer
     Quasar.Wayland.Utils.SharedFd
     Quasar.Wayland.Utils.SharedMemory
     Quasar.Wayland.Utils.Stat

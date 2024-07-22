@@ -63,6 +63,9 @@ data Dmabuf = Dmabuf {
 }
   deriving Show
 
+instance ToFuture '[] () Dmabuf where
+  toFuture dmabuf = toFuture (dmabufDisposer dmabuf)
+
 dmabufDisposer :: Dmabuf -> Disposer
 dmabufDisposer dmabuf = foldMap dmabufPlaneDisposer dmabuf.planes
 
