@@ -43,7 +43,7 @@ main = do
       let width = max configuration.width 512
       let height = max configuration.height 512
       surface <- liftIO $ newSkiaSurface skia width height
-      liftIO $ clearSkiaSurface surface
+      liftIO $ clearSkiaSurface (fromOwned surface)
 
       frame <- newRcIO =<< liftIO (newFrameConsumeSurface surface)
       foo <- atomicallyC $ tryCloneRc frame
