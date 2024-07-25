@@ -36,9 +36,6 @@ data ShmBufferBackend = ShmBufferBackend
 
 newtype ShmBufferFrame = ShmBufferFrame (ExternalFrame ShmBuffer ShmBufferBackend)
 
-instance Disposable ShmBufferFrame where
-  getDisposer (ShmBufferFrame external) = getDisposer external
-
 instance RenderBackend ShmBufferBackend where
   type Frame ShmBufferBackend = ShmBufferFrame
 
@@ -50,8 +47,8 @@ instance IsBufferBackend ShmBuffer ShmBufferBackend where
   newExternalBuffer :: ShmBufferBackend -> Owned ShmBuffer -> STMc NoRetry '[] (Owned ShmBuffer)
   newExternalBuffer ShmBufferBackend shmBuffer = pure shmBuffer
 
-  wrapExternalFrame :: ExternalFrame ShmBuffer ShmBufferBackend -> STMc NoRetry '[DisposedException] (Owned (Frame ShmBufferBackend))
-  wrapExternalFrame external = pure (ownedDisposable (ShmBufferFrame external))
+  wrapExternalFrame :: Owned (ExternalFrame ShmBuffer ShmBufferBackend) -> STMc NoRetry '[DisposedException] (Owned (Frame ShmBufferBackend))
+  wrapExternalFrame ownedExternal = pure (ShmBufferFrame <$> ownedExternal)
 
 -- | Wrapper for an externally managed shm pool
 data ShmPool = ShmPool {

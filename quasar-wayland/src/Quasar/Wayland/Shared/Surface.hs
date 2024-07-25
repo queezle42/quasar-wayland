@@ -14,6 +14,8 @@ module Quasar.Wayland.Shared.Surface (
   IsBufferBackend(..),
   ExternalFrame(..),
   createExternalBufferFrame,
+  readExternalFrame,
+  readExternalFrameIO,
 
   -- ** High-level usage
   newFrameConsumeBuffer,
@@ -53,13 +55,9 @@ class RenderBackend backend => IsBufferBackend buffer backend where
   --
   -- Ownership of the `ExternalFrame` is transferred to the callee, ownership
   -- of the resulting `Frame` is transferred to the caller.
-  wrapExternalFrame :: ExternalFrame buffer backend -> STMc NoRetry '[DisposedException] (Owned (Frame backend))
+  wrapExternalFrame :: Owned (ExternalFrame buffer backend) -> STMc NoRetry '[DisposedException] (Owned (Frame backend))
 
 data ExternalFrame buffer backend = ExternalFrame TDisposer (Rc (ExternalBuffer buffer backend))
-
-instance Disposable (ExternalFrame buffer backend) where
-  getDisposer (ExternalFrame frameRelease externalBufferRc) =
-    getDisposer frameRelease <> getDisposer externalBufferRc
 
 
 -- | Create a frame from an @ExternalBuffer@.
@@ -78,7 +76,17 @@ createExternalBufferFrame ::
   Rc (ExternalBuffer buffer backend) ->
   STMc NoRetry '[DisposedException] (Owned (Frame backend))
 createExternalBufferFrame frameRelease externalBufferRc = do
-  wrapExternalFrame @buffer @backend (ExternalFrame frameRelease externalBufferRc)
+  wrapExternalFrame @buffer @backend (Owned (getDisposer frameRelease <> getDisposer externalBufferRc) (ExternalFrame frameRelease externalBufferRc))
+
+readExternalFrame ::
+  MonadSTMc NoRetry '[DisposedException] m =>
+  ExternalFrame buffer backend -> m (ExternalBuffer buffer backend)
+readExternalFrame = undefined
+
+readExternalFrameIO ::
+  MonadIO m =>
+  ExternalFrame buffer backend -> m (ExternalBuffer buffer backend)
+readExternalFrameIO = undefined
 
 
 -- | Create a new frame by taking ownership of a buffer. The buffer will be
