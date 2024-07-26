@@ -15,7 +15,6 @@ import Language.C.Inline.Cpp qualified as CPP
 import Language.C.Inline.Cpp.Unsafe qualified as CPPU
 import Language.C.Inline.Unsafe qualified as CU
 import Language.C.Types qualified as C
-import Quasar.Disposer
 import Quasar.Prelude
 import Quasar.Wayland.Dmabuf
 import Quasar.Wayland.Skia
