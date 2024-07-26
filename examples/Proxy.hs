@@ -32,13 +32,15 @@ main = runQuasarAndExit do
 
     let muxWM = WindowMultiplexerFactory [toWindowFactory (mapWindowManager wlClientWM), toWindowFactory wlClientWM]
 
-    registry <- newRegistry [
-      compositorGlobal @(Skia GL),
-      subcompositorGlobal @(Skia GL),
-      dummyOutputGlobal,
-      xdgShellGlobal muxWM,
-      skiaDmabufGlobal skia
-      ]
+    let globals =
+          skiaGlobals skia <> [
+            compositorGlobal @(Skia GL),
+            subcompositorGlobal @(Skia GL),
+            dummyOutputGlobal,
+            xdgShellGlobal muxWM
+          ]
+
+    registry <- newRegistry globals
     server <- newWaylandServer registry
     runQuasarIO quasar do
       listenAt "example.socket" server
