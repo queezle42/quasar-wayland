@@ -39,7 +39,7 @@ shmGlobal backend = createGlobal @Interface_wl_shm maxVersion initializeWlShm
       STMc NoRetry '[SomeException] ()
     initializeWlShmPool wlShmPool fd size = liftSTMc do
       sizeVar <- newObservableVar size
-      pool <- newShmPool fd (toObservable sizeVar)
+      pool <- newRc =<< newShmPool fd (toObservable sizeVar)
       attachFinalizer wlShmPool (disposeEventually_ pool)
       setRequestHandler wlShmPool RequestHandler_wl_shm_pool {
         create_buffer = initializeWlShmBuffer pool,
@@ -51,7 +51,7 @@ shmGlobal backend = createGlobal @Interface_wl_shm maxVersion initializeWlShm
       }
 
     initializeWlShmBuffer ::
-      Owned ShmPool ->
+      Rc ShmPool ->
       NewObject 'Server Interface_wl_buffer ->
       Int32 ->
       Int32 ->
@@ -59,6 +59,8 @@ shmGlobal backend = createGlobal @Interface_wl_shm maxVersion initializeWlShm
       Int32 ->
       Word32 ->
       STMc NoRetry '[SomeException] ()
-    initializeWlShmBuffer pool wlBuffer offset width height stride format = liftSTMc do
-      shmBuffer <- newShmBuffer pool offset width height stride format
-      initializeWlBuffer backend wlBuffer shmBuffer
+    initializeWlShmBuffer primaryPoolRc wlBuffer offset width height stride format = do
+      pool <- cloneAndExtractRc primaryPoolRc
+      liftSTMc do
+        shmBuffer <- newShmBuffer pool offset width height stride format
+        initializeWlBuffer backend wlBuffer shmBuffer

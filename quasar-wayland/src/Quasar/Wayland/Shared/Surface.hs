@@ -12,10 +12,12 @@ module Quasar.Wayland.Shared.Surface (
 
   -- * Buffer import backend
   IsBufferBackend(..),
-  ExternalFrame(..),
+  ExternalFrame,
   createExternalBufferFrame,
   readExternalFrame,
   readExternalFrameIO,
+  readOwnedExternalFrame,
+  readOwnedExternalFrameIO,
 
   -- ** High-level usage
   newFrameConsumeBuffer,
@@ -81,12 +83,27 @@ createExternalBufferFrame frameRelease externalBufferRc = do
 readExternalFrame ::
   MonadSTMc NoRetry '[DisposedException] m =>
   ExternalFrame buffer backend -> m (ExternalBuffer buffer backend)
-readExternalFrame = undefined
+readExternalFrame (ExternalFrame _ var) = readRc var
 
 readExternalFrameIO ::
   MonadIO m =>
   ExternalFrame buffer backend -> m (ExternalBuffer buffer backend)
-readExternalFrameIO = undefined
+readExternalFrameIO (ExternalFrame _ var) = readRcIO var
+
+readOwnedExternalFrame ::
+  MonadSTMc NoRetry '[DisposedException] m =>
+  Owned (ExternalFrame buffer backend) ->
+  m (Owned (ExternalBuffer buffer backend))
+readOwnedExternalFrame (Owned disposer (ExternalFrame _ var)) =
+  liftSTMc @NoRetry @'[DisposedException] do
+    Owned disposer <$> readRc var
+
+readOwnedExternalFrameIO ::
+  MonadIO m =>
+  Owned (ExternalFrame buffer backend) ->
+  m (Owned (ExternalBuffer buffer backend))
+readOwnedExternalFrameIO (Owned disposer (ExternalFrame _ var)) = liftIO do
+  Owned disposer <$> readRcIO var
 
 
 -- | Create a new frame by taking ownership of a buffer. The buffer will be
