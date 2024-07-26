@@ -34,10 +34,8 @@ import Quasar.Wayland.Shared.Surface
 -- | Simple buffer backend that only supports shared memory buffers.
 data ShmBufferBackend = ShmBufferBackend
 
-newtype ShmBufferFrame = ShmBufferFrame (ExternalFrame ShmBuffer ShmBufferBackend)
-
 instance RenderBackend ShmBufferBackend where
-  type Frame ShmBufferBackend = ShmBufferFrame
+  type Frame ShmBufferBackend = ShmBuffer
 
 type IsShmBufferBackend b = IsBufferBackend ShmBuffer b
 
@@ -48,7 +46,8 @@ instance IsBufferBackend ShmBuffer ShmBufferBackend where
   newExternalBuffer ShmBufferBackend shmBuffer = pure shmBuffer
 
   wrapExternalFrame :: Owned (ExternalFrame ShmBuffer ShmBufferBackend) -> STMc NoRetry '[DisposedException] (Owned (Frame ShmBufferBackend))
-  wrapExternalFrame ownedExternal = pure (ShmBufferFrame <$> ownedExternal)
+  wrapExternalFrame (externalFrame) = do
+    readOwnedExternalFrame externalFrame
 
 -- | Wrapper for an externally managed shm pool
 data ShmPool = ShmPool {
@@ -115,31 +114,30 @@ newShmBuffer ownedPool offset width height stride format = do
 instance ClientBufferBackend ShmBufferBackend where
 
   type ClientBufferManager ShmBufferBackend = ClientShmManager
-  type RenderedFrame ShmBufferBackend = ShmBufferFrame
+  type RenderedFrame ShmBufferBackend = ShmBuffer
   type ExportBufferId ShmBufferBackend = Unique
 
   newClientBufferManager = newClientShmManager
 
-  renderFrame :: Rc ShmBufferFrame -> IO (Rc ShmBufferFrame)
+  renderFrame :: Rc ShmBuffer -> IO (Rc ShmBuffer)
   renderFrame = pure
 
-  getExportBufferId :: ShmBufferFrame -> STMc NoRetry '[DisposedException] Unique
-  getExportBufferId (ShmBufferFrame (ExternalFrame _ rc)) = do
-    buffer <- readRc rc
+  getExportBufferId :: ShmBuffer -> STMc NoRetry '[DisposedException] Unique
+  getExportBufferId buffer = do
     pure buffer.key
 
-  exportWlBuffer :: ClientShmManager -> ShmBufferFrame -> IO (NewObject 'Client Interface_wl_buffer)
-  exportWlBuffer client (ShmBufferFrame (ExternalFrame _ rc)) = atomicallyC do
-    buffer <- readRc rc
+  exportWlBuffer :: ClientShmManager -> ShmBuffer -> IO (NewObject 'Client Interface_wl_buffer)
+  exportWlBuffer client buffer = atomicallyC do
     wlShmPool <- getClientShmPool client buffer.pool
     -- NOTE no event handlers are attached here, since the caller (usually `Quasar.Wayland.Surface`) has that responsibility.
     wlShmPool.create_buffer buffer.offset buffer.width buffer.height buffer.stride buffer.format
 
-  syncExportBuffer :: ShmBufferFrame -> IO ()
+  syncExportBuffer :: ShmBuffer -> IO ()
   syncExportBuffer _ = pure ()
 
-  getExportBufferDestroyedFuture :: ShmBufferFrame -> STMc NoRetry '[] (Future '[] ())
-  getExportBufferDestroyedFuture (ShmBufferFrame (ExternalFrame _ externalBuffer)) = pure $ isDisposed externalBuffer
+  getExportBufferDestroyedFuture :: ShmBuffer -> STMc NoRetry '[] (Future '[] ())
+  getExportBufferDestroyedFuture shmBuffer = do
+    pure $ toFuture shmBuffer
 
 data ClientShmManager = ClientShmManager {
   key :: Unique,
