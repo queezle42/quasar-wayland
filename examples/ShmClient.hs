@@ -37,7 +37,7 @@ main = do
       configuration <- atomically $ readTMVar configurationVar
       let width = max configuration.width 512
       let height = max configuration.height 512
-      rawBuffer <- liftIO $ toImage ShmBufferBackend (mkImage width height img)
+      rawBuffer <- liftIO $ renderImage ShmBufferBackend (mkImage width height img)
       buffer <- newRcIO rawBuffer
       commit <- atomicallyC do
         commitWindowContent window configuration.configureSerial ((defaultSurfaceCommit @ShmBufferBackend buffer) {bufferDamage = Just DamageAll})
