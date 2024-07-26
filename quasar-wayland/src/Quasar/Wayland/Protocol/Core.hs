@@ -106,6 +106,7 @@ import Data.Void (absurd)
 import GHC.Records
 import GHC.TypeLits
 import Quasar.Prelude
+import Quasar.Utils.HashMap (lookupDelete)
 import Quasar.Wayland.Utils.SharedFd
 
 
@@ -274,7 +275,10 @@ class Typeable s => IsSide (s :: Side) where
   type WireDown s i
   initialId :: Word32
   maximumId :: Word32
-  -- | Should be called by generated code _after_ calling a destructor.
+  -- | Send a destructor message. Called from generated code.
+  sendDestructor :: IsInterfaceSide s i => Object s i -> WireUp s i -> ProtocolM s ()
+  -- | Call a destructor with pre- and post destructor actions (setting
+  -- destroyed state, running finalizers). Called from generated code.
   handleDestructor :: IsInterfaceSide s i => Object s i -> ProtocolM s () -> ProtocolM s ()
 
 instance IsSide 'Client where
@@ -284,10 +288,14 @@ instance IsSide 'Client where
   -- Id #1 is reserved for wl_display
   initialId = 2
   maximumId = 0xfeffffff
+  sendDestructor object wireUp = do
+    sendMessage object wireUp
+    liftSTMc $ setDestroyed object
+    liftSTMc $ runFinalizer object
   handleDestructor object msgFn = do
-    liftSTMc $ handleDestructorPre object
+    liftSTMc $ setDestroyed object
     msgFn
-    liftSTMc $ handleDestructorPost object
+    liftSTMc $ runFinalizer object
 
 instance IsSide 'Server where
   type MessageHandler 'Server i = RequestHandler i
@@ -295,26 +303,36 @@ instance IsSide 'Server where
   type WireDown 'Server i = WireRequest i
   initialId = 0xff000000
   maximumId = 0xffffffff
+  sendDestructor object wireUp = do
+    sendMessage object wireUp
+    liftSTMc $ setDestroyed object
+    when (oid <= maximumId @'Client) do
+      sendWlDisplayDeleteId :: Word32 -> CallM () <- asks (.sendWlDisplayDeleteId)
+      runCallM $ sendWlDisplayDeleteId oid
+    liftSTMc $ runFinalizer object
+    where
+      oid :: Word32
+      oid = objectIdValue object.objectId
   handleDestructor object msgFn = do
-    liftSTMc $ handleDestructorPre object
+    liftSTMc $ setDestroyed object
     msgFn
     when (oid <= maximumId @'Client) do
       sendWlDisplayDeleteId :: Word32 -> CallM () <- asks (.sendWlDisplayDeleteId)
       runCallM $ sendWlDisplayDeleteId oid
-    liftSTMc $ handleDestructorPost object
+    liftSTMc $ runFinalizer object
     where
       oid :: Word32
       oid = objectIdValue object.objectId
 
 -- Shared destructor code for client and server
-handleDestructorPre :: IsInterfaceSide s i => Object s i -> STMc NoRetry '[] ()
-handleDestructorPre object = do
+setDestroyed :: IsInterfaceSide s i => Object s i -> STMc NoRetry '[] ()
+setDestroyed object = do
   traceM $ "Destroying " <> showObject object
   writeTVar object.destroyed True
 
 -- Shared destructor code for client and server
-handleDestructorPost :: IsInterfaceSide s i => Object s i -> STMc NoRetry '[]  ()
-handleDestructorPost object = liftSTMc do
+runFinalizer :: IsInterfaceSide s i => Object s i -> STMc NoRetry '[]  ()
+runFinalizer object = liftSTMc do
   finalizers <- swapTVar object.finalizers []
   unless (null finalizers) do
     traceM $ "Running finalizers for " <> showObject object
@@ -901,17 +919,23 @@ handleWlDisplayError _protocol _oId code message =
 handleWlDisplayDeleteId :: ProtocolHandle 'Client -> Word32 -> STMc NoRetry '[SomeException] ()
 handleWlDisplayDeleteId protocol oId = runProtocolM protocol do
   -- TODO mark as deleted
-  modifyProtocolVar (.objectsVar) $ HM.delete (GenericObjectId oId)
+  r <- stateProtocolVar (.objectsVar) $ lookupDelete (GenericObjectId oId)
+  case r of
+    Nothing -> throwM $ ProtocolException $ "wl_display.delete_id received for invalid id " <> show oId
+    Just (SomeObject old) -> do
+      destroyed <- readTVar old.destroyed
+      unless destroyed do
+        throwM $ ProtocolException $ "wl_display.delete_id received for " <> show old <> " but the destructor has not been called"
 
 
 checkObject :: IsInterface i => Object s i -> ProtocolM s (Either String ())
 checkObject object = do
   -- TODO check if object belongs to current connection
-  isActiveObject <- HM.member (genericObjectId object) <$> readProtocolVar (.objectsVar)
+  destroyed <- readTVar object.destroyed
   pure
-    if isActiveObject
-      then pure ()
-      else Left $ mconcat ["Object ", show object, " has been deleted"]
+    if not destroyed
+      then Right ()
+      else Left $ mconcat ["Object ", show object, " has been destroyed"]
 
 
 -- | Verify that an object can be used as an argument (throws otherwise) and return its id.

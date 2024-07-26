@@ -314,10 +314,10 @@ messageProxyInstanceDecs side messageContexts = mapM messageProxyInstanceD messa
 
         -- Constructor: the argument with type new_id becomes the return value
         ctorE :: Q Exp
-        ctorE = [|newObject Nothing (objectVersion $objectE) >>= \(newObj, newId) -> newObj <$ (sendMessage object =<< $(msgE [|pure newId|]))|]
+        ctorE = [|newObject Nothing (objectVersion $objectE) >>= \(newObj, newId) -> newObj <$ (sendMessage object =<< $(ctorMsgE [|pure newId|]))|]
           where
-            msgE :: Q Exp -> Q Exp
-            msgE idArgE = mkWireMsgE do
+            ctorMsgE :: Q Exp -> Q Exp
+            ctorMsgE idArgE = mkWireMsgE do
               -- Walk msgSpec arguments, which include the new_id argument
               msg.msgSpec.arguments <&> \arg ->
                 if isNewId arg.argType
@@ -326,14 +326,14 @@ messageProxyInstanceDecs side messageContexts = mapM messageProxyInstanceD messa
                   else wireArgE arg
 
         dtorE :: Q Exp
-        dtorE = [|handleDestructor object $normalE|]
+        dtorE = [|sendDestructor object =<< $(normalMsgE)|]
 
         -- Body for a normal (i.e. non-constructor) proxy
         normalE :: Q Exp
-        normalE = [|sendMessage object =<< $(msgE)|]
-          where
-            msgE :: Q Exp
-            msgE = mkWireMsgE (wireArgE <$> proxyArgs)
+        normalE = [|sendMessage object =<< $(normalMsgE)|]
+
+        normalMsgE :: Q Exp
+        normalMsgE = mkWireMsgE (wireArgE <$> proxyArgs)
 
         mkWireMsgE :: [Q Exp] -> Q Exp
         mkWireMsgE mkWireArgEs = applyA (conE msg.msgConName) mkWireArgEs
