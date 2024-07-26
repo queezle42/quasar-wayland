@@ -633,8 +633,9 @@ initializeProtocol ::
   forall s wl_display m a.
   (IsInterfaceSide s wl_display, MonadSTMc NoRetry '[] m) =>
   (ProtocolHandle s -> MessageHandler s wl_display) ->
-  -- | Send a wl_display.delete_id message. Because this is part of the core protocol but generated from the xml it has
-  -- to be provided by the main server module.
+  -- | Send a wl_display.delete_id message. Because this is part of the core
+  -- protocol but generated from the xml it has to be provided by the main
+  -- server module.
   --
   -- FIXME only required for server code
   (Object s wl_display -> Word32 -> CallM ()) ->
