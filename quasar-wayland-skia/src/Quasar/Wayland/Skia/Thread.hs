@@ -43,6 +43,6 @@ queueSkiaIO (SkiaThread queue) (SkiaIO action) = do
   writeTQueue queue $ SkiaJob action promise
   pure (toFutureEx promise)
 
-runSkiaIO :: MonadIO m => SkiaThread -> SkiaIO a -> m a
+runSkiaIO :: SkiaThread -> SkiaIO a -> IO a
 runSkiaIO thread action = liftIO do
   await =<< atomicallyC (queueSkiaIO thread action)

@@ -143,7 +143,18 @@ newSkiaSurface ::
   Int32 ->
   Int32 ->
   IO (Owned (SkiaSurface s))
-newSkiaSurface skia width height = runSkiaIO skia.thread do
+newSkiaSurface skia width height =
+  runSkiaIO skia.thread do
+    newSkiaSurfaceInternal skia width height
+
+newSkiaSurfaceInternal ::
+  forall s.
+  IsSkiaBackend s =>
+  Skia s ->
+  Int32 ->
+  Int32 ->
+  SkiaIO (Owned (SkiaSurface s))
+newSkiaSurfaceInternal skia width height = do
   (skSurface, storage) <- newSkiaBackendTexture skia width height
   var <- newFnDisposableVarIO skia.exceptionSink destroySurface SkiaSurfaceState {
     skia,
@@ -168,7 +179,7 @@ skiaSurfaceKey (SkiaSurface var) = disposerElementKey var
 readSkiaSurfaceState :: SkiaSurface s -> STMc NoRetry '[DisposedException] (SkiaSurfaceState s)
 readSkiaSurfaceState (SkiaSurface var) = readDisposableVar var
 
-readSkiaSurfaceStateIO :: SkiaSurface s -> IO (SkiaSurfaceState s)
+readSkiaSurfaceStateIO :: MonadIO m => SkiaSurface s -> m (SkiaSurfaceState s)
 readSkiaSurfaceStateIO (SkiaSurface var) =
   tryReadDisposableVarIO var >>= \case
     Nothing -> undefined
@@ -416,7 +427,7 @@ importShmBuffer skia (Owned frameDisposer shmBuffer) = liftIO do
   liftIO $ newSkiaImage skia skImage
 
 copyShmBuffer :: IsSkiaBackend s => Skia s -> Owned ShmBuffer -> SkiaIO (Owned (SkiaSurface s))
-copyShmBuffer skia (Owned bufferDisposer shmBuffer) = liftIO do
+copyShmBuffer skia (Owned bufferDisposer shmBuffer) = do
   let offset = fromIntegral shmBuffer.offset
   let rowBytes = fromIntegral shmBuffer.stride
   let height = fromIntegral shmBuffer.height
@@ -426,13 +437,13 @@ copyShmBuffer skia (Owned bufferDisposer shmBuffer) = liftIO do
   let pool = shmBuffer.pool
 
   size <- atomicallyC $ readObservable pool.size
-  (ptrDisposer, ptr) <- mmapDisposer MmapReadOnly pool.fd (fromIntegral size)
+  (ptrDisposer, ptr) <- liftIO $ mmapDisposer MmapReadOnly pool.fd (fromIntegral size)
 
-  skiaSurface <- newSkiaSurface skia shmBuffer.height shmBuffer.width
+  skiaSurface <- newSkiaSurfaceInternal skia shmBuffer.height shmBuffer.width
   state <- readSkiaSurfaceStateIO (fromOwned skiaSurface)
   let skSurface = state.skSurface
 
-  [CPPU.throwBlock|void {
+  liftIO [CPPU.throwBlock|void {
     GrDirectContext* grDirectContext = $(GrDirectContext* grDirectContext);
 
     auto colorType = $(uint32_t format) == 0 ? kRGBA_8888_SkColorType : kRGB_888x_SkColorType;
