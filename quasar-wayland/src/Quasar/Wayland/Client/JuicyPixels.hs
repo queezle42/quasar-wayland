@@ -37,10 +37,10 @@ renderImage backend image = do
 pixelRgba8ToWlARGB :: PixelRGBA8 -> Word32
 {-# INLINE pixelRgba8ToWlARGB #-}
 pixelRgba8ToWlARGB (PixelRGBA8 r g b a) =
-    (fi b `unsafeShiftL` (0 * bitCount)) .|.
-    (fi g `unsafeShiftL` (1 * bitCount)) .|.
+    (fi a `unsafeShiftL` (3 * bitCount)) .|.
     (fi r `unsafeShiftL` (2 * bitCount)) .|.
-    (fi a `unsafeShiftL` (3 * bitCount))
+    (fi g `unsafeShiftL` (1 * bitCount)) .|.
+    (fi b `unsafeShiftL` (0 * bitCount))
   where
     fi :: Pixel8 -> Word32
     fi = fromIntegral
