@@ -67,7 +67,9 @@ mmapFd mode fd size = mask_ do
   ptr <- mmapPtr mode fd size
   FC.newForeignPtr ptr (munmapPtr ptr size)
 
-mmapDisposer :: MmapMode -> SharedFd -> CSize -> IO (Disposer, Ptr Word8)
+mmapDisposer ::
+  HasCallStack =>
+  MmapMode -> SharedFd -> CSize -> IO (Disposer, Ptr Word8)
 mmapDisposer mode sfd size = withSharedFd sfd \fd -> do
   ptr <- mmapPtr mode fd size
   d <- atomicallyC $ newDisposer (munmapPtr ptr size) loggingExceptionSink
