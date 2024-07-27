@@ -435,8 +435,8 @@ copyShmBuffer :: IsSkiaBackend s => Skia s -> Owned ShmBuffer -> SkiaIO (Owned (
 copyShmBuffer skia (Owned bufferDisposer shmBuffer) = do
   let offset = fromIntegral shmBuffer.offset
   let rowBytes = fromIntegral shmBuffer.stride
-  let height = fromIntegral shmBuffer.height
   let width = fromIntegral shmBuffer.width
+  let height = fromIntegral shmBuffer.height
   let format = shmBuffer.format
   let grDirectContext = skia.grDirectContext
   let pool = shmBuffer.pool
@@ -444,7 +444,7 @@ copyShmBuffer skia (Owned bufferDisposer shmBuffer) = do
   size <- atomicallyC $ readObservable pool.size
   (ptrDisposer, ptr) <- liftIO $ mmapDisposer MmapReadOnly pool.fd (fromIntegral size)
 
-  skiaSurface <- newSkiaSurfaceInternal skia shmBuffer.height shmBuffer.width
+  skiaSurface <- newSkiaSurfaceInternal skia shmBuffer.width shmBuffer.height
   state <- readSkiaSurfaceStateIO (fromOwned skiaSurface)
   let skSurface = state.skSurface
 
