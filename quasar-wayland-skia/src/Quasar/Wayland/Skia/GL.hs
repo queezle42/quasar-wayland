@@ -336,7 +336,7 @@ newSkiaGLTexture Skia{grDirectContext, context} width height = liftIO do
     GLuint oldTexture;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, (GLint*)&oldTexture);
     glBindTexture(GL_TEXTURE_2D, $(GLuint texture));
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8_OES, (GLsizei)$(int cWidth), (GLsizei)$(int cHeight), 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8_OES, (GLsizei)$(int cWidth), (GLsizei)$(int cHeight), 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glBindTexture(GL_TEXTURE_2D, oldTexture);
   }|]
 
@@ -349,7 +349,7 @@ newSkiaGLTexture Skia{grDirectContext, context} width height = liftIO do
     GrGLTextureInfo textureInfo;
     textureInfo.fTarget = GL_TEXTURE_2D;
     textureInfo.fID = $(GLuint texture);
-    textureInfo.fFormat = GL_RGB8_OES;
+    textureInfo.fFormat = GL_RGBA8_OES;
 
     GrBackendTexture backendTexture = GrBackendTextures::MakeGL($(int cWidth), $(int cHeight), skgpu::Mipmapped::kNo, textureInfo);
 
@@ -357,7 +357,7 @@ newSkiaGLTexture Skia{grDirectContext, context} width height = liftIO do
 
     GrSurfaceOrigin origin = GrSurfaceOrigin::kTopLeft_GrSurfaceOrigin;
     int sampleCnt = 0;
-    SkColorType colorType = kRGB_888x_SkColorType;
+    SkColorType colorType = kRGBA_8888_SkColorType;
     sk_sp<SkColorSpace> colorSpace = nullptr; //SkColorSpace::MakeSRGB();
     SkSurfaceProps* surfaceProps = nullptr; //new SkSurfaceProps();
     sk_sp<SkSurface> skSurface = SkSurfaces::WrapBackendTexture(grDirectContext, backendTexture, origin, sampleCnt, colorType, colorSpace, surfaceProps);
