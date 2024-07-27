@@ -91,16 +91,13 @@ mkPosition dimensions pixelX pixelY = Position { dimensions, pixelX, pixelY, u, 
     y = fromIntegral (pixelY - (height' `div` 2)) / fromIntegral innerRadius
 
 rgb :: Double -> Double -> Double -> PixelRGBA8
-rgb r g b = PixelRGBA8 (toWord r) (toWord g) (toWord b) 0
-  where
-    toWord :: Double -> Word8
-    toWord = truncate . (* 255) . max 0 . min 1
+rgb r g b = PixelRGBA8 (toWord r) (toWord g) (toWord b) (toWord 1)
+
+toWord :: Double -> Word8
+toWord = truncate . (* 255) . max 0 . min 1
 
 rgba :: Double -> Double -> Double -> Double -> PixelRGBA8
-rgba r g b a = PixelRGBA8 (toWord r) (toWord g) (toWord b) (toWord a)
-  where
-    toWord :: Double -> Word8
-    toWord = truncate . (* 255) . max 0 . min 1
+rgba r g b a = PixelRGBA8 (toWord (r * a)) (toWord (g * a)) (toWord (b * a)) (toWord a)
 
 gradient :: Position -> PixelRGBA8
 gradient p = rgb (u p) 0 (v p)
