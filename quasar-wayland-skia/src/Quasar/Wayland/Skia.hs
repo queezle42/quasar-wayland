@@ -451,8 +451,9 @@ copyShmBuffer skia (Owned bufferDisposer shmBuffer) = do
   liftIO [CPPU.throwBlock|void {
     GrDirectContext* grDirectContext = $(GrDirectContext* grDirectContext);
 
-    auto colorType = $(uint32_t format) == 0 ? kRGBA_8888_SkColorType : kRGB_888x_SkColorType;
-    SkImageInfo info = SkImageInfo::Make($(int width), $(int height), colorType, kPremul_SkAlphaType);
+    // kBGRA_8888_SkColorType maps to wl_shm argb8888
+    auto colorType = kBGRA_8888_SkColorType;
+    SkImageInfo info = SkImageInfo::Make($(int width), $(int height), colorType, $(uint32_t format) == 0 ? kPremul_SkAlphaType : kOpaque_SkAlphaType);
 
     SkPixmap pixmap(info, (void*)($(uint8_t* ptr) + $(size_t offset)), $(size_t rowBytes));
 
