@@ -6,6 +6,7 @@ module Quasar.Wayland.Shared.Surface (
   Damage(..),
   addDamage,
   SurfaceCommit(..),
+  mergeCommits,
   IsSurfaceDownstream(..),
   SurfaceDownstream,
   defaultSurfaceCommit,
@@ -147,15 +148,18 @@ data SurfaceCommit b = SurfaceCommit {
 instance Disposable (SurfaceCommit b) where
   getDisposer commit = getDisposer commit.frame
 
-instance Semigroup (SurfaceCommit b) where
-  x <> y = SurfaceCommit {
-    frame = y.frame,
-    offset = y.offset,
-    bufferDamage = x.bufferDamage <> y.bufferDamage,
-    frameCallback = case (x.frameCallback, y.frameCallback) of
-      (Just xfc, Just yfc) -> Just (\time -> xfc time >> yfc time)
-      (xfc, Nothing) -> xfc
-      (Nothing, yfc) -> yfc
+-- | Merges two commits. Resources ownership related to the previous commit
+-- is not changed.
+mergeCommits :: SurfaceCommit b -> SurfaceCommit b -> SurfaceCommit b
+mergeCommits prev next =
+  SurfaceCommit {
+    frame = next.frame,
+    offset = next.offset,
+    bufferDamage = prev.bufferDamage <> next.bufferDamage,
+    frameCallback = case (prev.frameCallback, next.frameCallback) of
+      (Just pfc, Just nfc) -> Just (\time -> pfc time >> nfc time)
+      (pfc, Nothing) -> pfc
+      (Nothing, nfc) -> nfc
   }
 
 

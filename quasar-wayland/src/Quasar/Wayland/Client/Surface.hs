@@ -261,7 +261,7 @@ commitClientSurface surface commit = do
       -- commit is completed.
       let commitCompletedPromise = pending.commitCompletedPromise
       let newPending = PendingCommit {
-        commit = pending.commit <> commit,
+        commit = mergeCommits pending.commit commit,
         commitCompletedPromise
       }
       writeTVar surface.pendingCommit (Just newPending)
