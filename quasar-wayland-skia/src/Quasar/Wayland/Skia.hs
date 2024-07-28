@@ -42,7 +42,7 @@ import Quasar.Future
 import Quasar.Observable.Core (readObservable)
 import Quasar.Prelude
 import Quasar.Wayland.Client
-import Quasar.Wayland.Client.Surface
+import Quasar.Wayland.Client.Backend
 import Quasar.Wayland.Dmabuf
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
@@ -248,12 +248,12 @@ instance IsSkiaBackend s => RenderBackend (Skia s) where
   type Frame (Skia s) = SkiaFrame s
 
 instance IsSkiaBackend s => ClientBufferBackend (Skia s) where
-  type ClientBufferManager (Skia s) = SkiaClientBufferManager s
+  type BackendClientBufferManager (Skia s) = SkiaClientBufferManager s
   type RenderedFrame (Skia s) = SkiaRenderedFrame s
   type ExportBufferId (Skia s) = SkiaExportBufferId
 
-  newClientBufferManager :: WaylandClient -> STMc NoRetry '[SomeException] (SkiaClientBufferManager s)
-  newClientBufferManager client = do
+  newBackendClientBufferManager :: WaylandClient -> STMc NoRetry '[SomeException] (SkiaClientBufferManager s)
+  newBackendClientBufferManager client = do
     dmabufSingleton <- getClientDmabufSingleton client
     pure SkiaClientBufferManager {
       dmabufSingleton

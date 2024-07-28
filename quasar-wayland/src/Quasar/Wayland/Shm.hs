@@ -26,7 +26,7 @@ import Quasar.Future
 import Quasar.Observable.Core
 import Quasar.Prelude
 import Quasar.Wayland.Client
-import Quasar.Wayland.Client.Surface
+import Quasar.Wayland.Client.Backend
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Shared.Surface
@@ -46,7 +46,7 @@ instance IsBufferBackend ShmBuffer ShmBufferBackend where
   newExternalBuffer ShmBufferBackend shmBuffer = pure shmBuffer
 
   wrapExternalFrame :: Owned (ExternalFrame ShmBuffer ShmBufferBackend) -> STMc NoRetry '[DisposedException] (Owned (Frame ShmBufferBackend))
-  wrapExternalFrame (externalFrame) = do
+  wrapExternalFrame externalFrame = do
     readOwnedExternalFrame externalFrame
 
 -- | Wrapper for an externally managed shm pool
@@ -113,11 +113,11 @@ newShmBuffer ownedPool offset width height stride format = do
 
 instance ClientBufferBackend ShmBufferBackend where
 
-  type ClientBufferManager ShmBufferBackend = ClientShmManager
+  type BackendClientBufferManager ShmBufferBackend = ClientShmManager
   type RenderedFrame ShmBufferBackend = ShmBuffer
   type ExportBufferId ShmBufferBackend = Unique
 
-  newClientBufferManager = newClientShmManager
+  newBackendClientBufferManager = newClientShmManager
 
   renderFrame :: Rc ShmBuffer -> IO (Rc ShmBuffer)
   renderFrame = pure

@@ -1,102 +1,30 @@
 module Quasar.Wayland.Client.Surface (
-  -- * Image backend
-  ClientBufferBackend(..),
-  getClientBufferManager,
-
   -- * Surface
   ClientSurfaceManager,
   getClientSurfaceManager,
 
   ClientSurface,
   newClientSurface,
+
+  -- * Reexport
+  ClientBufferBackend(..),
 ) where
 
 import Control.Monad.Catch
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
-import Data.Typeable (Typeable)
 import Quasar.Async.Fork (forkSTM_)
-import Quasar.Disposer (Disposer, disposeEventually, disposeEventually_, isDisposed, getDisposer)
+import Quasar.Disposer
 import Quasar.Disposer.Rc
-import Quasar.Exceptions
 import Quasar.Exceptions.ExceptionSink (loggingExceptionSink)
-import Quasar.Future (Future, Promise, ToFuture (toFuture), newPromise, peekFuture, fulfillPromise, MonadAwait (await), callOnceCompleted_)
+import Quasar.Future
 import Quasar.Prelude
 import Quasar.Wayland.Client
+import Quasar.Wayland.Client.Backend
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (appRect)
 import Quasar.Wayland.Shared.Surface
-
-
-class (RenderBackend b, Typeable (ClientBufferManager b), Hashable (ExportBufferId b)) => ClientBufferBackend b where
-  type ClientBufferManager b
-  type ExportBufferId b
-  type RenderedFrame b
-  newClientBufferManager :: WaylandClient -> STMc NoRetry '[SomeException] (ClientBufferManager b)
-
-  -- | Render a frame into a buffer. The frame might be rendered into a new-,
-  -- or into an existing buffer (chosen by the implementation of `renderFrame`).
-  -- The buffer can then be exported by using `exportWlBuffer`. Exported buffers
-  -- stay mapped to the server and might be reused, if the buffer is already
-  -- mapped it should not be mapped again. To identity which buffer the frame
-  -- has been rendered to, use `getExportBufferId`.
-  --
-  -- Disposing the `RenderedFrame` rc will release resources associated with the
-  -- frame (if applicable) and releases the internal buffer so it can be reused
-  -- or destroyed by the buffer owner.
-  --
-  -- Takes responsibility for the frame rc. The caller is responsible for the
-  -- returned RenderedFrame rc.
-  --
-  -- The exported buffers contents should not change until it is unlocked by the
-  -- caller.
-  renderFrame :: Rc (Frame b) -> IO (Rc (RenderedFrame b))
-
-  -- | Look up the identity for an `ExportBuffer`.
-  --
-  -- This should return the id of an internal buffer that the frame has been
-  -- rendered to.
-  getExportBufferId :: HasCallStack => RenderedFrame b -> STMc NoRetry '[DisposedException] (ExportBufferId b)
-
-  -- | Called by the `Surface`-implementation when a buffer should be mapped
-  -- from the wayland client to the wayland server. This usually shares memory
-  -- from the client to the server.
-  --
-  -- This targets the internal buffer that is currently in use by the
-  -- `RenderedFrame` (this should match `getExportBufferId`). Even after
-  -- disposing the rendered frame, the buffer stays mapped to the server.
-  --
-  -- The caller takes ownership of the resulting @wl_buffer@ and will attach the
-  -- event handler.
-  --
-  -- The @RenderedFrame@ argument is owned by the caller and must not be
-  -- disposed by the callee.
-  exportWlBuffer :: ClientBufferManager b -> RenderedFrame b -> IO (NewObject 'Client Interface_wl_buffer)
-
-  syncExportBuffer :: RenderedFrame b -> IO ()
-
-  -- | TODO rewrite documentation for future-based reimplementation of this function.
-  --
-  -- Attach a callback to a buffer. The callback must be called when the
-  -- buffer that is backing the `RenderedFrame` argument is released.
-  --
-  -- Usually an exported buffer can be reused. When the underlying texture or
-  -- buffer is destroyed by the rendering engine (or another buffer source), the
-  -- buffer has to be unmapped from the wayland server. This event is used as a
-  -- signal that the @wl_buffer@ that belongs to the texture/buffer should be
-  -- destroyed.
-  --
-  -- If the buffer can't be reused the event should be called when the
-  -- `RenderedFrame` is disposed.
-  --
-  -- The `RenderedFrame` argument is owned by the caller and must not be disposed by
-  -- the callee.
-  getExportBufferDestroyedFuture :: RenderedFrame b -> STMc NoRetry '[] (Future '[] ())
-
-getClientBufferManager :: forall b. ClientBufferBackend b => WaylandClient -> STMc NoRetry '[SomeException] (ClientBufferManager b)
-getClientBufferManager client =
-  getClientComponent (newClientBufferManager @b client) client
 
 
 -- | Requests a wl_buffer for a locked buffer and changes it's state to attached.
@@ -135,7 +63,7 @@ newClientBuffer client bufferId frame = do
   atomically (tryReadRc frame) >>= \case
     Nothing -> throwM (userError "ClientBuffer.newClientBuffer called with a disposed buffer")
     Just rawFrame -> do
-      wlBuffer <- exportWlBuffer @b client.bufferManager rawFrame
+      wlBuffer <- exportWlBuffer @b client.backend rawFrame
 
       state <- newTVarIO (Attached (getDisposer frame))
       let clientBuffer = ClientBuffer {
@@ -188,11 +116,11 @@ destroyClientBuffer clientBuffer = do
 --
 -- Takes ownership of the frame rc.
 newSingleUseWlBuffer :: forall b. ClientBufferBackend b => ClientSurfaceManager b -> Rc (RenderedFrame b) -> IO (Object 'Client Interface_wl_buffer)
-newSingleUseWlBuffer surfaceManager frame = do
+newSingleUseWlBuffer client frame = do
   atomicallyC (tryReadRc frame) >>= \case
     Nothing -> throwM (userError "ClientBuffer.newSingleUseWlBuffer called with a disposed buffer")
     Just rawFrame -> do
-      wlBuffer <- exportWlBuffer @b surfaceManager.bufferManager rawFrame
+      wlBuffer <- exportWlBuffer @b client.backend rawFrame
 
       atomicallyC do
         -- Attach ownership/cleanup of buffer lock to wl_buffer
@@ -205,9 +133,9 @@ newSingleUseWlBuffer surfaceManager frame = do
 
 
 data ClientSurfaceManager b = ClientSurfaceManager {
-  bufferManager :: ClientBufferManager b,
-  wlCompositor :: Object 'Client Interface_wl_compositor,
-  bufferMap :: TVar (HashMap (ExportBufferId b) (ClientBuffer b))
+  backend :: BackendClientBufferManager b,
+  bufferMap :: TVar (HashMap (ExportBufferId b) (ClientBuffer b)),
+  wlCompositor :: Object 'Client Interface_wl_compositor
 }
 
 data ClientSurface b = ClientSurface {
@@ -235,13 +163,13 @@ getClientSurfaceManager client =
 
 newClientSurfaceManager :: forall b. ClientBufferBackend b => WaylandClient -> STMc NoRetry '[SomeException] (ClientSurfaceManager b)
 newClientSurfaceManager client = do
-  bufferManager <- getClientBufferManager @b client
-  wlCompositor <- getClientComponent @(Object 'Client Interface_wl_compositor) (liftSTMc (newWlCompositor client)) client
+  backend <- getBackendClientBufferManager @b client
   bufferMap <- newTVar mempty
+  wlCompositor <- getClientComponent @(Object 'Client Interface_wl_compositor) (liftSTMc (newWlCompositor client)) client
   pure ClientSurfaceManager {
-    bufferManager,
-    wlCompositor,
-    bufferMap
+    backend,
+    bufferMap,
+    wlCompositor
   }
 
 newWlCompositor :: WaylandClient -> STMc NoRetry '[SomeException] (Object 'Client Interface_wl_compositor)
@@ -253,13 +181,13 @@ newWlCompositor client = do
 
 
 newClientSurface ::
-  forall b a.
   ClientBufferBackend b =>
   WaylandClient ->
   (Object 'Client Interface_wl_surface -> STMc NoRetry '[SomeException] a) ->
   STMc NoRetry '[SomeException] (ClientSurface b, a)
 newClientSurface client initializeSurfaceRoleFn = do
-  surfaceManager <- getClientSurfaceManager @b client
+  surfaceManager <- getClientSurfaceManager client
+
   wlSurface <- liftSTMc surfaceManager.wlCompositor.create_surface
 
   -- TODO: add finalizer, so that the surface is destroyed with the wlSurface
@@ -278,7 +206,12 @@ newClientSurface client initializeSurfaceRoleFn = do
   pendingCommit <- newTVar Nothing
   pendingDisposerFuture <- newTVar mempty
 
-  let clientSurface = ClientSurface { surfaceManager, wlSurface, pendingCommit, pendingDisposerFuture }
+  let clientSurface = ClientSurface {
+    surfaceManager,
+    wlSurface,
+    pendingCommit,
+    pendingDisposerFuture
+  }
 
   -- Spawn worker thread. Worker thread will be stopped when the ClientSurface
   -- is garbage collected.
@@ -290,7 +223,8 @@ instance ClientBufferBackend b => IsSurfaceDownstream b (ClientSurface b) where
   commitSurfaceDownstream = commitClientSurface
   unmapSurfaceDownstream = undefined
 
-commitClientSurface :: ClientSurface b -> SurfaceCommit b -> STMc NoRetry '[SomeException] (Future '[] ())
+commitClientSurface ::
+  ClientSurface b -> SurfaceCommit b -> STMc NoRetry '[SomeException] (Future '[] ())
 commitClientSurface surface commit = do
   readTVar surface.pendingCommit >>= \case
 
@@ -312,16 +246,17 @@ commitClientSurface surface commit = do
       disposerFuture <- disposeEventually pending.commit
       modifyTVar surface.pendingDisposerFuture (<> disposerFuture)
 
+      -- Reuse promise, so skipped commits will also be signalled once a newer
+      -- commit is completed.
+      let commitCompletedPromise = pending.commitCompletedPromise
       let newPending = PendingCommit {
         commit = pending.commit <> commit,
-        -- Reuse future, so skipped commits will also be signalled once a newer
-        -- commit is completed.
-        commitCompletedPromise = pending.commitCompletedPromise
+        commitCompletedPromise
       }
       writeTVar surface.pendingCommit (Just newPending)
-      pure (toFuture pending.commitCompletedPromise)
+      pure (toFuture commitCompletedPromise)
 
-clientSurfaceCommitWorker :: forall b. ClientBufferBackend b => ClientSurface b -> IO ()
+clientSurfaceCommitWorker :: ClientBufferBackend b => ClientSurface b -> IO ()
 clientSurfaceCommitWorker surface = forever do
   pending <- atomically do
     readTVar surface.pendingCommit >>= \case
@@ -355,13 +290,13 @@ commitPendingCommit surface pendingCommit = do
   let (x, y) = fromMaybe (0, 0) commit.offset
 
 
-  wlBuffer <- requestWlBuffer surface.surfaceManager bufferId renderedFrame
+  wlBuffer <- requestWlBuffer @b surface.surfaceManager bufferId renderedFrame
 
   syncExportBuffer @b rawRenderedFrame
 
   -- Simpler alternative to `requestWlBuffer` that never resuses buffers
   -- (useful when debugging):
-  --wlBuffer <- newSingleUseWlBuffer surface.surfaceManager buffer
+  --wlBuffer <- newSingleUseWlBuffer bufferManager buffer
 
 
   atomicallyC do
