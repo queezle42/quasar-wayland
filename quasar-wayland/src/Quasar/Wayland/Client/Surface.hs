@@ -30,9 +30,14 @@ import Quasar.Wayland.Shared.Surface
 -- | Requests a wl_buffer for a locked buffer and changes it's state to attached.
 --
 -- Takes ownership of the frame rc.
-requestWlBuffer :: forall b. ClientBufferBackend b => ClientSurfaceManager b -> ExportBufferId b -> Rc (RenderedFrame b) -> IO (Object 'Client Interface_wl_buffer)
-requestWlBuffer client bufferId frame = do
+requestWlBuffer ::
+  forall b. ClientBufferBackend b =>
+  ClientSurfaceManager b ->
+  Owned (RenderedFrame b) ->
+  IO (Object 'Client Interface_wl_buffer)
+requestWlBuffer client frame = do
   join $ atomically do
+    bufferId <- liftSTMc $ getExportBufferId @b (fromOwned frame)
     bufferMap <- readTVar client.bufferMap
     case HM.lookup bufferId bufferMap of
       -- Buffer is already exported to client
@@ -54,42 +59,43 @@ requestWlBuffer client bufferId frame = do
         pure clientBuffer.wlBuffer
 
 
-
 -- | Create a reusable client buffer in attached state.
 --
 -- Takes ownership of the frame rc.
-newClientBuffer :: forall b. ClientBufferBackend b => ClientSurfaceManager b -> ExportBufferId b -> Rc (RenderedFrame b) -> IO (ClientBuffer b)
-newClientBuffer client bufferId frame = do
-  atomically (tryReadRc frame) >>= \case
-    Nothing -> throwM (userError "ClientBuffer.newClientBuffer called with a disposed buffer")
-    Just rawFrame -> do
-      wlBuffer <- exportWlBuffer @b client.backend rawFrame
+newClientBuffer ::
+  forall b. ClientBufferBackend b =>
+  ClientSurfaceManager b ->
+  ExportBufferId b ->
+  Owned (RenderedFrame b) ->
+  IO (ClientBuffer b)
+newClientBuffer client bufferId (Owned disposer frame) = do
+  wlBuffer <- exportWlBuffer @b client.backend frame
 
-      state <- newTVarIO (Attached (getDisposer frame))
-      let clientBuffer = ClientBuffer {
-        wlBuffer,
-        state
-      }
+  state <- newTVarIO (Attached disposer)
+  let clientBuffer = ClientBuffer {
+    wlBuffer,
+    state
+  }
 
-      atomicallyC do
-        attachFinalizer wlBuffer do
-          modifyTVar client.bufferMap (HM.delete bufferId)
-          readTVar clientBuffer.state >>= \case
-            Attached lockDisposer -> do
-              writeTVar clientBuffer.state Destroyed
-              -- TODO do we need to handle the disposer future?
-              disposeEventually_ lockDisposer
-            Released ->
-              writeTVar clientBuffer.state Destroyed
-            Destroyed -> pure ()
+  atomicallyC do
+    attachFinalizer wlBuffer do
+      modifyTVar client.bufferMap (HM.delete bufferId)
+      readTVar clientBuffer.state >>= \case
+        Attached lockDisposer -> do
+          writeTVar clientBuffer.state Destroyed
+          -- TODO do we need to handle the disposer future?
+          disposeEventually_ lockDisposer
+        Released ->
+          writeTVar clientBuffer.state Destroyed
+        Destroyed -> pure ()
 
-        setEventHandler wlBuffer EventHandler_wl_buffer {
-          release = releaseClientBuffer clientBuffer
-        }
-        exportBufferDestroyedFuture <- getExportBufferDestroyedFuture @b rawFrame
-        callOnceCompleted_ exportBufferDestroyedFuture (\_ -> destroyClientBuffer clientBuffer)
-        modifyTVar client.bufferMap (HM.insert bufferId clientBuffer)
-        pure clientBuffer
+    setEventHandler wlBuffer EventHandler_wl_buffer {
+      release = releaseClientBuffer clientBuffer
+    }
+    exportBufferDestroyedFuture <- getExportBufferDestroyedFuture @b frame
+    callOnceCompleted_ exportBufferDestroyedFuture (\_ -> destroyClientBuffer clientBuffer)
+    modifyTVar client.bufferMap (HM.insert bufferId clientBuffer)
+    pure clientBuffer
 
 releaseClientBuffer :: ClientBuffer b -> STMc NoRetry '[SomeException] ()
 releaseClientBuffer clientBuffer = do
@@ -113,23 +119,22 @@ destroyClientBuffer clientBuffer = do
 --
 -- This function creates single-use buffers, that is, buffers that are destroyed
 -- as soon as they receive a `release`-event.
---
--- Takes ownership of the frame rc.
-newSingleUseWlBuffer :: forall b. ClientBufferBackend b => ClientSurfaceManager b -> Rc (RenderedFrame b) -> IO (Object 'Client Interface_wl_buffer)
-newSingleUseWlBuffer client frame = do
-  atomicallyC (tryReadRc frame) >>= \case
-    Nothing -> throwM (userError "ClientBuffer.newSingleUseWlBuffer called with a disposed buffer")
-    Just rawFrame -> do
-      wlBuffer <- exportWlBuffer @b client.backend rawFrame
+newSingleUseWlBuffer ::
+  forall b. ClientBufferBackend b =>
+  ClientSurfaceManager b ->
+  Owned (RenderedFrame b) ->
+  IO (Object 'Client Interface_wl_buffer)
+newSingleUseWlBuffer client (Owned disposer frame) = do
+  wlBuffer <- exportWlBuffer @b client.backend frame
 
-      atomicallyC do
-        -- Attach ownership/cleanup of buffer lock to wl_buffer
-        -- TODO do we need to handle the disposer future?
-        attachFinalizer wlBuffer (disposeEventually_ frame)
-        setEventHandler wlBuffer EventHandler_wl_buffer {
-          release = wlBuffer.destroy
-        }
-        pure wlBuffer
+  atomicallyC do
+    -- Attach ownership/cleanup of buffer lock to wl_buffer
+    -- TODO do we need to handle the disposer future?
+    attachFinalizer wlBuffer (disposeEventually_ disposer)
+    setEventHandler wlBuffer EventHandler_wl_buffer {
+      release = wlBuffer.destroy
+    }
+    pure wlBuffer
 
 
 data ClientSurfaceManager b = ClientSurfaceManager {
@@ -157,11 +162,15 @@ data ClientBuffer b = ClientBuffer {
   state :: TVar ClientBufferState
 }
 
-getClientSurfaceManager :: ClientBufferBackend b => WaylandClient -> STMc NoRetry '[SomeException] (ClientSurfaceManager b)
+getClientSurfaceManager ::
+  ClientBufferBackend b =>
+  WaylandClient -> STMc NoRetry '[SomeException] (ClientSurfaceManager b)
 getClientSurfaceManager client =
   getClientComponent (newClientSurfaceManager client) client
 
-newClientSurfaceManager :: forall b. ClientBufferBackend b => WaylandClient -> STMc NoRetry '[SomeException] (ClientSurfaceManager b)
+newClientSurfaceManager ::
+  forall b. ClientBufferBackend b =>
+  WaylandClient -> STMc NoRetry '[SomeException] (ClientSurfaceManager b)
 newClientSurfaceManager client = do
   backend <- getBackendClientBufferManager @b client
   bufferMap <- newTVar mempty
@@ -172,7 +181,9 @@ newClientSurfaceManager client = do
     wlCompositor
   }
 
-newWlCompositor :: WaylandClient -> STMc NoRetry '[SomeException] (Object 'Client Interface_wl_compositor)
+newWlCompositor ::
+  WaylandClient ->
+  STMc NoRetry '[SomeException] (Object 'Client Interface_wl_compositor)
 newWlCompositor client = do
   wlCompositor <- bindSingleton client.registry maxVersion
   -- wl_compositor does not have any events. Setting `()` as the event handler will produce a type error if that changes in the future.
@@ -281,18 +292,14 @@ commitPendingCommit surface pendingCommit = do
 
   renderedFrame <- renderFrame @b commit.frame
 
-  rawRenderedFrame <- tryReadRcIO renderedFrame >>= \case
-    Nothing -> throwM (userError "ClientBuffer.commitPendingCommit renderFrame produced a disposed result")
-    Just rawRenderedFrame -> pure rawRenderedFrame
-
-  bufferId <- atomicallyC $ getExportBufferId @b rawRenderedFrame
+  ownedRenderedFrame <- atomically $ extractRc renderedFrame
 
   let (x, y) = fromMaybe (0, 0) commit.offset
 
 
-  wlBuffer <- requestWlBuffer @b surface.surfaceManager bufferId renderedFrame
+  wlBuffer <- requestWlBuffer @b surface.surfaceManager ownedRenderedFrame
 
-  syncExportBuffer @b rawRenderedFrame
+  syncExportBuffer @b (fromOwned ownedRenderedFrame)
 
   -- Simpler alternative to `requestWlBuffer` that never resuses buffers
   -- (useful when debugging):
