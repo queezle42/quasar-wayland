@@ -6,6 +6,7 @@ import Quasar.Prelude
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.XdgShell
 import Quasar.Wayland.Server
+import Quasar.Wayland.Server.DataTransfer
 import Quasar.Wayland.Server.DummyOutput
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.XdgShell
@@ -37,7 +38,8 @@ main = runQuasarAndExit do
             compositorGlobal @(Skia GL),
             subcompositorGlobal @(Skia GL),
             dummyOutputGlobal,
-            xdgShellGlobal muxWM
+            dataDeviceManagerGlobal,
+            xdgShellGlobal (mapWindowManager wlClientWM) -- muxWM
           ]
 
     registry <- newRegistry globals

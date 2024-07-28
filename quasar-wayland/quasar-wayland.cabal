@@ -70,6 +70,7 @@ library
     Quasar.Wayland.Protocol.TH
     Quasar.Wayland.Region
     Quasar.Wayland.Server
+    Quasar.Wayland.Server.DataTransfer
     Quasar.Wayland.Server.DummyOutput
     Quasar.Wayland.Server.Registry
     Quasar.Wayland.Server.Shm
