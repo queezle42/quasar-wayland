@@ -1,12 +1,14 @@
 module Main (main) where
 
-import Codec.Picture as JuicyPixels
+import Codec.Picture
+import Data.Bits
+import Foreign
 import Quasar
-import Quasar.Disposer.Rc (newRcIO)
+import Quasar.Disposer.Rc
 import Quasar.Prelude
 import Quasar.Timer
 import Quasar.Wayland.Client
-import Quasar.Wayland.Client.JuicyPixels
+import Quasar.Wayland.Client.ShmBuffer
 import Quasar.Wayland.Client.XdgShell
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
@@ -126,10 +128,38 @@ alpha p = rgba 1 0 1 (v p)
 transparent :: Position -> PixelRGBA8
 transparent p = rgba 0 0 0 0
 
-mkImage :: Int32 -> Int32 -> (Position -> PixelRGBA8) -> JuicyPixels.Image PixelRGBA8
+mkImage :: Int32 -> Int32 -> (Position -> PixelRGBA8) -> Image PixelRGBA8
 mkImage width height fn = generateImage pixel (fromIntegral width) (fromIntegral height)
   where
     dimensions :: Dimensions
     dimensions = mkDimensions width height
     pixel :: Int -> Int -> PixelRGBA8
     pixel x y = fn $ mkPosition dimensions x y
+
+renderImage ::
+  IsShmBufferBackend b =>
+  b -> Image PixelRGBA8 -> IO (Owned (Frame b))
+renderImage backend image = do
+  (buffer, ptr) <- newLocalShmBuffer (fromIntegral (imageWidth image)) (fromIntegral (imageHeight image))
+  let
+    width = imageWidth image
+    height = imageHeight image
+
+  withForeignPtr ptr \ptr' -> forM_ [(x, y) | x <- [0 .. width - 1], y <- [0 .. height - 1]] \(x, y) -> do
+    pokeByteOff ptr' ((x + (y * width)) * 4) (pixelRgba8ToWlARGB (pixelAt image x y))
+
+  atomicallyC (newFrameConsumeBuffer backend buffer)
+
+
+pixelRgba8ToWlARGB :: PixelRGBA8 -> Word32
+{-# INLINE pixelRgba8ToWlARGB #-}
+pixelRgba8ToWlARGB (PixelRGBA8 r g b a) =
+    (fi a `unsafeShiftL` (3 * bitCount)) .|.
+    (fi r `unsafeShiftL` (2 * bitCount)) .|.
+    (fi g `unsafeShiftL` (1 * bitCount)) .|.
+    (fi b `unsafeShiftL` (0 * bitCount))
+  where
+    fi :: Pixel8 -> Word32
+    fi = fromIntegral
+    bitCount :: Int
+    bitCount = 8

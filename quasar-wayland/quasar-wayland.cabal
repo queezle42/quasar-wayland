@@ -54,7 +54,6 @@ library
   exposed-modules:
     Quasar.Wayland.Client
     Quasar.Wayland.Client.Backend
-    Quasar.Wayland.Client.JuicyPixels
     Quasar.Wayland.Client.Output
     Quasar.Wayland.Client.Registry
     Quasar.Wayland.Client.Seat
@@ -102,7 +101,6 @@ library
     filepath,
     hashable,
     inline-c,
-    JuicyPixels,
     mtl,
     network,
     quasar,
