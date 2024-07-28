@@ -141,4 +141,8 @@ traverseGlobals ::
   (a -> STMc NoRetry '[] ()) ->
   ObservableList NoLoad '[] a
 traverseGlobals registry version addFn removeFn =
-  ObservableList.traverse (\bindFn -> addFn =<< catchAllSTMc (bindFn version) unreachableCodePath) removeFn (interfaceGlobals registry)
+  ObservableList.traverseGeneric
+    (\bindFn -> addFn =<< catchAllSTMc (bindFn version) unreachableCodePath)
+    removeFn
+    id
+    (interfaceGlobals registry)
