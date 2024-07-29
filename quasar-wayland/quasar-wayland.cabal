@@ -72,6 +72,7 @@ library
     Quasar.Wayland.Server.DataTransfer
     Quasar.Wayland.Server.DummyOutput
     Quasar.Wayland.Server.Registry
+    Quasar.Wayland.Server.Seat
     Quasar.Wayland.Server.Shm
     Quasar.Wayland.Server.Socket
     Quasar.Wayland.Server.Surface

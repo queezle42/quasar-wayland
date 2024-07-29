@@ -9,6 +9,7 @@ import Quasar.Wayland.Server
 import Quasar.Wayland.Server.DataTransfer
 import Quasar.Wayland.Server.DummyOutput
 import Quasar.Wayland.Server.Registry
+import Quasar.Wayland.Server.Seat
 import Quasar.Wayland.Server.XdgShell
 import Quasar.Wayland.Shared.FnWindowManager
 import Quasar.Wayland.Shared.WindowApi (WindowProperties(..), toWindowFactory)
@@ -38,6 +39,7 @@ main = runQuasarAndExit do
             compositorGlobal @(Skia GL),
             subcompositorGlobal @(Skia GL),
             dummyOutputGlobal,
+            dummySeatGlobal,
             dataDeviceManagerGlobal,
             xdgShellGlobal (mapWindowManager wlClientWM) -- muxWM
           ]
