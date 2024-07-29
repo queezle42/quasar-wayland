@@ -42,12 +42,13 @@ type IsShmBufferBackend b = IsBufferBackend ShmBuffer b
 instance IsBufferBackend ShmBuffer ShmBufferBackend where
   type ExternalBuffer ShmBuffer ShmBufferBackend = ShmBuffer
 
-  newExternalBuffer :: ShmBufferBackend -> Owned ShmBuffer -> STMc NoRetry '[] (Owned ShmBuffer)
-  newExternalBuffer ShmBufferBackend shmBuffer = pure shmBuffer
+  newExternalBuffer :: Owned (Rc ShmBufferBackend) -> Owned ShmBuffer -> STMc NoRetry '[] (Owned ShmBuffer)
+  newExternalBuffer (Owned disposer _) shmBuffer = do
+    disposeEventually_ disposer -- should be a no-op
+    pure shmBuffer
 
-  wrapExternalFrame :: Owned (ExternalFrame ShmBuffer ShmBufferBackend) -> STMc NoRetry '[DisposedException] (Owned (Frame ShmBufferBackend))
-  wrapExternalFrame externalFrame = do
-    readOwnedExternalFrame externalFrame
+  importExternalBuffer :: Owned ShmBuffer -> STMc NoRetry '[DisposedException] (Owned ShmBuffer)
+  importExternalBuffer = pure
 
 -- | Wrapper for an externally managed shm pool
 data ShmPool = ShmPool {

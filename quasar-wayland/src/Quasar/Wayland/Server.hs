@@ -22,21 +22,23 @@ import Quasar.Wayland.Server.Surface
 import Quasar.Wayland.Shared.Surface
 
 
-newtype WaylandServer = WaylandServer {
-  registry :: Registry
+newtype WaylandServer b = WaylandServer {
+  registry :: Registry b
 }
 
-newWaylandServer :: Monad m => Registry -> m WaylandServer
+newWaylandServer :: Monad m => Registry b -> m (WaylandServer b)
 newWaylandServer registry = pure WaylandServer { registry }
 
-data WaylandServerConnection = WaylandConnection {
+data WaylandServerConnection b = WaylandConnection {
   wlDisplay :: Object 'Server Interface_wl_display,
-  server :: WaylandServer,
+  server :: WaylandServer b,
   connection :: WaylandConnection 'Server
 }
 
 
-newWaylandServerConnection :: (MonadIO m, MonadQuasar m) => WaylandServer -> Socket -> m WaylandServerConnection
+newWaylandServerConnection ::
+  (MonadIO m, MonadQuasar m) =>
+  WaylandServer b -> Socket -> m (WaylandServerConnection b)
 newWaylandServerConnection server socket = do
   (wlDisplay, connection) <- newWaylandConnection newServerDisplay socket
   pure WaylandConnection {
@@ -56,7 +58,7 @@ newWaylandServerConnection server socket = do
       }
 
 
-listenAt :: (MonadIO m, MonadMask m, MonadQuasar m) => FilePath -> WaylandServer -> m ()
+listenAt :: (MonadIO m, MonadMask m, MonadQuasar m) => FilePath -> WaylandServer b -> m ()
 listenAt socketPath server = disposeOnError do
   var <- liftIO newEmptyTMVarIO
   async_ $ liftIO $ listenUnixPath socketPath (putTMVar var)
@@ -65,7 +67,7 @@ listenAt socketPath server = disposeOnError do
     newWaylandServerConnection server socket
 
 
-compositorGlobal :: forall b. RenderBackend b => Global
+compositorGlobal :: forall b. RenderBackend b => Global b
 compositorGlobal = createGlobal @Interface_wl_compositor maxVersion bindCompositor
   where
     bindCompositor :: Object 'Server Interface_wl_compositor -> STMc NoRetry '[SomeException] ()
@@ -77,7 +79,7 @@ compositorGlobal = createGlobal @Interface_wl_compositor maxVersion bindComposit
       create_region = \wlRegion -> liftSTMc $ initializeServerRegion wlRegion
     }
 
-subcompositorGlobal :: forall b. RenderBackend b => Global
+subcompositorGlobal :: forall b. RenderBackend b => Global b
 subcompositorGlobal = createGlobal @Interface_wl_subcompositor maxVersion bindCompositor
   where
     bindCompositor :: Object 'Server Interface_wl_subcompositor -> STMc NoRetry '[SomeException] ()

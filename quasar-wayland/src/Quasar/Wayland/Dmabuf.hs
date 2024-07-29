@@ -41,6 +41,7 @@ import Data.Set qualified as Set
 import Foreign
 import GHC.Records
 import Quasar.Disposer
+import Quasar.Disposer.Rc
 import Quasar.Future
 import Quasar.Prelude
 import Quasar.Wayland.Client
@@ -285,13 +286,22 @@ sharedDmabufExportWlBuffer dmabufSingleton dmabuf = do
 type ServerDmabufParams = TVar ServerDmabufParamsState
 type ServerDmabufParamsState = Maybe (Map Word32 DmabufPlane)
 
-dmabufGlobal :: forall b. IsDmabufBackend b => b -> [DrmFormat] -> DmabufFormatTable -> CompiledDmabufFeedback -> Global
-dmabufGlobal backend version1Formats version3FormatTable feedback =
-  createGlobal @Interface_zwp_linux_dmabuf_v1 4 initialize
+dmabufGlobal ::
+  forall b. IsDmabufBackend b =>
+  (b -> ([DrmFormat], DmabufFormatTable, CompiledDmabufFeedback)) ->
+  Global b
+dmabufGlobal getFormats =
+  createBackendGlobal @Interface_zwp_linux_dmabuf_v1 4 initialize
   where
-    initialize :: NewObject 'Server Interface_zwp_linux_dmabuf_v1 -> STMc NoRetry '[SomeException] ()
-    initialize wlLinuxDmabuf = do
-      wlLinuxDmabuf `setRequestHandler` dmabufHandler
+    initialize :: Rc b -> NewObject 'Server Interface_zwp_linux_dmabuf_v1 -> STMc NoRetry '[SomeException] ()
+    initialize origBackendRc wlLinuxDmabuf = do
+      (Owned backendDisposer backendRc) <- cloneRc origBackendRc
+      backend <- readRc backendRc
+      attachFinalizer wlLinuxDmabuf (disposeEventually_ backendDisposer)
+
+      let (version1Formats, version3FormatTable, feedback) = getFormats backend
+
+      wlLinuxDmabuf `setRequestHandler` dmabufHandler backendRc feedback
 
       when (wlLinuxDmabuf.version <= 3) do
         forM_ version1Formats \format -> do
@@ -301,8 +311,8 @@ dmabufGlobal backend version1Formats version3FormatTable feedback =
           forM_ version3FormatTable \(format, modifier) -> do
             wlLinuxDmabuf.modifier format.fourcc modifier.hi modifier.lo
 
-    dmabufHandler :: RequestHandler_zwp_linux_dmabuf_v1
-    dmabufHandler =
+    dmabufHandler :: Rc b -> CompiledDmabufFeedback -> RequestHandler_zwp_linux_dmabuf_v1
+    dmabufHandler backend feedback =
       RequestHandler_zwp_linux_dmabuf_v1 {
         destroy = pure (),
         create_params = initializeDmabufParams backend,
@@ -336,7 +346,7 @@ sendDmabufFeedback feedback wlFeedback = do
 
   wlFeedback.done
 
-initializeDmabufParams :: forall b. IsDmabufBackend b => b -> NewObject 'Server Interface_zwp_linux_buffer_params_v1 -> STMc NoRetry '[SomeException] ()
+initializeDmabufParams :: forall b. IsDmabufBackend b => Rc b -> NewObject 'Server Interface_zwp_linux_buffer_params_v1 -> STMc NoRetry '[SomeException] ()
 initializeDmabufParams backend wlDmabufParams = do
   var <- newTVar (Just mempty)
   wlDmabufParams `setRequestHandler` dmabufParamsHandler var
@@ -376,7 +386,7 @@ newServerDmabuf var width height (DrmFormat -> format) _flags@0 = do
       pure $ ownedDmabuf Dmabuf { width, height, format, planes }
 newServerDmabuf _ _ _ _ _ = throwM $ userError "zwp_linux_buffer_params_v1 flags (inverted, interlaced) are not supported"
 
-initializeDmabufBuffer :: forall b. IsDmabufBackend b => b -> ServerDmabufParams -> NewObject 'Server Interface_wl_buffer -> Int32 -> Int32 -> Word32 -> Word32 -> STMc NoRetry '[SomeException] ()
+initializeDmabufBuffer :: forall b. IsDmabufBackend b => Rc b -> ServerDmabufParams -> NewObject 'Server Interface_wl_buffer -> Int32 -> Int32 -> Word32 -> Word32 -> STMc NoRetry '[SomeException] ()
 initializeDmabufBuffer backend var wlBuffer width height format flags = do
   dmabuf <- newServerDmabuf var width height format flags
   liftSTMc do

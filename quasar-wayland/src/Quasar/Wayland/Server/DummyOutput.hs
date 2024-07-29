@@ -7,7 +7,7 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 
-dummyOutputGlobal :: Global
+dummyOutputGlobal :: Global b
 dummyOutputGlobal = createGlobal maxVersion initializeDummyOutput
 
 initializeDummyOutput :: NewObject 'Server Interface_wl_output -> STMc NoRetry '[SomeException] ()

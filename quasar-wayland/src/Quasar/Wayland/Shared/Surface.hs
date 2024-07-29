@@ -13,12 +13,7 @@ module Quasar.Wayland.Shared.Surface (
 
   -- * Buffer import backend
   IsBufferBackend(..),
-  ExternalFrame,
   createExternalBufferFrame,
-  readExternalFrame,
-  readExternalFrameIO,
-  readOwnedExternalFrame,
-  readOwnedExternalFrameIO,
 
   -- ** High-level usage
   newFrameConsumeBuffer,
@@ -53,15 +48,10 @@ class RenderBackend backend => IsBufferBackend buffer backend where
   -- Ownership of the resulting @ExternalBuffer@-object is transferred to the
   -- caller, who will ensure it is `dispose`d later.
   newExternalBuffer ::
-    backend -> Owned buffer -> STMc NoRetry '[] (Owned (ExternalBuffer buffer backend))
+    Owned (Rc backend) -> Owned buffer -> STMc NoRetry '[] (Owned (ExternalBuffer buffer backend))
 
-  -- | Create a backend-specific `Frame` from an `ExternalFrame`.
-  --
-  -- Ownership of the `ExternalFrame` is transferred to the callee, ownership
-  -- of the resulting `Frame` is transferred to the caller.
-  wrapExternalFrame :: Owned (ExternalFrame buffer backend) -> STMc NoRetry '[DisposedException] (Owned (Frame backend))
-
-data ExternalFrame buffer backend = ExternalFrame TDisposer (Rc (ExternalBuffer buffer backend))
+  -- | Create a backend-specific `Frame` from an `ExternalBuffer`.
+  importExternalBuffer :: Owned (ExternalBuffer buffer backend) -> STMc NoRetry '[DisposedException] (Owned (Frame backend))
 
 
 -- | Create a frame from an @ExternalBuffer@.
@@ -77,37 +67,11 @@ createExternalBufferFrame ::
   forall buffer backend.
   IsBufferBackend buffer backend =>
   TDisposer ->
-  Owned (Rc (ExternalBuffer buffer backend)) ->
+  Owned (ExternalBuffer buffer backend) ->
   STMc NoRetry '[DisposedException] (Owned (Frame backend))
-createExternalBufferFrame frameRelease (Owned disposer externalBufferRc) =
-  wrapExternalFrame @buffer @backend
-    (Owned (getDisposer frameRelease <> getDisposer disposer) (ExternalFrame frameRelease externalBufferRc))
-
-readExternalFrame ::
-  MonadSTMc NoRetry '[DisposedException] m =>
-  ExternalFrame buffer backend -> m (ExternalBuffer buffer backend)
-readExternalFrame (ExternalFrame _ var) = readRc var
-
-readExternalFrameIO ::
-  MonadIO m =>
-  ExternalFrame buffer backend -> m (ExternalBuffer buffer backend)
-readExternalFrameIO (ExternalFrame _ var) = readRcIO var
-
-readOwnedExternalFrame ::
-  MonadSTMc NoRetry '[DisposedException] m =>
-  Owned (ExternalFrame buffer backend) ->
-  m (Owned (ExternalBuffer buffer backend))
-readOwnedExternalFrame (Owned disposer (ExternalFrame _ var)) =
-  liftSTMc @NoRetry @'[DisposedException] do
-    Owned disposer <$> readRc var
-
-readOwnedExternalFrameIO ::
-  MonadIO m =>
-  Owned (ExternalFrame buffer backend) ->
-  m (Owned (ExternalBuffer buffer backend))
-readOwnedExternalFrameIO (Owned disposer (ExternalFrame _ var)) = liftIO do
-  Owned disposer <$> readRcIO var
-
+createExternalBufferFrame frameRelease (Owned disposer externalBuffer) =
+  importExternalBuffer @buffer @backend
+    (Owned (getDisposer frameRelease <> getDisposer disposer) externalBuffer)
 
 -- | Create a new frame by taking ownership of a buffer. The buffer will be
 -- disposed when the frame is disposed.
@@ -115,11 +79,11 @@ readOwnedExternalFrameIO (Owned disposer (ExternalFrame _ var)) = liftIO do
 -- The caller takes ownership of the resulting frame.
 newFrameConsumeBuffer ::
   forall buffer backend. IsBufferBackend buffer backend =>
-  backend -> Owned buffer -> STMc NoRetry '[DisposedException] (Owned (Frame backend))
-newFrameConsumeBuffer backend buffer = do
-  externalBuffer <- liftSTMc $ newExternalBuffer backend buffer
-  externalBufferRc <- newRc externalBuffer
-  createExternalBufferFrame @buffer @backend mempty externalBufferRc
+  Rc backend -> Owned buffer -> STMc NoRetry '[DisposedException] (Owned (Frame backend))
+newFrameConsumeBuffer origBackend buffer = do
+  backend <- cloneRc origBackend
+  externalBuffer <- liftSTMc $ newExternalBuffer @buffer @backend backend buffer
+  createExternalBufferFrame @buffer @backend mempty externalBuffer
 
 
 data Damage = DamageAll | DamageList [Rectangle]

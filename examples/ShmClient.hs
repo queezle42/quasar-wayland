@@ -18,6 +18,8 @@ import Quasar.Wayland.Shm
 main :: IO ()
 main = do
   _ <- runQuasarAndExit do
+    backend <- swallowDisposerIO $ newRcIO (pure ShmBufferBackend)
+
     traceIO "Connecting"
     client <- connectWaylandClient
     traceIO "Connected"
@@ -39,7 +41,7 @@ main = do
       configuration <- atomically $ readTMVar configurationVar
       let width = max configuration.width 512
       let height = max configuration.height 512
-      rawBuffer <- liftIO $ renderImage ShmBufferBackend (mkImage width height img)
+      rawBuffer <- liftIO $ renderImage backend (mkImage width height img)
       buffer <- newRcIO rawBuffer
       commit <- atomicallyC do
         commitWindowContent window configuration.configureSerial
@@ -139,7 +141,7 @@ mkImage width height fn = generateImage pixel (fromIntegral width) (fromIntegral
 
 renderImage ::
   IsShmBufferBackend b =>
-  b -> Image PixelRGBA8 -> IO (Owned (Frame b))
+  Rc b -> Image PixelRGBA8 -> IO (Owned (Frame b))
 renderImage backend image = do
   (buffer, ptr) <- newLocalShmBuffer (fromIntegral (imageWidth image)) (fromIntegral (imageHeight image))
   let

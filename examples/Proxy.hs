@@ -23,10 +23,10 @@ main = runQuasarAndExit do
   traceIO "Connected"
 
   quasar <- askQuasar
-  liftIO $ runInBoundThread do
 
-    skia <- liftIO $ initializeSkia @GL
+  skia <- swallowDisposerIO $ liftIO $ initializeSkia @GL
 
+  liftIO do
     --clientDmabuf <- atomically $ getClientDmabufSingleton client
     --(dmabufFormats, dmabufModifiers) <- awaitSupportedFormats clientDmabuf
 
@@ -35,16 +35,16 @@ main = runQuasarAndExit do
     let muxWM = WindowMultiplexerFactory [toWindowFactory (mapWindowManager wlClientWM), toWindowFactory wlClientWM]
 
     let globals =
-          skiaGlobals skia <> [
-            compositorGlobal @(Skia GL),
-            subcompositorGlobal @(Skia GL),
+          skiaGlobals <> [
+            compositorGlobal,
+            subcompositorGlobal,
             dummyOutputGlobal,
             dummySeatGlobal,
             dataDeviceManagerGlobal,
             xdgShellGlobal (mapWindowManager wlClientWM) -- muxWM
           ]
 
-    registry <- newRegistry globals
+    registry <- newRegistry skia globals
     server <- newWaylandServer registry
     runQuasarIO quasar do
       listenAt "example.socket" server

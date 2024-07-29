@@ -14,7 +14,7 @@ import Quasar.Wayland.Server.Surface
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
 
-xdgShellGlobal :: forall b w wm. IsWindowManager b w wm => wm -> Global
+xdgShellGlobal :: forall b w wm. IsWindowManager b w wm => wm -> Global b
 xdgShellGlobal wm =
   createGlobal @Interface_xdg_wm_base maxVersion (initializeXdgWmBase @b wm)
 

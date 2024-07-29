@@ -16,7 +16,7 @@ main :: IO ()
 main = do
   _ <- runQuasarAndExit do
 
-    skia <- liftIO $ initializeSkia @GL
+    skia <- swallowDisposerIO $ liftIO $ initializeSkia @GL
 
     traceIO "Connecting"
     client <- connectWaylandClient

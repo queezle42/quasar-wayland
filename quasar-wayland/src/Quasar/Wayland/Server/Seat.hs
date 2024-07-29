@@ -7,7 +7,7 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 
-dummySeatGlobal :: Global
+dummySeatGlobal :: Global b
 dummySeatGlobal = createGlobal maxVersion initializeDummySeat
 
 initializeDummySeat :: NewObject 'Server Interface_wl_seat -> STMc NoRetry '[SomeException] ()

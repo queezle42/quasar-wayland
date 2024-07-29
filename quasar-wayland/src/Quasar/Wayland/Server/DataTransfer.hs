@@ -7,7 +7,7 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 
-dataDeviceManagerGlobal :: Global
+dataDeviceManagerGlobal :: Global b
 dataDeviceManagerGlobal = createGlobal maxVersion initializeDataDeviceManager
 
 initializeDataDeviceManager :: NewObject 'Server Interface_wl_data_device_manager -> STMc NoRetry '[SomeException] ()

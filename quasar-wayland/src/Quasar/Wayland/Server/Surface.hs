@@ -219,35 +219,37 @@ addFrameCallback serverSurface wlCallback = do
 -- valid until they are destroyed).
 initializeWlBuffer ::
   forall buffer backend. IsBufferBackend buffer backend =>
-  backend ->
+  Rc backend ->
   NewObject 'Server Interface_wl_buffer ->
   Owned buffer ->
-  STMc NoRetry '[] ()
-initializeWlBuffer backend wlBuffer buffer = do
-  mappedBuffer <- newExternalBuffer backend buffer
-  rc <- newRc mappedBuffer
-  let serverBuffer = ServerBuffer {
-    wlBuffer,
-    createFrame = createFrameImpl (fromOwned rc)
-  }
-  setInterfaceData wlBuffer (serverBuffer :: ServerBuffer backend)
-  setRequestHandler wlBuffer RequestHandler_wl_buffer {
-    destroy = pure ()
-  }
-  -- TODO This removes back pressure for released buffers. We should await the
-  -- disposer somewhere in the chain of new buffer allocations.
-  -- The best place would probably be to delay the frame callback, but I'm not
-  -- sure how to do that in a clean way.
-  -- We don't want to delay the whole rendering backend (since that could be
-  -- rendering content for/from multiple clients).
-  attachOrRunFinalizer wlBuffer (disposeEventually_ rc)
+  STMc NoRetry '[DisposedException] ()
+initializeWlBuffer backendRc wlBuffer buffer = do
+  backend <- cloneRc backendRc
+  liftSTMc do
+    mappedBuffer <- newExternalBuffer backend buffer
+    rc <- newRc mappedBuffer
+    let serverBuffer = ServerBuffer {
+      wlBuffer,
+      createFrame = createFrameImpl (fromOwned rc)
+    }
+    setInterfaceData wlBuffer (serverBuffer :: ServerBuffer backend)
+    setRequestHandler wlBuffer RequestHandler_wl_buffer {
+      destroy = pure ()
+    }
+    -- TODO This removes back pressure for released buffers. We should await the
+    -- disposer somewhere in the chain of new buffer allocations.
+    -- The best place would probably be to delay the frame callback, but I'm not
+    -- sure how to do that in a clean way.
+    -- We don't want to delay the whole rendering backend (since that could be
+    -- rendering content for/from multiple clients).
+    attachOrRunFinalizer wlBuffer (disposeEventually_ rc)
 
   where
     createFrameImpl :: Rc (ExternalBuffer buffer backend) -> TDisposer -> STMc NoRetry '[DisposedException] (Owned (Frame backend))
     createFrameImpl rc frameRelease = do
       -- If duplicating the frame rc fails, the frame was created from an
       -- unmapped buffer, which would probably be a bug somewhere in this module.
-      dupedRc <- cloneRc rc
+      dupedRc <- cloneAndExtractRc rc
       createExternalBufferFrame @buffer @backend frameRelease dupedRc
 
 
