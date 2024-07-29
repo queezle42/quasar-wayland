@@ -20,7 +20,7 @@ module Quasar.Wayland.Shared.WindowApi (
 ) where
 
 import Data.ByteString qualified as BS
-import Quasar.Disposer (Disposable (getDisposer))
+import Quasar.Disposer
 import Quasar.Future (Future)
 import Quasar.Observable.Core (Observable, NoLoad)
 import Quasar.Prelude
@@ -45,7 +45,7 @@ class (RenderBackend b, Disposable a) => IsWindow b a | a -> b where
   -- Ownership of the frame lock is transferred to the window. The window must
   -- ensure the frame lock is disposed at an appropriate time, or resources will
   -- be leaked.
-  commitWindowContent :: a -> ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] (Future '[] ())
+  commitWindowContent :: a -> ConfigureSerial -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
   ackWindowConfigure :: a -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
 
 -- | Quantification wrapper for `IsWindow`.

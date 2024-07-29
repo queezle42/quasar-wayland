@@ -5,7 +5,7 @@ module Quasar.Wayland.Shared.FnWindowManager (
   toFnWindow,
 ) where
 
-import Quasar.Disposer (Disposer, Disposable(getDisposer))
+import Quasar.Disposer
 import Quasar.Future (Future)
 import Quasar.Prelude
 import Quasar.Wayland.Shared.Surface
@@ -17,7 +17,7 @@ newtype FnWindowManager b = FnWindowManager {
 
 data FnWindow b = FnWindow {
   setFullscreenFn :: Bool -> STMc NoRetry '[SomeException] (),
-  commitWindowContentFn :: ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] (Future '[] ()),
+  commitWindowContentFn :: ConfigureSerial -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ()),
   ackWindowConfigureFn :: ConfigureSerial -> STMc NoRetry '[SomeException] (),
   disposer :: Disposer
 }

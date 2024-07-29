@@ -147,7 +147,7 @@ newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} properties configu
 
   ClientXdgToplevel <$> newTDisposableVar state disposeClientXdgToplevel
 
-commitClientXdgToplevel :: forall b. ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> SurfaceCommit b -> STMc NoRetry '[SomeException] (Future '[] ())
+commitClientXdgToplevel :: forall b. ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
 commitClientXdgToplevel toplevel@(ClientXdgToplevel var) configureSerial surfaceCommit = do
   ackWindowConfigure @b toplevel configureSerial
   tryReadTDisposableVar var >>= \case

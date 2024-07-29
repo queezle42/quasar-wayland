@@ -42,7 +42,7 @@ shmGlobal backend = createGlobal @Interface_wl_shm maxVersion initializeWlShm
       pool <- newRc =<< newShmPool fd (toObservable sizeVar)
       attachFinalizer wlShmPool (disposeEventually_ pool)
       setRequestHandler wlShmPool RequestHandler_wl_shm_pool {
-        create_buffer = initializeWlShmBuffer pool,
+        create_buffer = initializeWlShmBuffer (fromOwned pool),
         destroy = disposeEventually_ pool,
         resize = \s -> do
           oldSize <- readObservableVar sizeVar

@@ -259,7 +259,7 @@ instance IsSkiaBackend s => ClientBufferBackend (Skia s) where
       dmabufSingleton
     }
 
-  renderFrame :: Rc (SkiaFrame s) -> IO (Rc (SkiaRenderedFrame s))
+  renderFrame :: Owned (Rc (SkiaFrame s)) -> IO (Owned (Rc (SkiaRenderedFrame s)))
   renderFrame frame = renderFrameInternal frame
 
   getExportBufferId ::
@@ -315,7 +315,7 @@ exportSkiaSurface manager surface = do
   dmabuf <- runSkiaIO surfaceState.skia.thread $ exportSkiaSurfaceDmabuf surfaceState
   atomicallyC $ consumeDmabufExportWlBuffer manager.dmabufSingleton dmabuf
 
-renderFrameInternal :: IsSkiaBackend s => Rc (SkiaFrame s) -> IO (Rc (SkiaRenderedFrame s))
+renderFrameInternal :: IsSkiaBackend s => Owned (Rc (SkiaFrame s)) -> IO (Owned (Rc (SkiaRenderedFrame s)))
 renderFrameInternal frameRc = do
   -- `consumeRc` holds ownership of the `SkiaFrame` until `cloneRc` of the
   -- `RenderedFrame` is cloned.
@@ -325,12 +325,10 @@ renderFrameInternal frameRc = do
         Nothing -> throwC mkDisposedException
         Just (Owned _ (SkiaFrameSparked frc)) -> pure frc
         Just (Owned operationDisposer (SkiaFrameLazy op)) -> do
-          frc <- cacheFuture =<< sparkFrameOp (Owned operationDisposer op)
-          disposer <- futureDisposerGeneric frc
-          -- Prevents the SkiaFrameOp from being disposed with the frame, which
-          -- is correct since ownership of the SkiaFrameOp has been passed to
-          -- `sparkFrameOp`.
-          tryWriteDisposableVar var (Owned disposer (SkiaFrameSparked frc))
+          ofrc <- cacheFuture =<< sparkFrameOp (Owned operationDisposer op)
+          rcDisposer <- futureDisposerGeneric ofrc
+          let frc = fromOwned <$> ofrc
+          tryWriteDisposableVar var (Owned rcDisposer (SkiaFrameSparked frc))
           pure frc
     renderedFrameRc <- await frc
     atomically do
@@ -342,7 +340,7 @@ renderFrameInternal frameRc = do
       cloneRc renderedFrameRc
 
 -- Takes ownership of the SkiaFrameOp.
-sparkFrameOp :: IsSkiaBackend s => Owned (SkiaFrameOp s) -> STM (Future '[AsyncException] (Rc (SkiaRenderedFrame s)))
+sparkFrameOp :: IsSkiaBackend s => Owned (SkiaFrameOp s) -> STM (Future '[AsyncException] (Owned (Rc (SkiaRenderedFrame s))))
 sparkFrameOp (Owned disposer (SkiaFrameExternalShm externalFrame)) = do
   (ExternalShmBuffer skia _ shmBuffer) <- readExternalFrame externalFrame
   queueSkiaIO skia.thread do
@@ -362,13 +360,13 @@ newFrameConsumeSurface surface = do
   renderedFrameRc <- newRcIO (SkiaRenderedFrameSurface <$> surface)
   newFrameFromRenderedFrameIO renderedFrameRc
 
-newFrameFromRenderedFrame :: Rc (SkiaRenderedFrame s) -> STMc NoRetry '[] (Owned (SkiaFrame s))
-newFrameFromRenderedFrame renderedFrameRc =
-  newSkiaFrame (Owned (getDisposer renderedFrameRc) (SkiaFrameSparked (pure renderedFrameRc)))
+newFrameFromRenderedFrame :: Owned (Rc (SkiaRenderedFrame s)) -> STMc NoRetry '[] (Owned (SkiaFrame s))
+newFrameFromRenderedFrame (Owned disposer renderedFrameRc) =
+  newSkiaFrame (Owned disposer (SkiaFrameSparked (pure renderedFrameRc)))
 
-newFrameFromRenderedFrameIO :: Rc (SkiaRenderedFrame s) -> IO (Owned (SkiaFrame s))
-newFrameFromRenderedFrameIO renderedFrameRc =
-  newSkiaFrameIO (Owned (getDisposer renderedFrameRc) (SkiaFrameSparked (pure renderedFrameRc)))
+newFrameFromRenderedFrameIO :: Owned (Rc (SkiaRenderedFrame s)) -> IO (Owned (SkiaFrame s))
+newFrameFromRenderedFrameIO (Owned disposer renderedFrameRc) =
+  newSkiaFrameIO (Owned disposer (SkiaFrameSparked (pure renderedFrameRc)))
 
 makeExportable :: Rc (SkiaRenderedFrame x) -> IO (SkiaFrame s)
 makeExportable = undefined
@@ -490,7 +488,7 @@ instance IsSkiaBackend s => IsBufferBackend Dmabuf (Skia s) where
   wrapExternalFrame externalFrame = liftSTMc do
     newSkiaFrame (SkiaFrameLazy . SkiaFrameExternalDmabuf <$> externalFrame)
 
-importDmabuf :: IsSkiaBackend s => Owned (ExternalFrame Dmabuf (Skia s)) -> SkiaIO (Rc (SkiaRenderedFrame s))
+importDmabuf :: IsSkiaBackend s => Owned (ExternalFrame Dmabuf (Skia s)) -> SkiaIO (Owned (Rc (SkiaRenderedFrame s)))
 importDmabuf (Owned extDisposer externalFrame) = do
   externalDmabuf@(ExternalDmabuf skia _ dmabuf) <- readExternalFrameIO externalFrame
 

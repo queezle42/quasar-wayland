@@ -119,16 +119,17 @@ commitMappedServerSurface surface mapped = do
       frameRelease <- newTDisposer (tryCall sb.wlBuffer.release)
 
       rawFrame <- liftSTMc $ sb.createFrame frameRelease
-      frame <- newRc rawFrame
+      (Owned disposer frame) <- newRc rawFrame
 
       -- TODO Instead of voiding the future we might want to delay the
       -- frameCallback?
-      liftSTMc $ void $ commitSurfaceDownstream mapped.surfaceDownstream SurfaceCommit {
-        frame,
-        offset,
-        bufferDamage = combinedDamage,
-        frameCallback
-      }
+      liftSTMc $ void $ commitSurfaceDownstream mapped.surfaceDownstream $
+        Owned disposer SurfaceCommit {
+          frame,
+          offset,
+          bufferDamage = combinedDamage,
+          frameCallback
+        }
 
 
 requireMappedSurface :: ServerSurface b -> STMc NoRetry '[SomeException] (MappedServerSurface b)
@@ -227,7 +228,7 @@ initializeWlBuffer backend wlBuffer buffer = do
   rc <- newRc mappedBuffer
   let serverBuffer = ServerBuffer {
     wlBuffer,
-    createFrame = createFrameImpl rc
+    createFrame = createFrameImpl (fromOwned rc)
   }
   setInterfaceData wlBuffer (serverBuffer :: ServerBuffer backend)
   setRequestHandler wlBuffer RequestHandler_wl_buffer {

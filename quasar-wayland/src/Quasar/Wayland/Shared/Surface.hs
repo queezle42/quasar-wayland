@@ -25,6 +25,7 @@ module Quasar.Wayland.Shared.Surface (
 
   -- * Reexports
   Rectangle(..),
+  Owned(..),
 ) where
 
 import Data.Typeable
@@ -76,10 +77,11 @@ createExternalBufferFrame ::
   forall buffer backend.
   IsBufferBackend buffer backend =>
   TDisposer ->
-  Rc (ExternalBuffer buffer backend) ->
+  Owned (Rc (ExternalBuffer buffer backend)) ->
   STMc NoRetry '[DisposedException] (Owned (Frame backend))
-createExternalBufferFrame frameRelease externalBufferRc = do
-  wrapExternalFrame @buffer @backend (Owned (getDisposer frameRelease <> getDisposer externalBufferRc) (ExternalFrame frameRelease externalBufferRc))
+createExternalBufferFrame frameRelease (Owned disposer externalBufferRc) =
+  wrapExternalFrame @buffer @backend
+    (Owned (getDisposer frameRelease <> getDisposer disposer) (ExternalFrame frameRelease externalBufferRc))
 
 readExternalFrame ::
   MonadSTMc NoRetry '[DisposedException] m =>
@@ -144,15 +146,10 @@ data SurfaceCommit b = SurfaceCommit {
   frameCallback :: Maybe (Word32 -> STMc NoRetry '[] ())
 }
 
--- | Release resources attached to this commit.
-instance Disposable (SurfaceCommit b) where
-  getDisposer commit = getDisposer commit.frame
-
--- | Merges two commits. Resources ownership related to the previous commit
--- is not changed.
-mergeCommits :: SurfaceCommit b -> SurfaceCommit b -> SurfaceCommit b
-mergeCommits prev next =
-  SurfaceCommit {
+-- | Merges two commits.
+mergeCommits :: SurfaceCommit b -> Owned (SurfaceCommit b) -> Owned (SurfaceCommit b)
+mergeCommits prev (Owned disposer next) = do
+  Owned disposer SurfaceCommit {
     frame = next.frame,
     offset = next.offset,
     bufferDamage = prev.bufferDamage <> next.bufferDamage,
@@ -176,7 +173,7 @@ class IsSurfaceDownstream b a | a -> b where
   -- Ownership of the frame lock is transferred to the callee. The callee must
   -- ensure the frame lock is disposed at an appropriate time, or resources will
   -- be leaked.
-  commitSurfaceDownstream :: a -> SurfaceCommit b -> STMc NoRetry '[SomeException] (Future '[] ())
+  commitSurfaceDownstream :: a -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
 
   -- | Called on a NULL surface commit.
   unmapSurfaceDownstream :: a -> STMc NoRetry '[SomeException] ()
@@ -187,10 +184,11 @@ instance IsSurfaceDownstream b (SurfaceDownstream b) where
   unmapSurfaceDownstream (SurfaceDownstream x) = unmapSurfaceDownstream x
 
 
-defaultSurfaceCommit :: Rc (Frame b) -> SurfaceCommit b
-defaultSurfaceCommit frame = SurfaceCommit {
-  frame,
-  offset = Nothing,
-  bufferDamage = Nothing,
-  frameCallback = Nothing
-}
+defaultSurfaceCommit :: Owned (Rc (Frame b)) -> Owned (SurfaceCommit b)
+defaultSurfaceCommit (Owned disposer frame) =
+  Owned disposer SurfaceCommit {
+    frame,
+    offset = Nothing,
+    bufferDamage = Nothing,
+    frameCallback = Nothing
+  }

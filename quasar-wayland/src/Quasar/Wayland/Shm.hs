@@ -119,7 +119,7 @@ instance ClientBufferBackend ShmBufferBackend where
 
   newBackendClientBufferManager = newClientShmManager
 
-  renderFrame :: Rc ShmBuffer -> IO (Rc ShmBuffer)
+  renderFrame :: Owned (Rc ShmBuffer) -> IO (Owned (Rc ShmBuffer))
   renderFrame = pure
 
   getExportBufferId :: ShmBuffer -> STMc NoRetry '[DisposedException] Unique

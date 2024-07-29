@@ -5,6 +5,7 @@ module Quasar.Wayland.Client.Backend (
 
 import Control.Monad.Catch
 import Data.Typeable (Typeable)
+import Quasar.Disposer
 import Quasar.Disposer.Rc
 import Quasar.Exceptions
 import Quasar.Future
@@ -36,7 +37,7 @@ class (RenderBackend b, Typeable (BackendClientBufferManager b), Hashable (Expor
   --
   -- The exported buffers contents should not change until it is unlocked by the
   -- caller.
-  renderFrame :: Rc (Frame b) -> IO (Rc (RenderedFrame b))
+  renderFrame :: Owned (Rc (Frame b)) -> IO (Owned (Rc (RenderedFrame b)))
 
   -- | Look up the identity for an `ExportBuffer`.
   --

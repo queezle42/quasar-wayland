@@ -46,12 +46,12 @@ main = do
       liftIO $ clearSkiaSurface (fromOwned surface)
 
       frame <- newRcIO =<< liftIO (newFrameConsumeSurface surface)
-      foo <- atomicallyC $ tryCloneRc frame
 
       commit <- atomicallyC do
-        commitWindowContent window configuration.configureSerial ((defaultSurfaceCommit @(Skia GL) frame) {
-          bufferDamage = Just DamageAll
-        })
+        commitWindowContent window configuration.configureSerial
+          (defaultSurfaceCommit @(Skia GL) frame <&> \c -> c {
+            bufferDamage = Just DamageAll
+          })
 
       delay <- newDelay 16000
       await commit
@@ -59,8 +59,6 @@ main = do
       traceIO "#################################################"
 
       await delay
-
-      mapM_ dispose foo
 
     traceIO "Closing"
   traceIO "Closed"

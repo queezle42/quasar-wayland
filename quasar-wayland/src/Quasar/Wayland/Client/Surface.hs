@@ -151,7 +151,7 @@ data ClientSurface b = ClientSurface {
 }
 
 data PendingCommit b = PendingCommit {
-  commit :: SurfaceCommit b,
+  commit :: Owned (SurfaceCommit b),
   commitCompletedPromise :: Promise ()
 }
 
@@ -235,7 +235,7 @@ instance ClientBufferBackend b => IsSurfaceDownstream b (ClientSurface b) where
   unmapSurfaceDownstream = undefined
 
 commitClientSurface ::
-  ClientSurface b -> SurfaceCommit b -> STMc NoRetry '[SomeException] (Future '[] ())
+  ClientSurface b -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
 commitClientSurface surface commit = do
   readTVar surface.pendingCommit >>= \case
 
@@ -253,15 +253,17 @@ commitClientSurface surface commit = do
     -- There is a pending commit. Pending commits are not being processed yet,
     -- so the pending commit can be replaced.
     Just pending -> do
+      let Owned pendingDisposer pendingCommit = pending.commit
+
       -- Release resources attached to previous SurfaceCommit
-      disposerFuture <- disposeEventually pending.commit
+      disposerFuture <- disposeEventually pendingDisposer
       modifyTVar surface.pendingDisposerFuture (<> disposerFuture)
 
       -- Reuse promise, so skipped commits will also be signalled once a newer
       -- commit is completed.
       let commitCompletedPromise = pending.commitCompletedPromise
       let newPending = PendingCommit {
-        commit = mergeCommits pending.commit commit,
+        commit = mergeCommits pendingCommit commit,
         commitCompletedPromise
       }
       writeTVar surface.pendingCommit (Just newPending)
@@ -278,19 +280,19 @@ clientSurfaceCommitWorker surface = forever do
 
 commitPendingCommit :: forall b. ClientBufferBackend b => ClientSurface b -> PendingCommit b -> IO ()
 commitPendingCommit surface pendingCommit = do
-  -- Wait for resources from skipped frames to be disposed. This might prevent
-  -- a memory leak under pressure.
+  -- Wait for resources from skipped frames to be disposed. This is a safeguard
+  -- to prevent a memory leak under pressure.
   await =<< atomically (swapTVar surface.pendingDisposerFuture mempty)
 
-  let commit = pendingCommit.commit
+  let (Owned disposer commit) = pendingCommit.commit
   -- TODO catch exceptions and redirect to client owner (so the shared surface can continue to work when one backend fails)
 
   -- TODO wl_surface v5 offset changes
 
-  isFrameDestroyed <- atomicallyC $ isJust <$> peekFuture (isDisposed commit.frame)
+  isFrameDestroyed <- atomicallyC $ isJust <$> peekFuture (toFuture commit.frame)
   when isFrameDestroyed $ throwM (userError "commitPendingCommit was called with a destroyed frame")
 
-  renderedFrame <- renderFrame @b commit.frame
+  renderedFrame <- renderFrame @b (Owned disposer commit.frame)
 
   ownedRenderedFrame <- atomically $ extractRc renderedFrame
 
