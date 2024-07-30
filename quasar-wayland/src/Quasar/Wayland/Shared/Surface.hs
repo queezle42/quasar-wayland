@@ -16,10 +16,8 @@ module Quasar.Wayland.Shared.Surface (
   Owned(..),
 ) where
 
-import Data.Typeable
 import Quasar.Disposer
 import Quasar.Disposer.Rc
-import Quasar.Exceptions
 import Quasar.Future (Future)
 import Quasar.Prelude
 import Quasar.Wayland.Backend
