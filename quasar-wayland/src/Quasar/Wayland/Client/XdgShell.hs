@@ -34,7 +34,7 @@ import Quasar.Wayland.Shared.WindowApi
 
 type ClientWindowManager :: Type -> Type
 data ClientWindowManager b = ClientWindowManager {
-  client :: WaylandClient,
+  client :: WaylandClient b,
   wlXdgWmBase :: Object 'Client Interface_xdg_wm_base
 }
 
@@ -75,7 +75,7 @@ withState (ClientXdgToplevel var) action = tryReadTDisposableVar var >>= mapM_ a
 
 
 
-newClientWindowManager :: WaylandClient -> STMc NoRetry '[SomeException] (ClientWindowManager b)
+newClientWindowManager :: WaylandClient b -> STMc NoRetry '[SomeException] (ClientWindowManager b)
 newClientWindowManager client = do
   wlXdgWmBase <- bindSingleton client.registry maxVersion
   setEventHandler wlXdgWmBase EventHandler_xdg_wm_base {
@@ -83,7 +83,7 @@ newClientWindowManager client = do
   }
   pure ClientWindowManager { client, wlXdgWmBase }
 
-getClientWindowManager :: forall b. ClientBufferBackend b => WaylandClient -> STMc NoRetry '[SomeException] (ClientWindowManager b)
+getClientWindowManager :: forall b. ClientBufferBackend b => WaylandClient b -> STMc NoRetry '[SomeException] (ClientWindowManager b)
 getClientWindowManager client = getClientComponent (newClientWindowManager @b client) client
 
 

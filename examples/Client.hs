@@ -19,7 +19,7 @@ main = do
     skia <- swallowDisposerIO $ liftIO $ initializeSkia @GL
 
     traceIO "Connecting"
-    client <- connectWaylandClient
+    client <- connectWaylandClient @(Skia GL)
     traceIO "Connected"
 
     configurationVar <- newEmptyTMVarIO
@@ -31,7 +31,7 @@ main = do
     }
 
     window <- atomicallyC do
-      windowManager <- getClientWindowManager @(Skia GL) client
+      windowManager <- getClientWindowManager client
       newWindow windowManager properties (writeTMVar configurationVar) (\WindowRequestClose -> writeTVar shouldClose True)
 
     frameId <- newTVarIO 0

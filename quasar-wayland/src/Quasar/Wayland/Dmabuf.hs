@@ -205,11 +205,11 @@ data ClientDmabufSingleton = ClientDmabufSingleton {
   dmabufModifiers :: TVar (Set (DrmFormat, DrmModifier))
 }
 
-getClientDmabufSingleton :: WaylandClient -> STMc NoRetry '[SomeException] ClientDmabufSingleton
+getClientDmabufSingleton :: WaylandClient b -> STMc NoRetry '[SomeException] ClientDmabufSingleton
 getClientDmabufSingleton client =
   getClientComponent (newClientDmabufSingleton client) client
 
-newClientDmabufSingleton :: WaylandClient -> STMc NoRetry '[SomeException] ClientDmabufSingleton
+newClientDmabufSingleton :: WaylandClient b -> STMc NoRetry '[SomeException] ClientDmabufSingleton
 newClientDmabufSingleton client = do
   zwpLinuxDmabuf <- bindSingleton @Interface_zwp_linux_dmabuf_v1 client.registry 4
   dmabufFormats <- newTVar mempty

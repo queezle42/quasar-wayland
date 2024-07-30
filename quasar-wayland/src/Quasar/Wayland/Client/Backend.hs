@@ -19,7 +19,7 @@ class (RenderBackend b, Typeable (BackendClientBufferManager b), Hashable (Expor
   type BackendClientBufferManager b
   type ExportBufferId b
   type RenderedFrame b
-  newBackendClientBufferManager :: WaylandClient -> STMc NoRetry '[SomeException] (BackendClientBufferManager b)
+  newBackendClientBufferManager :: WaylandClient b -> STMc NoRetry '[SomeException] (BackendClientBufferManager b)
 
   -- | Render a frame into a buffer. The frame might be rendered into a new-,
   -- or into an existing buffer (chosen by the implementation of `renderFrame`).
@@ -81,6 +81,6 @@ class (RenderBackend b, Typeable (BackendClientBufferManager b), Hashable (Expor
   getExportBufferDestroyedFuture :: RenderedFrame b -> STMc NoRetry '[] (Future '[] ())
 
 
-getBackendClientBufferManager :: forall b. ClientBufferBackend b => WaylandClient -> STMc NoRetry '[SomeException] (BackendClientBufferManager b)
+getBackendClientBufferManager :: forall b. ClientBufferBackend b => WaylandClient b -> STMc NoRetry '[SomeException] (BackendClientBufferManager b)
 getBackendClientBufferManager client =
   getClientComponent (newBackendClientBufferManager @b client) client

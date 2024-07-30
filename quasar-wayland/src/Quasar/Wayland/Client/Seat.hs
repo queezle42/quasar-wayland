@@ -18,10 +18,10 @@ data Seat = Seat {
   name :: Future '[] String
 }
 
-getSeats :: WaylandClient -> STMc NoRetry '[] (ObservableList NoLoad '[] Seat)
+getSeats :: WaylandClient b -> STMc NoRetry '[] (ObservableList NoLoad '[] Seat)
 getSeats client = getClientComponent (newSeatList client) client
 
-newSeatList :: WaylandClient -> STMc NoRetry '[] (ObservableList NoLoad '[] Seat)
+newSeatList :: WaylandClient b -> STMc NoRetry '[] (ObservableList NoLoad '[] Seat)
 newSeatList client = ObservableList.share (traverseGlobals client.registry 9 initializeSeat finalizeSeat)
 
 initializeSeat ::

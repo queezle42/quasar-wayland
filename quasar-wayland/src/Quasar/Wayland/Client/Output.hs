@@ -19,10 +19,10 @@ data Output = Output {
   description :: Observable NoLoad '[] String
 }
 
-getOutputs :: WaylandClient -> STMc NoRetry '[] (ObservableList NoLoad '[] Output)
+getOutputs :: WaylandClient b -> STMc NoRetry '[] (ObservableList NoLoad '[] Output)
 getOutputs client = getClientComponent (newOutputList client) client
 
-newOutputList :: WaylandClient -> STMc NoRetry '[] (ObservableList NoLoad '[] Output)
+newOutputList :: WaylandClient b -> STMc NoRetry '[] (ObservableList NoLoad '[] Output)
 newOutputList client = ObservableList.share (traverseGlobals client.registry 4 initializeOutput finalizeOutput)
 
 initializeOutput ::

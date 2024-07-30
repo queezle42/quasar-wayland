@@ -29,22 +29,23 @@ import Quasar.Wayland.Protocol.Generated
 import Type.Reflection (SomeTypeRep, someTypeRep)
 
 
-data WaylandClient = WaylandClient {
+data WaylandClient b = WaylandClient {
   connection :: WaylandConnection 'Client,
   wlDisplay :: Object 'Client Interface_wl_display,
   registry :: Registry,
   globals :: TVar (Map SomeTypeRep Dynamic)
 }
 
-instance Disposable WaylandClient where
+instance Disposable (WaylandClient b) where
   getDisposer client = getDisposer client.connection
 
-connectWaylandClient :: (MonadIO m, MonadQuasar m) => m WaylandClient
+connectWaylandClient ::
+  forall b m. (MonadIO m, MonadQuasar m) => m (WaylandClient b)
 connectWaylandClient = liftQuasarIO $ mask_ do
   socket <- liftIO connectWaylandSocket
   newWaylandClient socket
 
-newWaylandClient :: (MonadIO m, MonadQuasar m) => Socket -> m WaylandClient
+newWaylandClient :: (MonadIO m, MonadQuasar m) => Socket -> m (WaylandClient b)
 newWaylandClient socket = do
   ((wlDisplay, registryFuture), connection) <- newWaylandConnection newClientDisplay socket
 
@@ -75,16 +76,16 @@ newWaylandClient socket = do
       }
 
 
-instance HasField "sync" WaylandClient (STMc NoRetry '[SomeException] (FutureEx '[SomeException] ())) where
+instance HasField "sync" (WaylandClient b) (STMc NoRetry '[SomeException] (FutureEx '[SomeException] ())) where
   getField client = lowLevelSyncFuture client.wlDisplay
 
 
 -- | Get or create a client component; only one component of the same type will be created.
 getClientComponent ::
-  forall a m.
+  forall a b m.
   (Typeable a, MonadSTMc NoRetry '[] m) =>
   m a ->
-  WaylandClient -> m a
+  WaylandClient b -> m a
 getClientComponent initFn client = do
   globals <- readTVar client.globals
   case Map.lookup key globals of

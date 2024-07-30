@@ -164,13 +164,13 @@ data ClientBuffer b = ClientBuffer {
 
 getClientSurfaceManager ::
   ClientBufferBackend b =>
-  WaylandClient -> STMc NoRetry '[SomeException] (ClientSurfaceManager b)
+  WaylandClient b -> STMc NoRetry '[SomeException] (ClientSurfaceManager b)
 getClientSurfaceManager client =
   getClientComponent (newClientSurfaceManager client) client
 
 newClientSurfaceManager ::
   forall b. ClientBufferBackend b =>
-  WaylandClient -> STMc NoRetry '[SomeException] (ClientSurfaceManager b)
+  WaylandClient b -> STMc NoRetry '[SomeException] (ClientSurfaceManager b)
 newClientSurfaceManager client = do
   backend <- getBackendClientBufferManager @b client
   bufferMap <- newTVar mempty
@@ -182,7 +182,7 @@ newClientSurfaceManager client = do
   }
 
 newWlCompositor ::
-  WaylandClient ->
+  WaylandClient b ->
   STMc NoRetry '[SomeException] (Object 'Client Interface_wl_compositor)
 newWlCompositor client = do
   wlCompositor <- bindSingleton client.registry maxVersion
@@ -193,7 +193,7 @@ newWlCompositor client = do
 
 newClientSurface ::
   ClientBufferBackend b =>
-  WaylandClient ->
+  WaylandClient b ->
   (Object 'Client Interface_wl_surface -> STMc NoRetry '[SomeException] a) ->
   STMc NoRetry '[SomeException] (ClientSurface b, a)
 newClientSurface client initializeSurfaceRoleFn = do

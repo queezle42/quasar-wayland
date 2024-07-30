@@ -155,7 +155,7 @@ instance Hashable ClientShmManager where
   hashWithSalt salt x = hashWithSalt salt x.key
 
 
-newClientShmManager :: WaylandClient -> STMc NoRetry '[SomeException] ClientShmManager
+newClientShmManager :: WaylandClient b -> STMc NoRetry '[SomeException] ClientShmManager
 newClientShmManager client = do
   key <- newUniqueSTM
   wlShm <- bindSingleton client.registry maxVersion

@@ -19,18 +19,17 @@ import Quasar.Wayland.Skia.GL
 
 main :: IO ()
 main = runQuasarAndExit do
-  client <- connectWaylandClient
-  traceIO "Connected"
+  skia <- swallowDisposerIO $ liftIO $ initializeSkia @GL
+
+  client <- connectWaylandClient @(Skia GL)
 
   quasar <- askQuasar
-
-  skia <- swallowDisposerIO $ liftIO $ initializeSkia @GL
 
   liftIO do
     --clientDmabuf <- atomically $ getClientDmabufSingleton client
     --(dmabufFormats, dmabufModifiers) <- awaitSupportedFormats clientDmabuf
 
-    wlClientWM <- atomicallyC $ getClientWindowManager @(Skia GL) client
+    wlClientWM <- atomicallyC $ getClientWindowManager client
 
     let muxWM = WindowMultiplexerFactory [toWindowFactory (mapWindowManager wlClientWM), toWindowFactory wlClientWM]
 
