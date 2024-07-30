@@ -112,7 +112,7 @@ withSharedFds (x:xs) fn = withSharedFd x \fd -> withSharedFds xs (fn . (fd :))
 -- | Create a new `SharedFd` that references the same file descriptor as another
 -- SharedFd.
 duplicateSharedFd :: SharedFd -> STMc NoRetry '[SomeException] SharedFd
-duplicateSharedFd fd@(SharedFd _ showData) = do
+duplicateSharedFd fd = do
   rc <- getFdRc fd
   incRc rc
   var <- newFnDisposableVar loggingExceptionSink (decRc closeFd (const (pure ()))) rc
@@ -141,7 +141,7 @@ disposeSharedFd (SharedFd var _) = dispose var
 -- Will throw an exception if `disposeSharedFd` or `unshareSharedFd` have been
 -- called on this `SharedFd` before.
 unshareSharedFd :: HasCallStack => SharedFd -> IO Fd
-unshareSharedFd s@(SharedFd var _) = do
+unshareSharedFd s = do
   rc <- atomicallyC do
     rc <- getFdRc s
     incRc rc

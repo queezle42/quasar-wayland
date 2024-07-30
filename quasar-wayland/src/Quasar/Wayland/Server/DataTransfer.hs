@@ -21,7 +21,7 @@ initializeDataDevice ::
   NewObject 'Server Interface_wl_data_device ->
   Object 'Server Interface_wl_seat ->
   STMc NoRetry '[SomeException] ()
-initializeDataDevice wlDataDevice wlSeat = do
+initializeDataDevice wlDataDevice _wlSeat = do
   wlDataDevice `setRequestHandler` RequestHandler_wl_data_device {
     start_drag = undefined,
     set_selection = undefined,

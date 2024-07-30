@@ -73,7 +73,7 @@ getServerSurface wlSurface =
     Nothing -> throwM (userError "Invalid server surface")
     Just serverSurface -> pure serverSurface
 
-commitServerSurface :: RenderBackend b => ServerSurface b -> STMc NoRetry '[SomeException] ()
+commitServerSurface :: ServerSurface b -> STMc NoRetry '[SomeException] ()
 commitServerSurface serverSurface = do
   readTVar serverSurface.state >>= \case
     Unmapped -> throwM $ userError "Cannot commit a surface that does not have a role"
@@ -96,7 +96,7 @@ mapServerSurface pending = do
     pendingSurfaceDamage
   }
 
-commitMappedServerSurface :: forall b. RenderBackend b => ServerSurface b -> MappedServerSurface b -> STMc NoRetry '[SomeException] ()
+commitMappedServerSurface :: forall b. ServerSurface b -> MappedServerSurface b -> STMc NoRetry '[SomeException] ()
 commitMappedServerSurface surface mapped = do
   serverBuffer <- swapTVar mapped.pendingBuffer Nothing
   offset <- swapTVar mapped.pendingOffset Nothing
@@ -284,7 +284,7 @@ removeSurfaceRole surface = undefined
 
 
 
-data ServerSubsurface b = ServerSubsurface (ServerSurface b)
+newtype ServerSubsurface b = ServerSubsurface (ServerSurface b)
 
 instance IsSurfaceDownstream b (ServerSubsurface b) where
   commitSurfaceDownstream _self _commit = pure () <$ traceM "Subsurface committed"

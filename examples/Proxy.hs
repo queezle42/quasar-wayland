@@ -1,6 +1,5 @@
 module Main (main) where
 
-import Control.Concurrent
 import Quasar
 import Quasar.Prelude
 import Quasar.Wayland.Client
