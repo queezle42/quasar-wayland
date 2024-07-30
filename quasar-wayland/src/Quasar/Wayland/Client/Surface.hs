@@ -6,6 +6,9 @@ module Quasar.Wayland.Client.Surface (
   ClientSurface,
   newClientSurface,
 
+  -- * Backend
+  getBackendClientBufferManager,
+
   -- * Reexport
   ClientBufferBackend(..),
 ) where
@@ -19,8 +22,8 @@ import Quasar.Disposer.Rc
 import Quasar.Exceptions.ExceptionSink (loggingExceptionSink)
 import Quasar.Future
 import Quasar.Prelude
+import Quasar.Wayland.Backend
 import Quasar.Wayland.Client
-import Quasar.Wayland.Client.Backend
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (appRect)
@@ -162,6 +165,11 @@ data ClientBuffer b = ClientBuffer {
   state :: TVar ClientBufferState
 }
 
+getBackendClientBufferManager :: forall b. ClientBufferBackend b => WaylandClient b -> STMc NoRetry '[SomeException] (BackendClientBufferManager b)
+getBackendClientBufferManager client = do
+  clientSurfaceManager <- getClientSurfaceManager client
+  pure clientSurfaceManager.backend
+
 getClientSurfaceManager ::
   ClientBufferBackend b =>
   WaylandClient b -> STMc NoRetry '[SomeException] (ClientSurfaceManager b)
@@ -172,7 +180,7 @@ newClientSurfaceManager ::
   forall b. ClientBufferBackend b =>
   WaylandClient b -> STMc NoRetry '[SomeException] (ClientSurfaceManager b)
 newClientSurfaceManager client = do
-  backend <- getBackendClientBufferManager @b client
+  backend <- newBackendClientBufferManager @b client
   bufferMap <- newTVar mempty
   wlCompositor <- getClientComponent @(Object 'Client Interface_wl_compositor) (liftSTMc (newWlCompositor client)) client
   pure ClientSurfaceManager {

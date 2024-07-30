@@ -25,11 +25,10 @@ import Quasar.Exceptions
 import Quasar.Future
 import Quasar.Observable.Core
 import Quasar.Prelude
+import Quasar.Wayland.Backend
 import Quasar.Wayland.Client
-import Quasar.Wayland.Client.Backend
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
-import Quasar.Wayland.Shared.Surface
 
 -- | Simple buffer backend that only supports shared memory buffers.
 data ShmBufferBackend = ShmBufferBackend

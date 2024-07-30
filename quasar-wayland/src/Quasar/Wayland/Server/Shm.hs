@@ -7,11 +7,11 @@ import Quasar.Disposer.Rc
 import Quasar.Observable.Core
 import Quasar.Observable.ObservableVar
 import Quasar.Prelude
+import Quasar.Wayland.Backend
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Surface
-import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shm
 
 

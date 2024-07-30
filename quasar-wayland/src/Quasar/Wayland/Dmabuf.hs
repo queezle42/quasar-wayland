@@ -44,12 +44,12 @@ import Quasar.Disposer
 import Quasar.Disposer.Rc
 import Quasar.Future
 import Quasar.Prelude
+import Quasar.Wayland.Backend
 import Quasar.Wayland.Client
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Surface
-import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Utils.SharedFd
 import Quasar.Wayland.Utils.SharedMemory
 import Quasar.Wayland.Utils.Stat (DevT(..))

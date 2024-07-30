@@ -16,6 +16,7 @@ import Quasar.Disposer
 import Quasar.Disposer.Rc
 import Quasar.Exceptions
 import Quasar.Prelude
+import Quasar.Wayland.Backend
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Region (appAsRect)

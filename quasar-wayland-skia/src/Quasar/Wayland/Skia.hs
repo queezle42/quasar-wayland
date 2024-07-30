@@ -41,14 +41,13 @@ import Quasar.Exceptions.ExceptionSink (loggingExceptionSink)
 import Quasar.Future
 import Quasar.Observable.Core (readObservable)
 import Quasar.Prelude
+import Quasar.Wayland.Backend
 import Quasar.Wayland.Client
-import Quasar.Wayland.Client.Backend
 import Quasar.Wayland.Dmabuf
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry (Global)
 import Quasar.Wayland.Server.Shm (shmGlobal)
-import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shm
 import Quasar.Wayland.SinglePixelBuffer
 import Quasar.Wayland.Skia.CTypes

@@ -7,6 +7,7 @@ import Quasar
 import Quasar.Disposer.Rc
 import Quasar.Prelude
 import Quasar.Timer
+import Quasar.Wayland.Backend
 import Quasar.Wayland.Client
 import Quasar.Wayland.Client.ShmBuffer
 import Quasar.Wayland.Client.XdgShell

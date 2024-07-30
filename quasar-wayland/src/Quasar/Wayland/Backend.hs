@@ -1,6 +1,13 @@
-module Quasar.Wayland.Client.Backend (
+module Quasar.Wayland.Backend (
+  RenderBackend(..),
   ClientBufferBackend(..),
-  getBackendClientBufferManager,
+
+  -- * External buffer import
+  IsBufferBackend(..),
+  createExternalBufferFrame,
+
+  -- ** High-level usage
+  newFrameConsumeBuffer,
 ) where
 
 import Control.Monad.Catch
@@ -13,7 +20,12 @@ import Quasar.Prelude
 import Quasar.Wayland.Client
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
-import Quasar.Wayland.Shared.Surface
+
+type RenderBackend :: Type -> Constraint
+class Typeable b => RenderBackend b where
+  type Frame b :: Type
+
+
 
 class (RenderBackend b, Typeable (BackendClientBufferManager b), Hashable (ExportBufferId b)) => ClientBufferBackend b where
   type BackendClientBufferManager b
@@ -81,6 +93,51 @@ class (RenderBackend b, Typeable (BackendClientBufferManager b), Hashable (Expor
   getExportBufferDestroyedFuture :: RenderedFrame b -> STMc NoRetry '[] (Future '[] ())
 
 
-getBackendClientBufferManager :: forall b. ClientBufferBackend b => WaylandClient b -> STMc NoRetry '[SomeException] (BackendClientBufferManager b)
-getBackendClientBufferManager client =
-  getClientComponent (newBackendClientBufferManager @b client) client
+
+class RenderBackend backend => IsBufferBackend buffer backend where
+  type ExternalBuffer buffer backend
+  type instance ExternalBuffer buffer _backend = buffer
+
+  -- | Import an external buffer. The buffer may be mutable shared memory.
+  --
+  -- Takes ownership of the provided buffer object (the buffer has to be
+  -- disposed by the ExternalBuffer when that is disposed).
+  --
+  -- Ownership of the resulting @ExternalBuffer@-object is transferred to the
+  -- caller, who will ensure it is `dispose`d later.
+  newExternalBuffer ::
+    Owned (Rc backend) -> Owned buffer -> STMc NoRetry '[] (Owned (ExternalBuffer buffer backend))
+
+  -- | Create a backend-specific `Frame` from an `ExternalBuffer`.
+  importExternalBuffer :: Owned (ExternalBuffer buffer backend) -> STMc NoRetry '[DisposedException] (Owned (Frame backend))
+
+
+-- | Create a frame from an @ExternalBuffer@.
+--
+-- The `TDisposer` argument is used to signal the frame release and will be
+-- disposed when the frame is disposed.
+--
+-- Ownership of the `ExternalBuffer` rc is transferred to the callee, it will
+-- also be disposed when the frame is disposed.
+--
+-- Intended for internal use.
+createExternalBufferFrame ::
+  forall buffer backend.
+  IsBufferBackend buffer backend =>
+  TDisposer ->
+  Owned (ExternalBuffer buffer backend) ->
+  STMc NoRetry '[DisposedException] (Owned (Frame backend))
+createExternalBufferFrame frameRelease (Owned disposer externalBuffer) =
+  importExternalBuffer @buffer @backend
+    (Owned (getDisposer frameRelease <> getDisposer disposer) externalBuffer)
+
+-- | Create a new frame by taking ownership of a buffer.
+--
+-- The caller takes ownership of the resulting frame.
+newFrameConsumeBuffer ::
+  forall buffer backend. IsBufferBackend buffer backend =>
+  Rc backend -> Owned buffer -> STMc NoRetry '[DisposedException] (Owned (Frame backend))
+newFrameConsumeBuffer origBackend buffer = do
+  backend <- cloneRc origBackend
+  externalBuffer <- liftSTMc $ newExternalBuffer @buffer @backend backend buffer
+  createExternalBufferFrame @buffer @backend mempty externalBuffer

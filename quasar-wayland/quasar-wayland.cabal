@@ -52,8 +52,8 @@ common shared-properties
 library
   import: shared-properties
   exposed-modules:
+    Quasar.Wayland.Backend
     Quasar.Wayland.Client
-    Quasar.Wayland.Client.Backend
     Quasar.Wayland.Client.Output
     Quasar.Wayland.Client.Registry
     Quasar.Wayland.Client.Seat
