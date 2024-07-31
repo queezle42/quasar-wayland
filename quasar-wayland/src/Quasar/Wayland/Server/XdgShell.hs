@@ -42,7 +42,8 @@ data XdgSurface b w wm = XdgSurface {
   xdgWmBase :: XdgWmBase b w wm,
   wlXdgSurface :: Object 'Server Interface_xdg_surface,
   serverSurface :: ServerSurface b,
-  hasRoleObject :: TVar Bool
+  hasRoleObject :: TVar Bool,
+  geometryVar :: TVar (Int32, Int32, Int32, Int32)
 }
 
 initializeXdgSurface ::
@@ -77,21 +78,23 @@ initializeXdgSurface' xdgWmBase wlXdgSurface serverSurface = do
   -- this part of the spec is ignored in this implementation. A role object is
   -- only set when creating a toplevel- or popup surface.
 
+  geometryVar <- newTVar (0, 0, 0, 0)
+
   hasRoleObject <- newTVar False
   let xdgSurface =
         XdgSurface {
           xdgWmBase,
           wlXdgSurface,
           serverSurface,
-          hasRoleObject
+          hasRoleObject,
+          geometryVar
         }
 
   setRequestHandler wlXdgSurface RequestHandler_xdg_surface {
     destroy = destroyXdgSurface xdgSurface,
     get_toplevel = \newToplevel -> liftSTMc $ initializeXdgToplevel xdgSurface newToplevel,
     get_popup = undefined,
-    -- TODO
-    set_window_geometry = \x y w h -> pure (),
+    set_window_geometry = \x y w h -> writeTVar geometryVar (x, y, w, h),
     -- TODO
     ack_configure = \_serial -> pure ()
   }
@@ -105,12 +108,23 @@ destroyXdgSurface xdgSurface =
 data XdgToplevel b w wm = XdgToplevel {
   window :: w,
   xdgSurface :: XdgSurface b w wm,
-  wlXdgToplevel :: Object 'Server Interface_xdg_toplevel
+  wlXdgToplevel :: Object 'Server Interface_xdg_toplevel,
+  maxSizeVar :: TVar (Int32, Int32),
+  minSizeVar :: TVar (Int32, Int32)
 }
 
 instance IsWindowManager b w wm => IsSurfaceDownstream b (XdgToplevel b w wm) where
-  commitSurfaceDownstream xdgToplevel surfaceCommit =
-    commitWindowContent xdgToplevel.window unsafeConfigureSerial surfaceCommit
+  commitSurfaceDownstream xdgToplevel (Owned disposer surfaceCommit) = do
+    minSize <- readTVar xdgToplevel.minSizeVar
+    maxSize <- readTVar xdgToplevel.minSizeVar
+    geometry <- readTVar xdgToplevel.xdgSurface.geometryVar
+    commitWindow xdgToplevel.window unsafeConfigureSerial $
+      Owned disposer $ WindowCommit {
+        surfaceCommit,
+        minSize,
+        maxSize,
+        geometry
+      }
   unmapSurfaceDownstream xdgToplevel = throwM (userError "TODO unmap xdg_toplevel")
 
 initializeXdgToplevel :: forall b w wm. IsWindowManager b w wm => XdgSurface b w wm -> NewObject 'Server Interface_xdg_toplevel -> STMc NoRetry '[SomeException] ()
@@ -119,10 +133,18 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
 
   void $ mfix \window -> do
 
+    titleVar <- newObservableVar ""
+    appIdVar <- newObservableVar ""
+
+    maxSizeVar <- newTVar (0, 0)
+    minSizeVar <- newTVar (0, 0)
+
     let xdgToplevel = XdgToplevel {
       window,
       xdgSurface,
-      wlXdgToplevel
+      wlXdgToplevel,
+      maxSizeVar,
+      minSizeVar
     }
 
     -- NOTE this throws if the surface role is changed
@@ -135,9 +157,6 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
     attachFinalizer wlXdgToplevel do
       void $ disposeEventually window
 
-    titleVar <- newObservableVar ""
-    appIdVar <- newObservableVar ""
-
     setRequestHandler wlXdgToplevel RequestHandler_xdg_toplevel {
       destroy = liftSTMc $ destroyXdgToplevel xdgToplevel,
       set_parent = undefined,
@@ -146,8 +165,8 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
       show_window_menu = undefined,
       move = undefined,
       resize = undefined,
-      set_max_size = undefined,
-      set_min_size = undefined,
+      set_max_size = \x y -> writeTVar maxSizeVar (x, y),
+      set_min_size = \x y -> writeTVar minSizeVar (x, y),
       set_maximized = undefined,
       unset_maximized = undefined,
       set_fullscreen = \_ -> liftSTMc $ setFullscreen window True,

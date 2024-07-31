@@ -19,7 +19,7 @@ module Quasar.Wayland.Client.XdgShell (
   WindowRequestCallback,
 ) where
 
-import Quasar.Disposer (Disposable (getDisposer), TDisposer)
+import Quasar.Disposer
 import Quasar.Disposer.DisposableVar
 import Quasar.Future (Future)
 import Quasar.Observable.Core (attachSimpleObserver)
@@ -47,7 +47,10 @@ data ClientXdgToplevelState b = ClientXdgToplevelState {
   xdgSurface :: Object 'Client Interface_xdg_surface,
   xdgToplevel :: Object 'Client Interface_xdg_toplevel,
   nextConfigureSerial :: TVar (Maybe Word32),
-  configurationAccumulator :: TVar WindowConfiguration
+  configurationAccumulator :: TVar WindowConfiguration,
+  geometry :: TVar (Int32, Int32, Int32, Int32),
+  minSize :: TVar (Int32, Int32),
+  maxSize :: TVar (Int32, Int32)
 }
 
 newtype ClientXdgToplevel b = ClientXdgToplevel (TDisposableVar (ClientXdgToplevelState b))
@@ -58,7 +61,7 @@ instance ClientBufferBackend b => IsWindow b (ClientXdgToplevel b) where
       if fullscreen
         then state.xdgToplevel.set_fullscreen Nothing
         else state.xdgToplevel.unset_fullscreen
-  commitWindowContent = commitClientXdgToplevel
+  commitWindow = commitClientXdgToplevel
   ackWindowConfigure = ackToplevelConfigure
 
 instance Disposable (ClientXdgToplevel b) where
@@ -136,23 +139,50 @@ newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} properties configu
 
     pure (xdgSurface, xdgToplevel, propertiesDisposer)
 
+  geometry <- newTVar (0, 0, 0, 0)
+  maxSize <- newTVar (0, 0)
+  minSize <- newTVar (0, 0)
+
   let state = ClientXdgToplevelState {
     clientSurface,
     xdgSurface,
     xdgToplevel,
     nextConfigureSerial,
     configurationAccumulator,
-    propertiesDisposer
+    propertiesDisposer,
+    geometry,
+    maxSize,
+    minSize
   }
 
   ClientXdgToplevel <$> newTDisposableVar state disposeClientXdgToplevel
 
-commitClientXdgToplevel :: forall b. ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
-commitClientXdgToplevel toplevel@(ClientXdgToplevel var) configureSerial surfaceCommit = do
+commitClientXdgToplevel :: forall b. ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> Owned (WindowCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
+commitClientXdgToplevel toplevel@(ClientXdgToplevel var) configureSerial (Owned disposer commit) = do
   ackWindowConfigure @b toplevel configureSerial
   tryReadTDisposableVar var >>= \case
-    Nothing -> pure (pure ())
-    Just state -> commitSurfaceDownstream state.clientSurface surfaceCommit
+    Nothing -> disposeEventually disposer
+    Just state -> do
+
+      let geometry@(x, y, w, h) = commit.geometry
+      lastGeometry <- readTVar state.geometry
+      when (commit.geometry /= lastGeometry) do
+        state.xdgSurface.set_window_geometry x y w h
+        writeTVar state.geometry geometry
+
+      let maxSize@(maxW, maxH) = commit.maxSize
+      lastMaxSize <- readTVar state.maxSize
+      when (commit.maxSize /= lastMaxSize) do
+        state.xdgToplevel.set_max_size maxW maxH
+        writeTVar state.maxSize maxSize
+
+      let minSize@(minW, minH) = commit.minSize
+      lastMinSize <- readTVar state.minSize
+      when (commit.minSize /= lastMinSize) do
+        state.xdgToplevel.set_min_size minW minH
+        writeTVar state.minSize minSize
+
+      commitSurfaceDownstream state.clientSurface (Owned disposer commit.surfaceCommit)
 
 ackToplevelConfigure :: ClientXdgToplevel b -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
 ackToplevelConfigure toplevel _configureSerial = do

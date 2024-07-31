@@ -45,8 +45,9 @@ main = do
       rawBuffer <- liftIO $ renderImage backend (mkImage width height img)
       buffer <- newRcIO rawBuffer
       commit <- atomicallyC do
-        commitWindowContent window configuration.configureSerial
-          (defaultSurfaceCommit @ShmBufferBackend buffer <&> \c -> c {bufferDamage = Just DamageAll})
+        commitWindow window configuration.configureSerial
+          (defaultWindowCommit
+            (defaultSurfaceCommit @ShmBufferBackend buffer <&> \c -> c {bufferDamage = Just DamageAll}))
 
       delay <- newDelay 1000000
       await commit

@@ -24,7 +24,7 @@ instance RenderBackend b => IsWindowManager b (DummyWindow b) (DummyWindowManage
 
 instance RenderBackend b => IsWindow b (DummyWindow b) where
   setFullscreen _window _fullscreen = pure ()
-  commitWindowContent _window _configureSerial _commit = pure () <$ traceM "Window comitted"
+  commitWindow _window _configureSerial _commit = pure () <$ traceM "Window comitted"
   ackWindowConfigure _window _configureSerial = traceM "Window configure acked"
 
 instance Disposable (DummyWindow b) where

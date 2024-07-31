@@ -17,7 +17,7 @@ newtype FnWindowManager b = FnWindowManager {
 
 data FnWindow b = FnWindow {
   setFullscreenFn :: Bool -> STMc NoRetry '[SomeException] (),
-  commitWindowContentFn :: ConfigureSerial -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ()),
+  commitWindowFn :: ConfigureSerial -> Owned (WindowCommit b) -> STMc NoRetry '[SomeException] (Future '[] ()),
   ackWindowConfigureFn :: ConfigureSerial -> STMc NoRetry '[SomeException] (),
   disposer :: Disposer
 }
@@ -27,7 +27,7 @@ instance RenderBackend b => IsWindowManager b (FnWindow b) (FnWindowManager b) w
 
 instance RenderBackend b => IsWindow b (FnWindow b) where
   setFullscreen = (.setFullscreenFn)
-  commitWindowContent = (.commitWindowContentFn)
+  commitWindow = (.commitWindowFn)
   ackWindowConfigure = (.ackWindowConfigureFn)
 
 instance Disposable (FnWindow b) where
@@ -41,7 +41,7 @@ toFnWindowManager upstream = FnWindowManager {
 toFnWindow :: forall b a. IsWindow b a => a -> FnWindow b
 toFnWindow upstream = FnWindow {
   setFullscreenFn = setFullscreen upstream,
-  commitWindowContentFn = commitWindowContent upstream,
+  commitWindowFn = commitWindow upstream,
   ackWindowConfigureFn = ackWindowConfigure upstream,
   disposer = getDisposer upstream
 }

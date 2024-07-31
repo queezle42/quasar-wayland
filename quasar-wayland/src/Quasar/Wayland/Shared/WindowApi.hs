@@ -6,6 +6,8 @@ module Quasar.Wayland.Shared.WindowApi (
 
   WindowProperties(..),
   defaultWindowProperties,
+  WindowCommit(..),
+  defaultWindowCommit,
   WindowConfiguration(..),
   WindowConfigurationCallback,
   defaultWindowConfiguration,
@@ -45,7 +47,7 @@ class (RenderBackend b, Disposable a) => IsWindow b a | a -> b where
   -- Ownership of the frame lock is transferred to the window. The window must
   -- ensure the frame lock is disposed at an appropriate time, or resources will
   -- be leaked.
-  commitWindowContent :: a -> ConfigureSerial -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
+  commitWindow :: a -> ConfigureSerial -> Owned (WindowCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
   ackWindowConfigure :: a -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
 
 -- | Quantification wrapper for `IsWindow`.
@@ -54,7 +56,7 @@ data Window b = forall a. IsWindow b a => Window a
 instance (RenderBackend b, Disposable (Window b)) => IsWindow b (Window b) where
   toWindow = id
   setFullscreen (Window w) = setFullscreen w
-  commitWindowContent (Window w) = commitWindowContent w
+  commitWindow (Window w) = commitWindow w
   ackWindowConfigure (Window w) = ackWindowConfigure w
 
 instance Disposable (Window b) where
@@ -72,6 +74,22 @@ defaultWindowProperties = WindowProperties {
   title = "",
   appId = ""
 }
+
+data WindowCommit b = WindowCommit {
+  surfaceCommit :: SurfaceCommit b,
+  geometry :: (Int32, Int32, Int32, Int32),
+  minSize :: (Int32, Int32),
+  maxSize :: (Int32, Int32)
+}
+
+defaultWindowCommit :: Owned (SurfaceCommit b) -> Owned (WindowCommit b)
+defaultWindowCommit =
+  fmap \surfaceCommit -> WindowCommit {
+    surfaceCommit,
+    geometry = (0, 0, 0, 0),
+    minSize = (0, 0),
+    maxSize = (0, 0)
+  }
 
 
 -- | NOTE Dummy implementation to encourage correct api design without actually implementing configure serials.
