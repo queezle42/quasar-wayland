@@ -4,6 +4,8 @@ module Quasar.Wayland.Server (
   newWaylandServer,
   newWaylandServerConnection,
   listenAt,
+
+  -- * Compositor globals
   compositorGlobal,
   subcompositorGlobal,
 ) where
@@ -15,11 +17,9 @@ import Quasar.Prelude
 import Quasar.Wayland.Connection
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
-import Quasar.Wayland.Region
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Socket
 import Quasar.Wayland.Server.Surface
-import Quasar.Wayland.Shared.Surface
 
 
 newtype WaylandServer b = WaylandServer {
@@ -65,28 +65,3 @@ listenAt socketPath server = disposeOnError do
   asyncWithUnmask_ \_ -> forever do
     socket <- atomically $ takeTMVar var
     newWaylandServerConnection server socket
-
-
-compositorGlobal :: forall b. RenderBackend b => Global b
-compositorGlobal = createGlobal @Interface_wl_compositor maxVersion bindCompositor
-  where
-    bindCompositor :: Object 'Server Interface_wl_compositor -> STMc NoRetry '[SomeException] ()
-    bindCompositor wlCompositor = setMessageHandler wlCompositor handler
-
-    handler :: RequestHandler_wl_compositor
-    handler = RequestHandler_wl_compositor {
-      create_surface = \wlSurface -> liftSTMc $ initializeServerSurface @b wlSurface,
-      create_region = \wlRegion -> liftSTMc $ initializeServerRegion wlRegion
-    }
-
-subcompositorGlobal :: forall b. RenderBackend b => Global b
-subcompositorGlobal = createGlobal @Interface_wl_subcompositor maxVersion bindCompositor
-  where
-    bindCompositor :: Object 'Server Interface_wl_subcompositor -> STMc NoRetry '[SomeException] ()
-    bindCompositor wlCompositor = setMessageHandler wlCompositor handler
-
-    handler :: RequestHandler_wl_subcompositor
-    handler = RequestHandler_wl_subcompositor {
-      destroy = pure (), -- Destroy has no effect, as specified.
-      get_subsurface = initializeServerSubsurface @b
-    }
