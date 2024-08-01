@@ -182,7 +182,7 @@ commitClientXdgToplevel toplevel@(ClientXdgToplevel var) configureSerial (Owned 
         state.xdgToplevel.set_min_size minW minH
         writeTVar state.minSize minSize
 
-      commitSurfaceDownstream state.clientSurface (Owned disposer commit.surfaceCommit)
+      commitClientSurface state.clientSurface (Owned disposer commit.surfaceCommit)
 
 ackToplevelConfigure :: ClientXdgToplevel b -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
 ackToplevelConfigure toplevel _configureSerial = do

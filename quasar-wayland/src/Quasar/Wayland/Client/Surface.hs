@@ -5,6 +5,7 @@ module Quasar.Wayland.Client.Surface (
 
   ClientSurface,
   newClientSurface,
+  commitClientSurface,
 
   -- * Backend
   getBackendClientBufferManager,
@@ -237,10 +238,6 @@ newClientSurface client initializeSurfaceRoleFn = do
   forkSTM_ (clientSurfaceCommitWorker clientSurface) loggingExceptionSink
 
   pure (clientSurface, fnResult)
-
-instance ClientBufferBackend b => IsSurfaceDownstream b (ClientSurface b) where
-  commitSurfaceDownstream = commitClientSurface
-  unmapSurfaceDownstream = undefined
 
 commitClientSurface ::
   ClientSurface b -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
