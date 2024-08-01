@@ -12,8 +12,8 @@ module Quasar.Wayland.Server.Surface (
   assignSurfaceRole,
   removeSurfaceRole,
 
-  IsSurfaceDownstream(..),
-  SurfaceDownstream,
+  IsSurfaceRole(..),
+  SurfaceRole,
 ) where
 
 import Control.Monad.Catch
@@ -56,11 +56,11 @@ subcompositorGlobal = createGlobal @Interface_wl_subcompositor maxVersion bindCo
 
 
 
-data SurfaceDownstream b = forall a. IsSurfaceDownstream b a => SurfaceDownstream a
+data SurfaceRole b = forall a. IsSurfaceRole b a => SurfaceRole a
 
-class IsSurfaceDownstream b a | a -> b where
-  toSurfaceDownstream :: a -> SurfaceDownstream b
-  toSurfaceDownstream = SurfaceDownstream
+class IsSurfaceRole b a | a -> b where
+  toSurfaceRole :: a -> SurfaceRole b
+  toSurfaceRole = SurfaceRole
 
   -- TODO Don't allow exceptions or limit allowed exception types. Currently implementations of this leak exceptions across a responsibility bondary.
 
@@ -69,15 +69,15 @@ class IsSurfaceDownstream b a | a -> b where
   -- Ownership of the frame lock is transferred to the callee. The callee must
   -- ensure the frame lock is disposed at an appropriate time, or resources will
   -- be leaked.
-  commitSurfaceDownstream :: a -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
+  commitSurfaceRole :: a -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
 
   -- | Called on a NULL surface commit.
-  unmapSurfaceDownstream :: a -> STMc NoRetry '[SomeException] ()
+  unmapSurfaceRole :: a -> STMc NoRetry '[SomeException] ()
 
-instance IsSurfaceDownstream b (SurfaceDownstream b) where
-  toSurfaceDownstream = id
-  commitSurfaceDownstream (SurfaceDownstream x) = commitSurfaceDownstream x
-  unmapSurfaceDownstream (SurfaceDownstream x) = unmapSurfaceDownstream x
+instance IsSurfaceRole b (SurfaceRole b) where
+  toSurfaceRole = id
+  commitSurfaceRole (SurfaceRole x) = commitSurfaceRole x
+  unmapSurfaceRole (SurfaceRole x) = unmapSurfaceRole x
 data ServerSurface b = ServerSurface {
   state :: TVar (ServerSurfaceState b),
   lastRole :: TVar (Maybe String),
@@ -85,20 +85,19 @@ data ServerSurface b = ServerSurface {
 }
 
 data ServerSurfaceState b =
-  -- TODO this isn't actually unmapped, it's "no role assigned"
-  Unmapped |
+  NoRole |
   -- | Surface role was assigned
-  Pending (PendingServerSurface b) |
+  RolePending (PendingServerSurface b) |
   -- Surface role has been commited
   -- TODO this isn't necessarily mapped
-  Mapped (MappedServerSurface b)
+  RoleActive (ActiveServerSurface b)
 
 newtype PendingServerSurface b = PendingServerSurface {
-  surfaceDownstream :: SurfaceDownstream b
+  surfaceRole :: SurfaceRole b
 }
 
-data MappedServerSurface b = MappedServerSurface {
-  surfaceDownstream :: SurfaceDownstream b,
+data ActiveServerSurface b = ActiveServerSurface {
+  surfaceRole :: SurfaceRole b,
   pendingBuffer :: TMVar (Maybe (ServerBuffer b)),
   pendingOffset :: TVar (Maybe (Int32, Int32)),
   pendingBufferDamage :: TVar (Maybe Damage),
@@ -115,7 +114,7 @@ data ServerBuffer b = ServerBuffer {
 
 newServerSurface :: STMc NoRetry '[] (ServerSurface b)
 newServerSurface = do
-  state <- newTVar Unmapped
+  state <- newTVar NoRole
   lastRole <- newTVar Nothing
   pendingFrameCallback <- newTVar Nothing
 
@@ -134,28 +133,28 @@ getServerSurface wlSurface =
 commitServerSurface :: ServerSurface b -> STMc NoRetry '[SomeException] ()
 commitServerSurface serverSurface = do
   readTVar serverSurface.state >>= \case
-    Unmapped -> throwM $ userError "Cannot commit a surface that does not have a role"
-    Pending pending -> do
-      mappedSurface <- liftSTMc $ mapServerSurface pending
-      writeTVar serverSurface.state (Mapped mappedSurface)
-    Mapped mappedSurface -> liftSTMc $ commitMappedServerSurface serverSurface mappedSurface
+    NoRole -> throwM $ userError "Cannot commit a surface that does not have a role"
+    RolePending pending -> do
+      mappedSurface <- liftSTMc $ activateServerSurface pending
+      writeTVar serverSurface.state (RoleActive mappedSurface)
+    RoleActive activeSurface -> commitActiveServerSurface serverSurface activeSurface
 
-mapServerSurface :: PendingServerSurface b -> STMc NoRetry '[] (MappedServerSurface b)
-mapServerSurface pending = do
+activateServerSurface :: PendingServerSurface b -> STMc NoRetry '[] (ActiveServerSurface b)
+activateServerSurface pending = do
   pendingBuffer <- newEmptyTMVar
   pendingOffset <- newTVar Nothing
   pendingBufferDamage <- newTVar Nothing
   pendingSurfaceDamage <- newTVar mempty
-  pure MappedServerSurface {
-    surfaceDownstream = pending.surfaceDownstream,
+  pure ActiveServerSurface {
+    surfaceRole = pending.surfaceRole,
     pendingBuffer,
     pendingOffset,
     pendingBufferDamage,
     pendingSurfaceDamage
   }
 
-commitMappedServerSurface :: forall b. ServerSurface b -> MappedServerSurface b -> STMc NoRetry '[SomeException] ()
-commitMappedServerSurface surface mapped = do
+commitActiveServerSurface :: ServerSurface b -> ActiveServerSurface b -> STMc NoRetry '[SomeException] ()
+commitActiveServerSurface surface mapped = do
   serverBuffer <- tryTakeTMVar mapped.pendingBuffer
   offset <- swapTVar mapped.pendingOffset Nothing
   bufferDamage <- swapTVar mapped.pendingBufferDamage Nothing
@@ -172,7 +171,7 @@ commitMappedServerSurface surface mapped = do
   case serverBuffer of
     Just Nothing -> do
       when (isJust frameCallback) $ throwM $ userError "Must not attach frame callback when unmapping surface"
-      unmapSurfaceDownstream mapped.surfaceDownstream
+      unmapSurfaceRole mapped.surfaceRole
     Nothing -> undefined -- "unchanged buffer"
     Just (Just sb) -> do
         frameRelease <- newTDisposer (tryCall sb.wlBuffer.release)
@@ -182,7 +181,7 @@ commitMappedServerSurface surface mapped = do
 
         -- TODO Instead of voiding the future we might want to delay the
         -- frameCallback?
-        liftSTMc $ void $ commitSurfaceDownstream mapped.surfaceDownstream $
+        liftSTMc $ void $ commitSurfaceRole mapped.surfaceRole $
           Owned disposer SurfaceCommit {
             frame,
             offset,
@@ -191,10 +190,10 @@ commitMappedServerSurface surface mapped = do
           }
 
 
-requireMappedSurface :: ServerSurface b -> STMc NoRetry '[SomeException] (MappedServerSurface b)
+requireMappedSurface :: ServerSurface b -> STMc NoRetry '[SomeException] (ActiveServerSurface b)
 requireMappedSurface serverSurface = do
   readTVar serverSurface.state >>= \case
-    Mapped mapped -> pure mapped
+    RoleActive mapped -> pure mapped
     -- TODO improve exception / propagate error to the client
     _ -> throwM $ userError "Requested operation requires a mapped surface"
 
@@ -320,16 +319,16 @@ getServerBuffer wlBuffer = do
     Nothing -> throwM $ InternalError ("Missing interface data on " <> show wlBuffer)
 
 
-assignSurfaceRole :: forall i b. IsInterfaceSide 'Server i => ServerSurface b -> SurfaceDownstream b -> STMc NoRetry '[SomeException] ()
-assignSurfaceRole surface surfaceDownstream = do
+assignSurfaceRole :: forall i b. IsInterfaceSide 'Server i => ServerSurface b -> SurfaceRole b -> STMc NoRetry '[SomeException] ()
+assignSurfaceRole surface surfaceRole = do
   let role = interfaceName @i
 
   readTVar surface.state >>= \case
-    Mapped _ -> throwM (ProtocolUsageError "Cannot assign wl_surface a new role, since it already has an active role.")
-    Pending _ -> throwM (ProtocolUsageError "Cannot assign wl_surface a new role, since it already has a pending role.")
-    Unmapped -> pure ()
+    RoleActive _ -> throwM (ProtocolUsageError "Cannot assign wl_surface a new role, since it already has an active role.")
+    RolePending _ -> throwM (ProtocolUsageError "Cannot assign wl_surface a new role, since it already has a pending role.")
+    NoRole -> pure ()
 
-  writeTVar surface.state $ Pending PendingServerSurface { surfaceDownstream }
+  writeTVar surface.state $ RolePending PendingServerSurface { surfaceRole }
 
   readTVar surface.lastRole >>= \case
     Just ((== role) -> True) -> pure ()

@@ -113,8 +113,8 @@ data XdgToplevel b w wm = XdgToplevel {
   minSizeVar :: TVar (Int32, Int32)
 }
 
-instance IsWindowManager b w wm => IsSurfaceDownstream b (XdgToplevel b w wm) where
-  commitSurfaceDownstream xdgToplevel (Owned disposer surfaceCommit) = do
+instance IsWindowManager b w wm => IsSurfaceRole b (XdgToplevel b w wm) where
+  commitSurfaceRole xdgToplevel (Owned disposer surfaceCommit) = do
     minSize <- readTVar xdgToplevel.minSizeVar
     maxSize <- readTVar xdgToplevel.minSizeVar
     geometry <- readTVar xdgToplevel.xdgSurface.geometryVar
@@ -125,7 +125,7 @@ instance IsWindowManager b w wm => IsSurfaceDownstream b (XdgToplevel b w wm) wh
         maxSize,
         geometry
       }
-  unmapSurfaceDownstream xdgToplevel = throwM (userError "TODO unmap xdg_toplevel")
+  unmapSurfaceRole xdgToplevel = throwM (userError "TODO unmap xdg_toplevel")
 
 initializeXdgToplevel :: forall b w wm. IsWindowManager b w wm => XdgSurface b w wm -> NewObject 'Server Interface_xdg_toplevel -> STMc NoRetry '[SomeException] ()
 initializeXdgToplevel xdgSurface wlXdgToplevel = do
@@ -148,11 +148,11 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
     }
 
     -- NOTE this throws if the surface role is changed
-    -- TODO change error type to a corret ServerError if that happens
+    -- TODO change error type to a correct ServerError if that happens
     assignSurfaceRole
       @Interface_xdg_toplevel
       xdgSurface.serverSurface
-      (toSurfaceDownstream xdgToplevel)
+      (toSurfaceRole xdgToplevel)
 
     attachFinalizer wlXdgToplevel do
       void $ disposeEventually window
