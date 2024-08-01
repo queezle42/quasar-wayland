@@ -11,12 +11,16 @@ module Quasar.Wayland.Server.Surface (
   getServerSurface,
   assignSurfaceRole,
   removeSurfaceRole,
+
+  IsSurfaceDownstream(..),
+  SurfaceDownstream,
 ) where
 
 import Control.Monad.Catch
 import Quasar.Disposer
 import Quasar.Disposer.Rc
 import Quasar.Exceptions
+import Quasar.Future
 import Quasar.Prelude
 import Quasar.Wayland.Backend
 import Quasar.Wayland.Protocol
@@ -50,6 +54,30 @@ subcompositorGlobal = createGlobal @Interface_wl_subcompositor maxVersion bindCo
     }
 
 
+
+
+data SurfaceDownstream b = forall a. IsSurfaceDownstream b a => SurfaceDownstream a
+
+class IsSurfaceDownstream b a | a -> b where
+  toSurfaceDownstream :: a -> SurfaceDownstream b
+  toSurfaceDownstream = SurfaceDownstream
+
+  -- TODO Don't allow exceptions or limit allowed exception types. Currently implementations of this leak exceptions across a responsibility bondary.
+
+  -- | Called on surface commit.
+  --
+  -- Ownership of the frame lock is transferred to the callee. The callee must
+  -- ensure the frame lock is disposed at an appropriate time, or resources will
+  -- be leaked.
+  commitSurfaceDownstream :: a -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
+
+  -- | Called on a NULL surface commit.
+  unmapSurfaceDownstream :: a -> STMc NoRetry '[SomeException] ()
+
+instance IsSurfaceDownstream b (SurfaceDownstream b) where
+  toSurfaceDownstream = id
+  commitSurfaceDownstream (SurfaceDownstream x) = commitSurfaceDownstream x
+  unmapSurfaceDownstream (SurfaceDownstream x) = unmapSurfaceDownstream x
 data ServerSurface b = ServerSurface {
   state :: TVar (ServerSurfaceState b),
   lastRole :: TVar (Maybe String),
