@@ -85,10 +85,12 @@ data ServerSurface b = ServerSurface {
 }
 
 data ServerSurfaceState b =
+  -- TODO this isn't actually unmapped, it's "no role assigned"
   Unmapped |
   -- | Surface role was assigned
   Pending (PendingServerSurface b) |
-  -- | Surface role has been commited
+  -- Surface role has been commited
+  -- TODO this isn't necessarily mapped
   Mapped (MappedServerSurface b)
 
 newtype PendingServerSurface b = PendingServerSurface {
@@ -97,7 +99,7 @@ newtype PendingServerSurface b = PendingServerSurface {
 
 data MappedServerSurface b = MappedServerSurface {
   surfaceDownstream :: SurfaceDownstream b,
-  pendingBuffer :: TVar (Maybe (ServerBuffer b)),
+  pendingBuffer :: TMVar (Maybe (ServerBuffer b)),
   pendingOffset :: TVar (Maybe (Int32, Int32)),
   pendingBufferDamage :: TVar (Maybe Damage),
   -- Damage specified in surface coordinates (i.e. produced by wl_surface.damage
@@ -140,7 +142,7 @@ commitServerSurface serverSurface = do
 
 mapServerSurface :: PendingServerSurface b -> STMc NoRetry '[] (MappedServerSurface b)
 mapServerSurface pending = do
-  pendingBuffer <- newTVar Nothing
+  pendingBuffer <- newEmptyTMVar
   pendingOffset <- newTVar Nothing
   pendingBufferDamage <- newTVar Nothing
   pendingSurfaceDamage <- newTVar mempty
@@ -154,7 +156,7 @@ mapServerSurface pending = do
 
 commitMappedServerSurface :: forall b. ServerSurface b -> MappedServerSurface b -> STMc NoRetry '[SomeException] ()
 commitMappedServerSurface surface mapped = do
-  serverBuffer <- swapTVar mapped.pendingBuffer Nothing
+  serverBuffer <- tryTakeTMVar mapped.pendingBuffer
   offset <- swapTVar mapped.pendingOffset Nothing
   bufferDamage <- swapTVar mapped.pendingBufferDamage Nothing
   surfaceDamage <- swapTVar mapped.pendingSurfaceDamage mempty
@@ -168,24 +170,25 @@ commitMappedServerSurface surface mapped = do
     combinedDamage = bufferDamage <> convertedSurfaceDamage
 
   case serverBuffer of
-    Nothing -> do
+    Just Nothing -> do
       when (isJust frameCallback) $ throwM $ userError "Must not attach frame callback when unmapping surface"
       unmapSurfaceDownstream mapped.surfaceDownstream
-    Just sb -> do
-      frameRelease <- newTDisposer (tryCall sb.wlBuffer.release)
+    Nothing -> undefined -- "unchanged buffer"
+    Just (Just sb) -> do
+        frameRelease <- newTDisposer (tryCall sb.wlBuffer.release)
 
-      rawFrame <- liftSTMc $ sb.createFrame frameRelease
-      (Owned disposer frame) <- newRc rawFrame
+        rawFrame <- liftSTMc $ sb.createFrame frameRelease
+        (Owned disposer frame) <- newRc rawFrame
 
-      -- TODO Instead of voiding the future we might want to delay the
-      -- frameCallback?
-      liftSTMc $ void $ commitSurfaceDownstream mapped.surfaceDownstream $
-        Owned disposer SurfaceCommit {
-          frame,
-          offset,
-          bufferDamage = combinedDamage,
-          frameCallback
-        }
+        -- TODO Instead of voiding the future we might want to delay the
+        -- frameCallback?
+        liftSTMc $ void $ commitSurfaceDownstream mapped.surfaceDownstream $
+          Owned disposer SurfaceCommit {
+            frame,
+            offset,
+            bufferDamage = combinedDamage,
+            frameCallback
+          }
 
 
 requireMappedSurface :: ServerSurface b -> STMc NoRetry '[SomeException] (MappedServerSurface b)
@@ -205,7 +208,7 @@ attachToSurface ::
 attachToSurface serverSurface wlBuffer x y = do
   mappedSurface <- requireMappedSurface serverSurface
   buffer <- mapM (getServerBuffer @b) wlBuffer
-  writeTVar mappedSurface.pendingBuffer buffer
+  writeTMVar mappedSurface.pendingBuffer buffer
   -- TODO ensure (x == 0 && y == 0) for wl_surface v5
   writeTVar mappedSurface.pendingOffset (Just (x, y))
 
