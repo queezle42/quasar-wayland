@@ -16,7 +16,6 @@ module Quasar.Wayland.Shared.Surface (
 
 import Quasar.Disposer
 import Quasar.Disposer.Rc
-import Quasar.Future (Future)
 import Quasar.Prelude
 import Quasar.Wayland.Backend
 import Quasar.Wayland.Region (Rectangle(..))

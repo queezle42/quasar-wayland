@@ -28,7 +28,6 @@ import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
-import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
 
 
