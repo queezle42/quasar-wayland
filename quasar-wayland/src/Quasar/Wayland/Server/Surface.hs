@@ -516,6 +516,11 @@ setDesynchronized subsurface = do
     readTVar subsurface.surface.state >>= \case
       RoleActive active -> do
         content <- readTVar active.content
+        -- NOTE In theory this implementation should only propagate a change
+        -- if the subsurface has changed (= was committed) since it's parent
+        -- was last committed. Since this implementation does not track that
+        -- information and always propagates the change, since `set_desync` is
+        -- usually only used during setup and it's easier to implement this way.
         void $ propagateDesynchronizedSubsurfaceChange subsurface.surface active content
       _ -> pure ()
 
