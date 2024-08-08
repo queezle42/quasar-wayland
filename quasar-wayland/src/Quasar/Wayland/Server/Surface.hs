@@ -443,7 +443,8 @@ removeSurfaceRole :: ServerSurface b -> STMc NoRetry '[] ()
 removeSurfaceRole surface = do
   readTVar surface.state >>= \case
     NoRole -> traceM "TODO removing surface role from surface without role - bug?"
-    RolePending _ -> traceM "TODO removing surface role from surface with pending role - bug?"
+    RolePending _ ->
+      writeTVar surface.state NoRole
     RoleActive state -> do
       writeTVar surface.state NoRole
       -- TODO fire frame callback to destroy it?
@@ -508,9 +509,21 @@ initializeServerSubsurface wlSubsurface wlSurface wlParent = do
     set_position = \x y -> traceM (mconcat ["TODO: Subsurface position: ", show x, ", ", show y]),
     place_above = \sibling -> traceM "TODO: Subsurface above",
     place_below = \sibling -> traceM "TODO: Subsurface below",
-    set_sync = traceM "TODO: Subsurface sync",
-    set_desync = traceM "TODO: Subsurface desync"
+    set_sync = setSynchronized subsurface,
+    set_desync = setDesynchronized subsurface
   }
+
+setSynchronized :: Subsurface b -> STMc NoRetry '[SomeException] ()
+setSynchronized subsurface = writeTVar subsurface.subsurfaceMode Synchronized
+
+setDesynchronized :: Subsurface b -> STMc NoRetry '[SomeException] ()
+setDesynchronized subsurface = do
+  writeTVar subsurface.subsurfaceMode Desynchronized
+  whenM (liftSTMc (isDesynchronizedSubsurface subsurface)) do
+    readTVar subsurface.surface.state >>= \case
+      RoleActive active ->
+        void $ propagateDesynchronizedSubsurfaceChange subsurface.surface active
+      _ -> pure ()
 
 destroySubsurface :: Subsurface b -> STMc NoRetry '[] ()
 destroySubsurface subsurface = do
