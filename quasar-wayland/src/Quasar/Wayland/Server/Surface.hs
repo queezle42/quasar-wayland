@@ -17,7 +17,7 @@ module Quasar.Wayland.Server.Surface (
 ) where
 
 import Control.Monad.Catch
-import Data.Sequence (Seq)
+import Data.Sequence (Seq(..))
 import Data.Sequence qualified as Seq
 import Quasar.Disposer
 import Quasar.Disposer.Rc
@@ -236,25 +236,39 @@ commitActiveServerSurface surface mapped = do
     SurfaceRoleSubsurface subsurface ->
       -- Desynchronized subsurfaces create a parent surface update.
       whenM (liftSTMc (isDesynchronizedSubsurface subsurface)) do
-        void $ propagateDesynchronizedSubsurfaceChange surface mapped content
+        void $ propagateDesynchronizedSubsurfaceChange subsurface content
 
     SurfaceRole role -> do
-      case content of
-        Nothing -> unmapSurfaceRole role
-        Just content' -> do
-          -- Current surface is a normal surface with a "normal" role, i.e. not
-          -- a surface modifier like subsurface.
+      commitSurfaceRoleInternal role content offset combinedDamage frameCallback
 
-          (Owned disposer compoundFrame) <- createCompoundFrame content'
-          -- TODO Instead of voiding the future we might want to delay the
-          -- frameCallback?
-          void $ commitSurfaceRole role $
-            Owned disposer SurfaceCommit {
-              frame = compoundFrame,
-              offset,
-              bufferDamage = combinedDamage,
-              frameCallback
-            }
+
+-- Does not take ownership of the content.
+commitSurfaceRoleInternal ::
+  IsSurfaceRole b a =>
+  a ->
+  Maybe (Content b) ->
+  Maybe (Int32, Int32) ->
+  -- | May be empty on the first commit.
+  Maybe Damage ->
+  Maybe (Word32 -> STMc NoRetry '[] ()) ->
+  STMc NoRetry '[SomeException] ()
+commitSurfaceRoleInternal role content offset damage frameCallback = do
+  case content of
+    Nothing -> unmapSurfaceRole role
+    Just content' -> do
+      -- Current surface is a normal surface with a "normal" role, i.e. not
+      -- a surface modifier like subsurface.
+
+      (Owned disposer compoundFrame) <- createCompoundFrame content'
+      -- TODO Instead of voiding the future we might want to delay the
+      -- frameCallback?
+      void $ commitSurfaceRole role $
+        Owned disposer SurfaceCommit {
+          frame = compoundFrame,
+          offset,
+          bufferDamage = damage,
+          frameCallback
+        }
 
 
 getClonedSubsurfaceContent :: Subsurface b -> STMc NoRetry '[SomeException] (Unique, Maybe (Content b))
@@ -470,13 +484,55 @@ isDesynchronizedSubsurface subsurface = do
     Synchronized -> pure False
     Desynchronized -> isDesynchronizedSurface subsurface.parentSurface
 
--- Propagate surface change from subsurfaces to parent or to role object
-propagateDesynchronizedSubsurfaceChange :: ServerSurface b -> ActiveServerSurface b -> Maybe (Content b) -> STMc NoRetry '[SomeException] ()
-propagateDesynchronizedSubsurfaceChange surface mapped content = do
-  readTVar mapped.content >>= \case
-    Nothing -> undefined -- unmap
-    Just content -> do
-      undefined
+-- Propagate surface change from subsurfaces to parent or to role object.
+--
+-- Must only be called for active desynchronized subsurfaces (checked using
+-- `isDesynchronizedSurface`).
+--
+-- Subsurface content is borrowed and will be cloned if required.
+propagateDesynchronizedSubsurfaceChange :: Subsurface b -> Maybe (Content b) -> STMc NoRetry '[SomeException] ()
+propagateDesynchronizedSubsurfaceChange subsurface content = do
+  readTVar subsurface.parentSurface.state >>= \case
+    RoleActive parentActive -> do
+      readTVar parentActive.content >>= \case
+        Just parentContent -> do
+
+          ownedContent <- mapM cloneContent content
+
+          case replaceSubsurfaceContent subsurface.key ownedContent parentContent of
+            Nothing -> unreachableCodePathM
+            Just (disposer, newParentContent) -> do
+              disposeEventually_ disposer
+
+              writeTVar parentActive.content (Just newParentContent)
+
+              propagateDesynchronizedSurfaceChange
+                subsurface.parentSurface
+                parentActive
+                (Just newParentContent)
+
+        Nothing -> unreachableCodePathM
+    _ -> unreachableCodePathM
+
+propagateDesynchronizedSurfaceChange :: ServerSurface b -> ActiveServerSurface b -> Maybe (Content b) -> STMc NoRetry '[SomeException] ()
+propagateDesynchronizedSurfaceChange surface active content = do
+  case active.surfaceRole of
+    SurfaceRoleSubsurface subsurface -> do
+      propagateDesynchronizedSubsurfaceChange subsurface content
+    SurfaceRole role -> do
+      commitSurfaceRoleInternal role content Nothing (Just DamageAll) Nothing
+
+replaceSubsurfaceContent :: Unique -> Maybe (Content b) -> Content b -> Maybe (Disposer, Content b)
+replaceSubsurfaceContent key newContent parentContent = do
+  let parentSubsurfaceContents = parentContent.subsurfaceContents
+  Seq.findIndexL (\(iKey, _) -> iKey == key) parentSubsurfaceContents <&> \i ->
+    case Seq.splitAt i parentSubsurfaceContents of
+      (_pre, Empty) -> unreachableCodePath
+      (pre, x :<| post) ->
+        (foldMap getDisposer (snd x), parentContent {
+          subsurfaceContents = pre <> ((key, newContent) :<| post)
+        })
+
 
 initializeServerSubsurface ::
   forall b. RenderBackend b =>
@@ -521,7 +577,7 @@ setDesynchronized subsurface = do
         -- was last committed. Since this implementation does not track that
         -- information and always propagates the change, since `set_desync` is
         -- usually only used during setup and it's easier to implement this way.
-        void $ propagateDesynchronizedSubsurfaceChange subsurface.surface active content
+        propagateDesynchronizedSubsurfaceChange subsurface content
       _ -> pure ()
 
 destroySubsurface :: Subsurface b -> STMc NoRetry '[] ()
