@@ -17,6 +17,8 @@ module Quasar.Wayland.Server.Surface (
 ) where
 
 import Control.Monad.Catch
+import Data.Sequence (Seq)
+import Data.Sequence qualified as Seq
 import Quasar.Disposer
 import Quasar.Disposer.Rc
 import Quasar.Exceptions
@@ -54,9 +56,9 @@ subcompositorGlobal = createGlobal @Interface_wl_subcompositor maxVersion bindCo
     }
 
 
-
-
-data SurfaceRole b = forall a. IsSurfaceRole b a => SurfaceRole a
+data SurfaceRole b
+  = forall a. IsSurfaceRole b a => SurfaceRole a
+  | SurfaceRoleSubsurface (Subsurface b)
 
 class IsSurfaceRole b a | a -> b where
   toSurfaceRole :: a -> SurfaceRole b
@@ -74,17 +76,16 @@ class IsSurfaceRole b a | a -> b where
   -- | Called on a NULL surface commit.
   unmapSurfaceRole :: a -> STMc NoRetry '[SomeException] ()
 
-instance IsSurfaceRole b (SurfaceRole b) where
-  toSurfaceRole = id
-  commitSurfaceRole (SurfaceRole x) = commitSurfaceRole x
-  unmapSurfaceRole (SurfaceRole x) = unmapSurfaceRole x
+
 data ServerSurface b = ServerSurface {
   state :: TVar (ServerSurfaceState b),
   lastRole :: TVar (Maybe String),
-  pendingFrameCallback :: TVar (Maybe (Word32 -> STMc NoRetry '[] ()))
+  pendingFrameCallback :: TVar (Maybe (Word32 -> STMc NoRetry '[] ())),
+  pendingSubsurfaces :: TVar (Seq (Subsurface b))
 }
 
 data ServerSurfaceState b =
+  -- TODO this isn't actually unmapped, it's "no role assigned"
   NoRole |
   -- | Surface role was assigned
   RolePending (PendingServerSurface b) |
@@ -104,8 +105,22 @@ data ActiveServerSurface b = ActiveServerSurface {
   -- Damage specified in surface coordinates (i.e. produced by wl_surface.damage
   -- instead of wl_surface.damage_buffer). Damage can be converted to buffer
   -- coordinates on commit (NOTE: conversion requires wl_surface version 4)
-  pendingSurfaceDamage :: TVar [Rectangle]
+  pendingSurfaceDamage :: TVar [Rectangle],
+
+  -- Content generated during the last `commit`-request. Can also be updated
+  -- during a desynchronized subsurface commit.
+  content :: TVar (Maybe (Content b))
 }
+
+-- Committed surface content
+data Content b = Content {
+  frame :: Owned (Rc (Frame b)),
+  subsurfaceContents :: Seq (Unique, Maybe (Content b))
+}
+
+instance Disposable (Content b) where
+  getDisposer content =
+    getDisposer content.frame <> foldMap (foldMap getDisposer . snd) content.subsurfaceContents
 
 data ServerBuffer b = ServerBuffer {
   wlBuffer :: Object 'Server Interface_wl_buffer,
@@ -117,11 +132,13 @@ newServerSurface = do
   state <- newTVar NoRole
   lastRole <- newTVar Nothing
   pendingFrameCallback <- newTVar Nothing
+  pendingSubsurfaces <- newTVar mempty
 
   pure ServerSurface {
     state,
     lastRole,
-    pendingFrameCallback
+    pendingFrameCallback,
+    pendingSubsurfaces
   }
 
 getServerSurface :: forall b. RenderBackend b => Object 'Server Interface_wl_surface -> STMc NoRetry '[SomeException] (ServerSurface b)
@@ -145,15 +162,21 @@ activateServerSurface pending = do
   pendingOffset <- newTVar Nothing
   pendingBufferDamage <- newTVar Nothing
   pendingSurfaceDamage <- newTVar mempty
+
+  content <- newTVar Nothing
+
   pure ActiveServerSurface {
     surfaceRole = pending.surfaceRole,
     pendingBuffer,
     pendingOffset,
     pendingBufferDamage,
-    pendingSurfaceDamage
+    pendingSurfaceDamage,
+    content
   }
 
-commitActiveServerSurface :: ServerSurface b -> ActiveServerSurface b -> STMc NoRetry '[SomeException] ()
+commitActiveServerSurface ::
+  forall b.
+  ServerSurface b -> ActiveServerSurface b -> STMc NoRetry '[SomeException] ()
 commitActiveServerSurface surface mapped = do
   serverBuffer <- tryTakeTMVar mapped.pendingBuffer
   offset <- swapTVar mapped.pendingOffset Nothing
@@ -168,27 +191,98 @@ commitActiveServerSurface surface mapped = do
         _ -> Just DamageAll
     combinedDamage = bufferDamage <> convertedSurfaceDamage
 
-  case serverBuffer of
-    Just Nothing -> do
-      when (isJust frameCallback) $ throwM $ userError "Must not attach frame callback when unmapping surface"
-      unmapSurfaceRole mapped.surfaceRole
-    Nothing -> undefined -- "unchanged buffer"
+  oldFrame :: Maybe (Owned (Rc (Frame b))) <- readTVar mapped.content >>= \case
+    Nothing -> pure Nothing
+    Just oldContent -> do
+      mapM_ (mapM_ disposeEventually_ . snd) oldContent.subsurfaceContents
+      pure (Just oldContent.frame)
+
+
+  -- If a buffer was attached, create a frame from the buffer and store it
+  frame :: Maybe (Owned (Rc (Frame b))) <- case serverBuffer of
+    Nothing -> do
+      -- No buffer attached, so the previous frame is kept.
+      case oldFrame of
+        Nothing -> do
+          -- No subsurface update is required if the surface is already unmapped.
+          -- TODO is this a bug or a no-op?
+          traceM "Surface committed without a buffer, but the surface is already unmapped."
+          pure Nothing
+        Just oldFrame' -> pure (Just oldFrame')
     Just (Just sb) -> do
-        frameRelease <- newTDisposer (tryCall sb.wlBuffer.release)
+      -- New frame.
+      mapM_ disposeEventually_ oldFrame
+      frameRelease <- newTDisposer (tryCall sb.wlBuffer.release)
+      frame <- liftSTMc $ newRc =<< sb.createFrame frameRelease
+      pure (Just frame)
+    Just Nothing -> do
+      -- Unmapping (i.e. attaching NULL buffer)
+      when (isJust frameCallback) $ throwM $ userError "Must not attach frame callback when unmapping surface"
+      mapM_ disposeEventually_ oldFrame
+      pure Nothing
 
-        rawFrame <- liftSTMc $ sb.createFrame frameRelease
-        (Owned disposer frame) <- newRc rawFrame
+  content :: Maybe (Content b) <- forM frame \frame' -> do
+    -- Update subsurface order and content (if surface is mapped)
+    subsurfaces <- readTVar surface.pendingSubsurfaces
+    subsurfaceContents <- mapM getClonedSubsurfaceContent subsurfaces
+    pure Content {
+      frame = frame',
+      subsurfaceContents
+    }
 
-        -- TODO Instead of voiding the future we might want to delay the
-        -- frameCallback?
-        liftSTMc $ void $ commitSurfaceRole mapped.surfaceRole $
-          Owned disposer SurfaceCommit {
-            frame,
-            offset,
-            bufferDamage = combinedDamage,
-            frameCallback
-          }
+  writeTVar mapped.content content
 
+  case content of
+    Just content' -> do
+      case mapped.surfaceRole of
+        SurfaceRoleSubsurface subsurface ->
+          -- Desynchronized subsurfaces create a parent surface update.
+          whenM (liftSTMc (isDesynchronizedSubsurface subsurface)) do
+            void $ propagateDesynchronizedSubsurfaceChange surface mapped
+
+        SurfaceRole role -> do
+          -- Current surface is a normal surface with a "normal" role, i.e. not
+          -- a surface modifier like subsurface.
+
+          (Owned disposer compoundFrame) <- createCompoundFrame content'
+          -- TODO Instead of voiding the future we might want to delay the
+          -- frameCallback?
+          void $ commitSurfaceRole role $
+            Owned disposer SurfaceCommit {
+              frame = compoundFrame,
+              offset,
+              bufferDamage = combinedDamage,
+              frameCallback
+            }
+
+    Nothing -> do
+      case mapped.surfaceRole of
+        SurfaceRoleSubsurface subsurface ->
+          -- Desynchronized subsurfaces create a parent surface update.
+          whenM (liftSTMc (isDesynchronizedSubsurface subsurface)) do
+            void $ propagateDesynchronizedSubsurfaceChange surface mapped
+
+        SurfaceRole role -> unmapSurfaceRole role
+
+getClonedSubsurfaceContent :: Subsurface b -> STMc NoRetry '[SomeException] (Unique, Maybe (Content b))
+getClonedSubsurfaceContent subsurface = (subsurface.key,) <$> do
+  readTVar subsurface.surface.state >>= \case
+    RoleActive active -> do
+      content <- readTVar active.content
+      mapM cloneContent content
+    _ -> pure Nothing
+
+cloneContent :: Content b -> STMc NoRetry '[SomeException] (Content b)
+cloneContent content = do
+  frame <- cloneRc (fromOwned content.frame)
+  subsurfaceContents <- forM content.subsurfaceContents
+    \(subsurface, subsurfaceContent) -> do
+      ownedContent <- mapM cloneContent subsurfaceContent
+      pure (subsurface, ownedContent)
+  pure Content {
+    frame,
+    subsurfaceContents
+  }
 
 requireMappedSurface :: ServerSurface b -> STMc NoRetry '[SomeException] (ActiveServerSurface b)
 requireMappedSurface serverSurface = do
@@ -196,6 +290,14 @@ requireMappedSurface serverSurface = do
     RoleActive mapped -> pure mapped
     -- TODO improve exception / propagate error to the client
     _ -> throwM $ userError "Requested operation requires a mapped surface"
+
+-- Does not take ownership of content.
+createCompoundFrame :: Content b -> STMc NoRetry '[SomeException] (Owned (Rc (Frame b)))
+createCompoundFrame content = do
+  case content.subsurfaceContents of
+    Seq.Empty -> do
+      cloneRc (fromOwned content.frame)
+    subsurfaces -> undefined
 
 attachToSurface ::
   forall b. RenderBackend b =>
@@ -338,15 +440,49 @@ assignSurfaceRole surface surfaceRole = do
     Nothing -> writeTVar surface.lastRole (Just role)
 
 removeSurfaceRole :: ServerSurface b -> STMc NoRetry '[] ()
-removeSurfaceRole surface = undefined
+removeSurfaceRole surface = do
+  readTVar surface.state >>= \case
+    NoRole -> traceM "TODO removing surface role from surface without role - bug?"
+    RolePending _ -> traceM "TODO removing surface role from surface with pending role - bug?"
+    RoleActive state -> do
+      writeTVar surface.state NoRole
+      -- TODO fire frame callback to destroy it?
+      mapM_ disposeEventually_ =<< swapTVar state.content Nothing
 
+data SubsurfaceMode = Synchronized | Desynchronized
+  deriving (Eq, Show)
 
+data Subsurface b = Subsurface {
+  key :: Unique,
+  surface :: ServerSurface b,
+  parentSurface :: ServerSurface b,
+  subsurfaceMode :: TVar SubsurfaceMode
+}
 
-newtype ServerSubsurface b = ServerSubsurface (ServerSurface b)
+isDesynchronizedSurface :: ServerSurface b -> STMc NoRetry '[] Bool
+isDesynchronizedSurface surface = do
+  readTVar surface.state >>= \case
+    NoRole -> pure False
+    RolePending _ -> pure False
+    RoleActive active -> do
+      case active.surfaceRole of
+        SurfaceRole _ -> pure False
+        SurfaceRoleSubsurface subsurface ->
+          isDesynchronizedSubsurface subsurface
 
-instance IsSurfaceDownstream b (ServerSubsurface b) where
-  commitSurfaceDownstream _self _commit = pure () <$ traceM "Subsurface committed"
-  unmapSurfaceDownstream _self = traceM "Subsurface unmapped"
+isDesynchronizedSubsurface :: Subsurface b -> STMc NoRetry '[] Bool
+isDesynchronizedSubsurface subsurface = do
+  readTVar subsurface.subsurfaceMode >>= \case
+    Synchronized -> pure False
+    Desynchronized -> isDesynchronizedSurface subsurface.parentSurface
+
+-- Propagate surface change from subsurfaces to parent or to role object
+propagateDesynchronizedSubsurfaceChange :: ServerSurface b -> ActiveServerSurface b -> STMc NoRetry '[SomeException] ()
+propagateDesynchronizedSubsurfaceChange surface mapped = do
+  readTVar mapped.content >>= \case
+    Nothing -> undefined -- unmap
+    Just content -> do
+      undefined
 
 initializeServerSubsurface ::
   forall b. RenderBackend b =>
@@ -355,9 +491,18 @@ initializeServerSubsurface ::
   Object 'Server Interface_wl_surface ->
   STMc NoRetry '[SomeException] ()
 initializeServerSubsurface wlSubsurface wlSurface wlParent = do
-  serverSurface <- liftSTMc $ getServerSurface @b wlSurface
-  serverParent <- liftSTMc $ getServerSurface @b wlParent
-  assignSurfaceRole @Interface_wl_subsurface serverSurface (toSurfaceDownstream (ServerSubsurface serverParent))
+  key <- newUniqueSTM
+  surface <- getServerSurface @b wlSurface
+  parentSurface <- getServerSurface @b wlParent
+  subsurfaceMode <- newTVar Synchronized
+  let subsurface = Subsurface {
+    key,
+    surface,
+    parentSurface,
+    subsurfaceMode
+  }
+  assignSurfaceRole @Interface_wl_subsurface surface (SurfaceRoleSubsurface subsurface)
+  attachFinalizer wlSubsurface (destroySubsurface subsurface)
   setRequestHandler wlSubsurface RequestHandler_wl_subsurface {
     destroy = pure (),
     set_position = \x y -> traceM (mconcat ["TODO: Subsurface position: ", show x, ", ", show y]),
@@ -366,3 +511,22 @@ initializeServerSubsurface wlSubsurface wlSurface wlParent = do
     set_sync = traceM "TODO: Subsurface sync",
     set_desync = traceM "TODO: Subsurface desync"
   }
+
+destroySubsurface :: Subsurface b -> STMc NoRetry '[] ()
+destroySubsurface subsurface = do
+  removeSurfaceRole subsurface.surface
+  modifyTVar subsurface.parentSurface.pendingSubsurfaces
+    (Seq.filter \x -> x.key /= subsurface.key)
+  -- NOTE: The spec says "Destroying a sub-surface takes effect immediately."
+  -- This can be interpreted in multiple ways. It may be necessary to also
+  -- propagate a surface change.
+  readTVar subsurface.parentSurface.state >>= \case
+    RoleActive active -> do
+      oldContent <- readTVar active.content
+      forM_ oldContent \content -> do
+        let (removed, remaining) = Seq.partition (\(key, _) -> key /= subsurface.key) content.subsurfaceContents
+        mapM_ (mapM_ disposeEventually_ . snd) removed
+        writeTVar active.content $ Just content {
+          subsurfaceContents = remaining
+        }
+    _ -> pure ()
