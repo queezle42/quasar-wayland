@@ -232,15 +232,16 @@ commitActiveServerSurface surface mapped = do
 
   writeTVar mapped.content content
 
-  case content of
-    Just content' -> do
-      case mapped.surfaceRole of
-        SurfaceRoleSubsurface subsurface ->
-          -- Desynchronized subsurfaces create a parent surface update.
-          whenM (liftSTMc (isDesynchronizedSubsurface subsurface)) do
-            void $ propagateDesynchronizedSubsurfaceChange surface mapped
+  case mapped.surfaceRole of
+    SurfaceRoleSubsurface subsurface ->
+      -- Desynchronized subsurfaces create a parent surface update.
+      whenM (liftSTMc (isDesynchronizedSubsurface subsurface)) do
+        void $ propagateDesynchronizedSubsurfaceChange surface mapped content
 
-        SurfaceRole role -> do
+    SurfaceRole role -> do
+      case content of
+        Nothing -> unmapSurfaceRole role
+        Just content' -> do
           -- Current surface is a normal surface with a "normal" role, i.e. not
           -- a surface modifier like subsurface.
 
@@ -255,14 +256,6 @@ commitActiveServerSurface surface mapped = do
               frameCallback
             }
 
-    Nothing -> do
-      case mapped.surfaceRole of
-        SurfaceRoleSubsurface subsurface ->
-          -- Desynchronized subsurfaces create a parent surface update.
-          whenM (liftSTMc (isDesynchronizedSubsurface subsurface)) do
-            void $ propagateDesynchronizedSubsurfaceChange surface mapped
-
-        SurfaceRole role -> unmapSurfaceRole role
 
 getClonedSubsurfaceContent :: Subsurface b -> STMc NoRetry '[SomeException] (Unique, Maybe (Content b))
 getClonedSubsurfaceContent subsurface = (subsurface.key,) <$> do
@@ -478,8 +471,8 @@ isDesynchronizedSubsurface subsurface = do
     Desynchronized -> isDesynchronizedSurface subsurface.parentSurface
 
 -- Propagate surface change from subsurfaces to parent or to role object
-propagateDesynchronizedSubsurfaceChange :: ServerSurface b -> ActiveServerSurface b -> STMc NoRetry '[SomeException] ()
-propagateDesynchronizedSubsurfaceChange surface mapped = do
+propagateDesynchronizedSubsurfaceChange :: ServerSurface b -> ActiveServerSurface b -> Maybe (Content b) -> STMc NoRetry '[SomeException] ()
+propagateDesynchronizedSubsurfaceChange surface mapped content = do
   readTVar mapped.content >>= \case
     Nothing -> undefined -- unmap
     Just content -> do
@@ -521,8 +514,9 @@ setDesynchronized subsurface = do
   writeTVar subsurface.subsurfaceMode Desynchronized
   whenM (liftSTMc (isDesynchronizedSubsurface subsurface)) do
     readTVar subsurface.surface.state >>= \case
-      RoleActive active ->
-        void $ propagateDesynchronizedSubsurfaceChange subsurface.surface active
+      RoleActive active -> do
+        content <- readTVar active.content
+        void $ propagateDesynchronizedSubsurfaceChange subsurface.surface active content
       _ -> pure ()
 
 destroySubsurface :: Subsurface b -> STMc NoRetry '[] ()
