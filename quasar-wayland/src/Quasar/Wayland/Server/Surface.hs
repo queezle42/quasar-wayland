@@ -239,7 +239,7 @@ commitActiveServerSurface surface mapped = do
         void $ propagateDesynchronizedSubsurfaceChange subsurface content
 
     SurfaceRole role -> do
-      commitSurfaceRoleInternal role content offset combinedDamage frameCallback
+      commitSurfaceRoleInternal role content offset frameCallback
 
 
 -- Does not take ownership of the content.
@@ -248,11 +248,9 @@ commitSurfaceRoleInternal ::
   a ->
   Maybe (Content b) ->
   Maybe (Int32, Int32) ->
-  -- | May be empty on the first commit.
-  Maybe Damage ->
   Maybe (Word32 -> STMc NoRetry '[] ()) ->
   STMc NoRetry '[SomeException] ()
-commitSurfaceRoleInternal role content offset damage frameCallback = do
+commitSurfaceRoleInternal role content offset frameCallback = do
   case content of
     Nothing -> unmapSurfaceRole role
     Just content' -> do
@@ -266,7 +264,6 @@ commitSurfaceRoleInternal role content offset damage frameCallback = do
         Owned disposer SurfaceCommit {
           frame = compoundFrame,
           offset,
-          bufferDamage = damage,
           frameCallback
         }
 
@@ -520,7 +517,7 @@ propagateDesynchronizedSurfaceChange surface active content = do
     SurfaceRoleSubsurface subsurface -> do
       propagateDesynchronizedSubsurfaceChange subsurface content
     SurfaceRole role -> do
-      commitSurfaceRoleInternal role content Nothing (Just DamageAll) Nothing
+      commitSurfaceRoleInternal role content Nothing Nothing
 
 replaceSubsurfaceContent :: Unique -> Maybe (Content b) -> Content b -> Maybe (Disposer, Content b)
 replaceSubsurfaceContent key newContent parentContent = do

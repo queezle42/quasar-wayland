@@ -40,8 +40,6 @@ addDamage x (Just (DamageList xs)) = Just (DamageList (x : xs))
 data SurfaceCommit b = SurfaceCommit {
   frame :: Rc (Frame b),
   offset :: Maybe (Int32, Int32),
-  -- | May be empty on the first commit.
-  bufferDamage :: Maybe Damage,
   frameCallback :: Maybe (Word32 -> STMc NoRetry '[] ())
 }
 
@@ -50,7 +48,6 @@ defaultSurfaceCommit (Owned disposer frame) =
   Owned disposer SurfaceCommit {
     frame,
     offset = Nothing,
-    bufferDamage = Nothing,
     frameCallback = Nothing
   }
 
@@ -60,7 +57,6 @@ mergeCommits prev (Owned disposer next) = do
   Owned disposer SurfaceCommit {
     frame = next.frame,
     offset = next.offset,
-    bufferDamage = prev.bufferDamage <> next.bufferDamage,
     frameCallback = case (prev.frameCallback, next.frameCallback) of
       (Just pfc, Just nfc) -> Just (\time -> pfc time >> nfc time)
       (pfc, Nothing) -> pfc

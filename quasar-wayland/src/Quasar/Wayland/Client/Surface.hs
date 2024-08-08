@@ -316,7 +316,7 @@ commitPendingCommit surface pendingCommit = do
   atomicallyC do
     surface.wlSurface.attach (Just wlBuffer) x y
 
-    mapM_ (addBufferDamage surface.wlSurface) commit.bufferDamage
+    addBufferDamage surface.wlSurface DamageAll
 
     forM_ commit.frameCallback \frameCallback -> do
       wlCallback <- surface.wlSurface.frame
