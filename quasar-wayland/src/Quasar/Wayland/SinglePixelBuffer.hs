@@ -13,6 +13,6 @@ data SinglePixelBuffer = SinglePixelBuffer Word32 Word32 Word32 Word32
 instance Hashable SinglePixelBuffer
 
 
-class RenderBackend backend => IsSinglePixelBufferBackend backend where
+class Backend backend => IsSinglePixelBufferBackend backend where
   -- | Create a frame from an @SingPixelBuffer@.
   createSinglePixelBufferFrame :: backend -> SinglePixelBuffer -> STMc NoRetry '[] (Owned (Frame backend))

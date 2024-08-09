@@ -31,7 +31,7 @@ import Quasar.Wayland.Region
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Shared.Surface
 
-compositorGlobal :: forall b. RenderBackend b => Global b
+compositorGlobal :: forall b. Backend b => Global b
 compositorGlobal = createGlobal @Interface_wl_compositor maxVersion bindCompositor
   where
     bindCompositor :: Object 'Server Interface_wl_compositor -> STMc NoRetry '[SomeException] ()
@@ -43,7 +43,7 @@ compositorGlobal = createGlobal @Interface_wl_compositor maxVersion bindComposit
       create_region = \wlRegion -> liftSTMc $ initializeServerRegion wlRegion
     }
 
-subcompositorGlobal :: forall b. RenderBackend b => Global b
+subcompositorGlobal :: forall b. Backend b => Global b
 subcompositorGlobal = createGlobal @Interface_wl_subcompositor maxVersion bindCompositor
   where
     bindCompositor :: Object 'Server Interface_wl_subcompositor -> STMc NoRetry '[SomeException] ()
@@ -141,7 +141,7 @@ newServerSurface = do
     pendingSubsurfaces
   }
 
-getServerSurface :: forall b. RenderBackend b => Object 'Server Interface_wl_surface -> STMc NoRetry '[SomeException] (ServerSurface b)
+getServerSurface :: forall b. Backend b => Object 'Server Interface_wl_surface -> STMc NoRetry '[SomeException] (ServerSurface b)
 getServerSurface wlSurface =
   getInterfaceData @(ServerSurface b) wlSurface >>= \case
     Nothing -> throwM (userError "Invalid server surface")
@@ -304,7 +304,7 @@ createCompoundFrame content = do
     subsurfaces -> undefined
 
 attachToSurface ::
-  forall b. RenderBackend b =>
+  forall b. Backend b =>
   ServerSurface b ->
   Maybe (Object 'Server Interface_wl_buffer) ->
   Int32 ->
@@ -328,7 +328,7 @@ damageBuffer serverSurface rect = do
   modifyTVar mappedSurface.pendingBufferDamage (addDamage rect)
 
 
-initializeServerSurface :: forall b. RenderBackend b => NewObject 'Server Interface_wl_surface -> STMc NoRetry '[] ()
+initializeServerSurface :: forall b. Backend b => NewObject 'Server Interface_wl_surface -> STMc NoRetry '[] ()
 initializeServerSurface wlSurface = do
   serverSurface <- newServerSurface @b
   -- TODO missing requests
@@ -417,7 +417,7 @@ initializeWlBuffer backendRc wlBuffer buffer = do
       createExternalBufferFrame @buffer @backend frameRelease dupedRc
 
 
-getServerBuffer :: forall b. RenderBackend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (ServerBuffer b)
+getServerBuffer :: forall b. Backend b => Object 'Server Interface_wl_buffer -> STMc NoRetry '[SomeException] (ServerBuffer b)
 getServerBuffer wlBuffer = do
   ifd <- getInterfaceData @(ServerBuffer b) wlBuffer
   case ifd of
@@ -532,7 +532,7 @@ replaceSubsurfaceContent key newContent parentContent = do
 
 
 initializeServerSubsurface ::
-  forall b. RenderBackend b =>
+  forall b. Backend b =>
   NewObject 'Server Interface_wl_subsurface ->
   Object 'Server Interface_wl_surface ->
   Object 'Server Interface_wl_surface ->

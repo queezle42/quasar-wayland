@@ -38,7 +38,7 @@ type WindowFactory b = WindowProperties -> WindowConfigurationCallback -> Window
 toWindowFactory :: IsWindowManager b w a => a -> WindowFactory b
 toWindowFactory wm props conf req = toWindow <$> newWindow wm props conf req
 
-class (RenderBackend b, Disposable a) => IsWindow b a | a -> b where
+class (Backend b, Disposable a) => IsWindow b a | a -> b where
   toWindow :: a -> Window b
   toWindow = Window
   setFullscreen :: a -> Bool -> STMc NoRetry '[SomeException] ()
@@ -53,7 +53,7 @@ class (RenderBackend b, Disposable a) => IsWindow b a | a -> b where
 -- | Quantification wrapper for `IsWindow`.
 data Window b = forall a. IsWindow b a => Window a
 
-instance (RenderBackend b, Disposable (Window b)) => IsWindow b (Window b) where
+instance (Backend b, Disposable (Window b)) => IsWindow b (Window b) where
   toWindow = id
   setFullscreen (Window w) = setFullscreen w
   commitWindow (Window w) = commitWindow w

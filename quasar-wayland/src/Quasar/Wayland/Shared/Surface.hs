@@ -1,6 +1,6 @@
 module Quasar.Wayland.Shared.Surface (
   -- * Render backend
-  RenderBackend(..),
+  Backend(..),
 
   -- * Surface
   Damage(..),

@@ -46,8 +46,7 @@ main = do
       buffer <- newRcIO rawBuffer
       commit <- atomicallyC do
         commitWindow window configuration.configureSerial
-          (defaultWindowCommit
-            (defaultSurfaceCommit @ShmBufferBackend buffer <&> \c -> c {bufferDamage = Just DamageAll}))
+          (defaultWindowCommit (defaultSurfaceCommit @ShmBufferBackend buffer))
 
       delay <- newDelay 1000000
       await commit

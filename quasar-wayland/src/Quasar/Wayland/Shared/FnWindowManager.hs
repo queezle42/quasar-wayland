@@ -22,10 +22,10 @@ data FnWindow b = FnWindow {
   disposer :: Disposer
 }
 
-instance RenderBackend b => IsWindowManager b (FnWindow b) (FnWindowManager b) where
+instance Backend b => IsWindowManager b (FnWindow b) (FnWindowManager b) where
   newWindow = (.newWindowFn)
 
-instance RenderBackend b => IsWindow b (FnWindow b) where
+instance Backend b => IsWindow b (FnWindow b) where
   setFullscreen = (.setFullscreenFn)
   commitWindow = (.commitWindowFn)
   ackWindowConfigure = (.ackWindowConfigureFn)

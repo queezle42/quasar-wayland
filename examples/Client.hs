@@ -49,11 +49,7 @@ main = do
 
       commit <- atomicallyC do
         commitWindow window configuration.configureSerial
-          (defaultWindowCommit
-            (defaultSurfaceCommit @(Skia GL) frame <&> \c -> c {
-              bufferDamage = Just DamageAll
-            })
-          )
+          (defaultWindowCommit (defaultSurfaceCommit @(Skia GL) frame))
 
       delay <- newDelay 16000
       await commit

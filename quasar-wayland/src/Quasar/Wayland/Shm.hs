@@ -33,7 +33,7 @@ import Quasar.Wayland.Protocol.Generated
 -- | Simple buffer backend that only supports shared memory buffers.
 data ShmBufferBackend = ShmBufferBackend
 
-instance RenderBackend ShmBufferBackend where
+instance Backend ShmBufferBackend where
   type Frame ShmBufferBackend = ShmBuffer
 
 type IsShmBufferBackend b = IsBufferBackend ShmBuffer b

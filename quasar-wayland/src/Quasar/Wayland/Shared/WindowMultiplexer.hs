@@ -28,10 +28,10 @@ data WindowMultiplexerState b = WindowMultiplexerState {
   lastCommitLock :: TVar Disposer
 }
 
-instance RenderBackend b => IsWindowManager b (WindowMultiplexer b) (WindowMultiplexerFactory b) where
+instance Backend b => IsWindowManager b (WindowMultiplexer b) (WindowMultiplexerFactory b) where
   newWindow = newWindowMultiplexer
 
-instance RenderBackend b => IsWindow b (WindowMultiplexer b) where
+instance Backend b => IsWindow b (WindowMultiplexer b) where
   setFullscreen multiplexer fullscreen = do
     withState multiplexer \state -> do
       readTVar state.downstreams >>= \case

@@ -247,7 +247,7 @@ data SkiaExportBufferId
 
 instance Hashable SkiaExportBufferId
 
-instance IsSkiaBackend s => RenderBackend (Skia s) where
+instance IsSkiaBackend s => Backend (Skia s) where
   type Frame (Skia s) = SkiaFrame s
 
 instance IsSkiaBackend s => ClientBufferBackend (Skia s) where

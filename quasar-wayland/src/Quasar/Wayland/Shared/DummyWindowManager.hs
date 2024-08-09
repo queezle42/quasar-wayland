@@ -16,13 +16,13 @@ newDummyWindowManager = pure DummyWindowManager
 
 data DummyWindow b = DummyWindow
 
-instance RenderBackend b => IsWindowManager b (DummyWindow b) (DummyWindowManager b) where
+instance Backend b => IsWindowManager b (DummyWindow b) (DummyWindowManager b) where
   newWindow _wm _properties configCallback _requestCallback = do
     traceM "New window created"
     configCallback defaultWindowConfiguration
     pure DummyWindow
 
-instance RenderBackend b => IsWindow b (DummyWindow b) where
+instance Backend b => IsWindow b (DummyWindow b) where
   setFullscreen _window _fullscreen = pure ()
   commitWindow _window _configureSerial _commit = pure () <$ traceM "Window comitted"
   ackWindowConfigure _window _configureSerial = traceM "Window configure acked"

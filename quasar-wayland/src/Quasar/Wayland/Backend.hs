@@ -1,5 +1,5 @@
 module Quasar.Wayland.Backend (
-  RenderBackend(..),
+  Backend(..),
   ClientBufferBackend(..),
 
   -- * External buffer import
@@ -21,13 +21,13 @@ import Quasar.Wayland.Client
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 
-type RenderBackend :: Type -> Constraint
-class Typeable b => RenderBackend b where
+type Backend :: Type -> Constraint
+class Typeable b => Backend b where
   type Frame b :: Type
 
 
 
-class (RenderBackend b, Typeable (BackendClientBufferManager b), Hashable (ExportBufferId b)) => ClientBufferBackend b where
+class (Backend b, Typeable (BackendClientBufferManager b), Hashable (ExportBufferId b)) => ClientBufferBackend b where
   type BackendClientBufferManager b
   type ExportBufferId b
   type RenderedFrame b
@@ -94,7 +94,7 @@ class (RenderBackend b, Typeable (BackendClientBufferManager b), Hashable (Expor
 
 
 
-class RenderBackend backend => IsBufferBackend buffer backend where
+class Backend backend => IsBufferBackend buffer backend where
   type ExternalBuffer buffer backend
   type instance ExternalBuffer buffer _backend = buffer
 
