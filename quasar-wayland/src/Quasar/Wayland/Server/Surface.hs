@@ -447,7 +447,8 @@ data Subsurface b = Subsurface {
   key :: Unique,
   surface :: ServerSurface b,
   parentSurface :: ServerSurface b,
-  subsurfaceMode :: TVar SubsurfaceMode
+  subsurfaceMode :: TVar SubsurfaceMode,
+  position :: TVar (Int32, Int32)
 }
 
 isDesynchronizedSurface :: ServerSurface b -> STMc NoRetry '[] Bool
@@ -527,11 +528,13 @@ initializeServerSubsurface wlSubsurface wlSurface wlParent = do
   surface <- getServerSurface @b wlSurface
   parentSurface <- getServerSurface @b wlParent
   subsurfaceMode <- newTVar Synchronized
+  position <- newTVar (0, 0)
   let subsurface = Subsurface {
     key,
     surface,
     parentSurface,
-    subsurfaceMode
+    subsurfaceMode,
+    position
   }
   assignSurfaceRole @Interface_wl_subsurface surface (SurfaceRoleSubsurface subsurface)
   attachFinalizer wlSubsurface (destroySubsurface subsurface)
@@ -544,7 +547,7 @@ initializeServerSubsurface wlSubsurface wlSurface wlParent = do
 
   setRequestHandler wlSubsurface RequestHandler_wl_subsurface {
     destroy = pure (),
-    set_position = \x y -> traceM (mconcat ["TODO: Subsurface position: ", show x, ", ", show y]),
+    set_position = \x y -> writeTVar position (x, y),
     place_above = \sibling -> traceM "TODO: Subsurface above",
     place_below = \sibling -> traceM "TODO: Subsurface below",
     set_sync = setSynchronized subsurface,
