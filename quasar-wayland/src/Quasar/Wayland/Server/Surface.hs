@@ -535,6 +535,10 @@ initializeServerSubsurface wlSubsurface wlSurface wlParent = do
   }
   assignSurfaceRole @Interface_wl_subsurface surface (SurfaceRoleSubsurface subsurface)
   attachFinalizer wlSubsurface (destroySubsurface subsurface)
+  -- "A new sub-surface is initially added as the top-most in the stack of its
+  -- siblings and parent."
+  modifyTVar parentSurface.pendingSubsurfaces (:|> subsurface)
+
   setRequestHandler wlSubsurface RequestHandler_wl_subsurface {
     destroy = pure (),
     set_position = \x y -> traceM (mconcat ["TODO: Subsurface position: ", show x, ", ", show y]),
