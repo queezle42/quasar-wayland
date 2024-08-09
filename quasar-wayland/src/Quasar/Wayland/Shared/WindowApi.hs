@@ -43,10 +43,6 @@ class (Backend b, Disposable a) => IsWindow b a | a -> b where
   toWindow = Window
   setFullscreen :: a -> Bool -> STMc NoRetry '[SomeException] ()
   -- | Commit the next frame, replacing the previous window content.
-  --
-  -- Ownership of the frame lock is transferred to the window. The window must
-  -- ensure the frame lock is disposed at an appropriate time, or resources will
-  -- be leaked.
   commitWindow :: a -> ConfigureSerial -> Owned (WindowCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
   ackWindowConfigure :: a -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
 

@@ -3,7 +3,7 @@ module Quasar.Wayland.Server.XdgShell (
 ) where
 
 import Control.Monad.Catch
-import Quasar.Disposer (disposeEventually)
+import Quasar.Disposer
 import Quasar.Observable.Core (toObservable)
 import Quasar.Observable.ObservableVar
 import Quasar.Prelude
@@ -11,7 +11,6 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
 import Quasar.Wayland.Server.Registry
 import Quasar.Wayland.Server.Surface
-import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
 
 xdgShellGlobal :: forall b w wm. IsWindowManager b w wm => wm -> Global b
@@ -99,6 +98,10 @@ initializeXdgSurface' xdgWmBase wlXdgSurface serverSurface = do
     ack_configure = \_serial -> pure ()
   }
 
+resetXdgSurface :: XdgSurface b w wm -> STMc NoRetry '[] ()
+resetXdgSurface xdgSurface = do
+  writeTVar xdgSurface.geometryVar (0, 0, 0, 0)
+
 destroyXdgSurface :: XdgSurface b w wm -> STMc NoRetry '[SomeException] ()
 destroyXdgSurface xdgSurface =
   whenM (readTVar xdgSurface.hasRoleObject) do
@@ -106,26 +109,64 @@ destroyXdgSurface xdgSurface =
     throwM (userError "Cannot destroy xdg_surface before its role object has been destroyed.")
 
 data XdgToplevel b w wm = XdgToplevel {
-  window :: w,
+  state :: TVar (XdgToplevelState w),
   xdgSurface :: XdgSurface b w wm,
   wlXdgToplevel :: Object 'Server Interface_xdg_toplevel,
+  windowProperties :: WindowProperties,
   maxSizeVar :: TVar (Int32, Int32),
   minSizeVar :: TVar (Int32, Int32)
 }
+
+data XdgToplevelState w
+  = Unmapped
+  | Created w
+  | Configured w
+  | Mapped w
+
+
 
 instance IsWindowManager b w wm => IsSurfaceRole b (XdgToplevel b w wm) where
   commitSurfaceRole xdgToplevel (Owned disposer surfaceCommit) = do
     minSize <- readTVar xdgToplevel.minSizeVar
     maxSize <- readTVar xdgToplevel.minSizeVar
     geometry <- readTVar xdgToplevel.xdgSurface.geometryVar
-    commitWindow xdgToplevel.window unsafeConfigureSerial $
+    window <- readTVar xdgToplevel.state >>= \case
+      Unmapped -> throwC (userError "xdg_surface::error.unconfigured_buffer")
+      Created _window -> throwC (userError "xdg_surface::error.unconfigured_buffer")
+      Configured window -> do
+        writeTVar xdgToplevel.state (Mapped window)
+        pure window
+      Mapped window -> pure window
+
+    commitWindow window unsafeConfigureSerial $
       Owned disposer $ WindowCommit {
         surfaceCommit,
         minSize,
         maxSize,
         geometry
       }
-  unmapSurfaceRole xdgToplevel = throwM (userError "TODO unmap xdg_toplevel")
+
+  unmapSurfaceRole xdgToplevel = do
+    readTVar xdgToplevel.state >>= \case
+      Unmapped -> do
+        window <- newWindow
+          xdgToplevel.xdgSurface.xdgWmBase.wm
+          xdgToplevel.windowProperties
+          (sendConfigureEvent xdgToplevel)
+          (sendWindowRequest xdgToplevel)
+        writeTVar xdgToplevel.state (Created window)
+      Created _window -> pure ()
+      Configured _window -> pure ()
+      Mapped window -> liftSTMc do
+        disposeEventually_ window
+        writeTVar xdgToplevel.state Unmapped
+        resetXdgToplevel xdgToplevel
+
+resetXdgToplevel :: XdgToplevel b w wm -> STMc NoRetry '[] ()
+resetXdgToplevel xdgToplevel = do
+  writeTVar xdgToplevel.maxSizeVar (0, 0)
+  writeTVar xdgToplevel.minSizeVar (0, 0)
+  resetXdgSurface xdgToplevel.xdgSurface
 
 initializeXdgToplevel :: forall b w wm. IsWindowManager b w wm => XdgSurface b w wm -> NewObject 'Server Interface_xdg_toplevel -> STMc NoRetry '[SomeException] ()
 initializeXdgToplevel xdgSurface wlXdgToplevel = do
@@ -133,16 +174,24 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
 
   void $ mfix \window -> do
 
+    state <- newTVar Unmapped
+
     titleVar <- newObservableVar ""
     appIdVar <- newObservableVar ""
 
     maxSizeVar <- newTVar (0, 0)
     minSizeVar <- newTVar (0, 0)
 
+    let windowProperties = WindowProperties {
+      title = toObservable titleVar,
+      appId = toObservable appIdVar
+    }
+
     let xdgToplevel = XdgToplevel {
-      window,
+      state,
       xdgSurface,
       wlXdgToplevel,
+      windowProperties,
       maxSizeVar,
       minSizeVar
     }
@@ -174,17 +223,15 @@ initializeXdgToplevel xdgSurface wlXdgToplevel = do
       set_minimized = undefined
     }
 
-    let windowProperties = WindowProperties {
-      title = toObservable titleVar,
-      appId = toObservable appIdVar
-    }
-
     -- `newWindow` might call the configure callback immediately, so the window
     -- should be created after request handlers are attached.
     newWindow xdgSurface.xdgWmBase.wm windowProperties (sendConfigureEvent xdgToplevel) (sendWindowRequest xdgToplevel)
 
 sendConfigureEvent :: XdgToplevel b w wm -> WindowConfiguration -> STMc NoRetry '[SomeException] ()
 sendConfigureEvent xdgToplevel windowConfiguration = do
+  readTVar xdgToplevel.state >>= \case
+    Created window -> writeTVar xdgToplevel.state (Configured window)
+    _ -> pure ()
   traceM "Sending window configuration"
 
   xdgToplevel.wlXdgToplevel.configure windowConfiguration.width windowConfiguration.height windowConfiguration.states
