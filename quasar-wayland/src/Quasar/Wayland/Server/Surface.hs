@@ -535,6 +535,9 @@ initializeServerSubsurface wlSubsurface wlSurface wlParent = do
   }
   assignSurfaceRole @Interface_wl_subsurface surface (SurfaceRoleSubsurface subsurface)
   attachFinalizer wlSubsurface (destroySubsurface subsurface)
+
+  checkSubsurfaceLoop key parentSurface
+
   -- "A new sub-surface is initially added as the top-most in the stack of its
   -- siblings and parent."
   modifyTVar parentSurface.pendingSubsurfaces (:|> subsurface)
@@ -547,6 +550,17 @@ initializeServerSubsurface wlSubsurface wlSurface wlParent = do
     set_sync = setSynchronized subsurface,
     set_desync = setDesynchronized subsurface
   }
+
+checkSubsurfaceLoop :: Unique -> ServerSurface b -> STMc NoRetry '[SomeException] ()
+checkSubsurfaceLoop key parent = do
+  readTVar parent.state >>= \case
+    Nothing -> pure ()
+    Just state -> case state.surfaceRole of
+      SurfaceRole _ -> pure ()
+      SurfaceRoleSubsurface subsurface -> do
+        when (subsurface.key == key) do
+          throwC (userError "TODO: Report subsurface loop")
+        checkSubsurfaceLoop key subsurface.parentSurface
 
 setSynchronized :: Subsurface b -> STMc NoRetry '[SomeException] ()
 setSynchronized subsurface = writeTVar subsurface.subsurfaceMode Synchronized
