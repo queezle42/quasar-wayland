@@ -78,26 +78,17 @@ class IsSurfaceRole b a | a -> b where
 
 
 data ServerSurface b = ServerSurface {
-  state :: TVar (ServerSurfaceState b),
+  state :: TVar (Maybe (ServerSurfaceState b)),
   lastRole :: TVar (Maybe String),
   pendingFrameCallback :: TVar (Maybe (Word32 -> STMc NoRetry '[] ())),
   pendingSubsurfaces :: TVar (Seq (Subsurface b))
 }
 
-data ServerSurfaceState b =
-  -- TODO this isn't actually unmapped, it's "no role assigned"
-  NoRole |
-  -- | Surface role was assigned
-  RolePending (PendingServerSurface b) |
-  -- Surface role has been commited
-  -- TODO this isn't necessarily mapped
-  RoleActive (ActiveServerSurface b)
-
 newtype PendingServerSurface b = PendingServerSurface {
   surfaceRole :: SurfaceRole b
 }
 
-data ActiveServerSurface b = ActiveServerSurface {
+data ServerSurfaceState b = ServerSurfaceState {
   surfaceRole :: SurfaceRole b,
   pendingBuffer :: TMVar (Maybe (ServerBuffer b)),
   pendingOffset :: TVar (Maybe (Int32, Int32)),
@@ -129,7 +120,7 @@ data ServerBuffer b = ServerBuffer {
 
 newServerSurface :: STMc NoRetry '[] (ServerSurface b)
 newServerSurface = do
-  state <- newTVar NoRole
+  state <- newTVar Nothing
   lastRole <- newTVar Nothing
   pendingFrameCallback <- newTVar Nothing
   pendingSubsurfaces <- newTVar mempty
@@ -150,14 +141,11 @@ getServerSurface wlSurface =
 commitServerSurface :: ServerSurface b -> STMc NoRetry '[SomeException] ()
 commitServerSurface serverSurface = do
   readTVar serverSurface.state >>= \case
-    NoRole -> throwM $ userError "Cannot commit a surface that does not have a role"
-    RolePending pending -> do
-      mappedSurface <- liftSTMc $ activateServerSurface pending
-      writeTVar serverSurface.state (RoleActive mappedSurface)
-    RoleActive activeSurface -> commitActiveServerSurface serverSurface activeSurface
+    Nothing -> throwM $ userError "Cannot commit a surface that does not have a role"
+    Just state -> commitActiveServerSurface serverSurface state
 
-activateServerSurface :: PendingServerSurface b -> STMc NoRetry '[] (ActiveServerSurface b)
-activateServerSurface pending = do
+activateServerSurface :: SurfaceRole b -> STMc NoRetry '[] (ServerSurfaceState b)
+activateServerSurface role = do
   pendingBuffer <- newEmptyTMVar
   pendingOffset <- newTVar Nothing
   pendingBufferDamage <- newTVar Nothing
@@ -165,8 +153,8 @@ activateServerSurface pending = do
 
   content <- newTVar Nothing
 
-  pure ActiveServerSurface {
-    surfaceRole = pending.surfaceRole,
+  pure ServerSurfaceState {
+    surfaceRole = role,
     pendingBuffer,
     pendingOffset,
     pendingBufferDamage,
@@ -176,7 +164,7 @@ activateServerSurface pending = do
 
 commitActiveServerSurface ::
   forall b.
-  ServerSurface b -> ActiveServerSurface b -> STMc NoRetry '[SomeException] ()
+  ServerSurface b -> ServerSurfaceState b -> STMc NoRetry '[SomeException] ()
 commitActiveServerSurface surface mapped = do
   serverBuffer <- tryTakeTMVar mapped.pendingBuffer
   offset <- swapTVar mapped.pendingOffset Nothing
@@ -271,10 +259,10 @@ commitSurfaceRoleInternal role content offset frameCallback = do
 getClonedSubsurfaceContent :: Subsurface b -> STMc NoRetry '[SomeException] (Unique, Maybe (Content b))
 getClonedSubsurfaceContent subsurface = (subsurface.key,) <$> do
   readTVar subsurface.surface.state >>= \case
-    RoleActive active -> do
-      content <- readTVar active.content
+    Just state -> do
+      content <- readTVar state.content
       mapM cloneContent content
-    _ -> pure Nothing
+    Nothing -> pure Nothing
 
 cloneContent :: Content b -> STMc NoRetry '[SomeException] (Content b)
 cloneContent content = do
@@ -288,12 +276,12 @@ cloneContent content = do
     subsurfaceContents
   }
 
-requireMappedSurface :: ServerSurface b -> STMc NoRetry '[SomeException] (ActiveServerSurface b)
-requireMappedSurface serverSurface = do
+requireRole :: ServerSurface b -> STMc NoRetry '[SomeException] (ServerSurfaceState b)
+requireRole serverSurface = do
   readTVar serverSurface.state >>= \case
-    RoleActive mapped -> pure mapped
+    Just state -> pure state
     -- TODO improve exception / propagate error to the client
-    _ -> throwM $ userError "Requested operation requires a mapped surface"
+    Nothing -> throwM $ userError "Requested operation requires a mapped surface"
 
 -- Does not take ownership of content.
 createCompoundFrame :: Content b -> STMc NoRetry '[SomeException] (Owned (Rc (Frame b)))
@@ -311,7 +299,7 @@ attachToSurface ::
   Int32 ->
   STMc NoRetry '[SomeException] ()
 attachToSurface serverSurface wlBuffer x y = do
-  mappedSurface <- requireMappedSurface serverSurface
+  mappedSurface <- requireRole serverSurface
   buffer <- mapM (getServerBuffer @b) wlBuffer
   writeTMVar mappedSurface.pendingBuffer buffer
   -- TODO ensure (x == 0 && y == 0) for wl_surface v5
@@ -319,12 +307,12 @@ attachToSurface serverSurface wlBuffer x y = do
 
 damageSurface :: ServerSurface b -> Rectangle -> STMc NoRetry '[SomeException] ()
 damageSurface serverSurface rect = do
-  mappedSurface <- requireMappedSurface serverSurface
+  mappedSurface <- requireRole serverSurface
   modifyTVar mappedSurface.pendingSurfaceDamage (rect:)
 
 damageBuffer :: ServerSurface b -> Rectangle -> STMc NoRetry '[SomeException] ()
 damageBuffer serverSurface rect = do
-  mappedSurface <- requireMappedSurface serverSurface
+  mappedSurface <- requireRole serverSurface
   modifyTVar mappedSurface.pendingBufferDamage (addDamage rect)
 
 
@@ -427,30 +415,28 @@ getServerBuffer wlBuffer = do
 
 assignSurfaceRole :: forall i b. IsInterfaceSide 'Server i => ServerSurface b -> SurfaceRole b -> STMc NoRetry '[SomeException] ()
 assignSurfaceRole surface surfaceRole = do
-  let role = interfaceName @i
+  let roleName = interfaceName @i
 
   readTVar surface.state >>= \case
-    RoleActive _ -> throwM (ProtocolUsageError "Cannot assign wl_surface a new role, since it already has an active role.")
-    RolePending _ -> throwM (ProtocolUsageError "Cannot assign wl_surface a new role, since it already has a pending role.")
-    NoRole -> pure ()
-
-  writeTVar surface.state $ RolePending PendingServerSurface { surfaceRole }
+    Just _ -> throwM (ProtocolUsageError "Cannot assign wl_surface a new role, since it already has a role.")
+    Nothing -> pure ()
 
   readTVar surface.lastRole >>= \case
-    Just ((== role) -> True) -> pure ()
-    Just currentRole ->
-      let msg = mconcat ["Cannot change wl_surface role. The last role was ", currentRole, "; new role is ", role]
+    Just ((== roleName) -> True) -> pure ()
+    Just lastRoleName ->
+      let msg = mconcat ["Cannot change wl_surface role. The last role was ", lastRoleName, "; new role is ", roleName]
       in throwM (ProtocolUsageError msg)
-    Nothing -> writeTVar surface.lastRole (Just role)
+    Nothing -> writeTVar surface.lastRole (Just roleName)
+
+  state <- liftSTMc $ activateServerSurface surfaceRole
+  writeTVar surface.state (Just state)
 
 removeSurfaceRole :: ServerSurface b -> STMc NoRetry '[] ()
 removeSurfaceRole surface = do
   readTVar surface.state >>= \case
-    NoRole -> traceM "TODO removing surface role from surface without role - bug?"
-    RolePending _ ->
-      writeTVar surface.state NoRole
-    RoleActive state -> do
-      writeTVar surface.state NoRole
+    Nothing -> traceM "TODO removing surface role from surface without role - bug?"
+    Just state -> do
+      writeTVar surface.state Nothing
       -- TODO fire frame callback to destroy it?
       mapM_ disposeEventually_ =<< swapTVar state.content Nothing
 
@@ -467,10 +453,9 @@ data Subsurface b = Subsurface {
 isDesynchronizedSurface :: ServerSurface b -> STMc NoRetry '[] Bool
 isDesynchronizedSurface surface = do
   readTVar surface.state >>= \case
-    NoRole -> pure False
-    RolePending _ -> pure False
-    RoleActive active -> do
-      case active.surfaceRole of
+    Nothing -> pure False
+    Just state -> do
+      case state.surfaceRole of
         SurfaceRole _ -> pure False
         SurfaceRoleSubsurface subsurface ->
           isDesynchronizedSubsurface subsurface
@@ -490,8 +475,8 @@ isDesynchronizedSubsurface subsurface = do
 propagateDesynchronizedSubsurfaceChange :: Subsurface b -> Maybe (Content b) -> STMc NoRetry '[SomeException] ()
 propagateDesynchronizedSubsurfaceChange subsurface content = do
   readTVar subsurface.parentSurface.state >>= \case
-    RoleActive parentActive -> do
-      readTVar parentActive.content >>= \case
+    Just parentState -> do
+      readTVar parentState.content >>= \case
         Just parentContent -> do
 
           ownedContent <- mapM cloneContent content
@@ -501,17 +486,17 @@ propagateDesynchronizedSubsurfaceChange subsurface content = do
             Just (disposer, newParentContent) -> do
               disposeEventually_ disposer
 
-              writeTVar parentActive.content (Just newParentContent)
+              writeTVar parentState.content (Just newParentContent)
 
               propagateDesynchronizedSurfaceChange
                 subsurface.parentSurface
-                parentActive
+                parentState
                 (Just newParentContent)
 
         Nothing -> unreachableCodePathM
-    _ -> unreachableCodePathM
+    Nothing -> unreachableCodePathM
 
-propagateDesynchronizedSurfaceChange :: ServerSurface b -> ActiveServerSurface b -> Maybe (Content b) -> STMc NoRetry '[SomeException] ()
+propagateDesynchronizedSurfaceChange :: ServerSurface b -> ServerSurfaceState b -> Maybe (Content b) -> STMc NoRetry '[SomeException] ()
 propagateDesynchronizedSurfaceChange surface active content = do
   case active.surfaceRole of
     SurfaceRoleSubsurface subsurface -> do
@@ -567,15 +552,15 @@ setDesynchronized subsurface = do
   writeTVar subsurface.subsurfaceMode Desynchronized
   whenM (liftSTMc (isDesynchronizedSubsurface subsurface)) do
     readTVar subsurface.surface.state >>= \case
-      RoleActive active -> do
-        content <- readTVar active.content
+      Just state -> do
+        content <- readTVar state.content
         -- NOTE In theory this implementation should only propagate a change
         -- if the subsurface has changed (= was committed) since it's parent
         -- was last committed. Since this implementation does not track that
         -- information and always propagates the change, since `set_desync` is
         -- usually only used during setup and it's easier to implement this way.
         propagateDesynchronizedSubsurfaceChange subsurface content
-      _ -> pure ()
+      Nothing -> pure ()
 
 destroySubsurface :: Subsurface b -> STMc NoRetry '[] ()
 destroySubsurface subsurface = do
@@ -586,12 +571,12 @@ destroySubsurface subsurface = do
   -- This can be interpreted in multiple ways. It may be necessary to also
   -- propagate a surface change.
   readTVar subsurface.parentSurface.state >>= \case
-    RoleActive active -> do
-      oldContent <- readTVar active.content
+    Just state -> do
+      oldContent <- readTVar state.content
       forM_ oldContent \content -> do
         let (removed, remaining) = Seq.partition (\(key, _) -> key /= subsurface.key) content.subsurfaceContents
         mapM_ (mapM_ disposeEventually_ . snd) removed
-        writeTVar active.content $ Just content {
+        writeTVar state.content $ Just content {
           subsurfaceContents = remaining
         }
-    _ -> pure ()
+    Nothing -> pure ()
