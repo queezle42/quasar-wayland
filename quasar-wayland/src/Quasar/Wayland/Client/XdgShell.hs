@@ -136,6 +136,10 @@ newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} properties configu
 
     let propertiesDisposer = d1 <> d2
 
+    -- Commit xdg_surface/xdg_toplevel state (this is an xdg_surface quirk).
+    -- This is required to receive the initial configure event.
+    liftSTMc wlSurface.commit
+
     pure (xdgSurface, xdgToplevel, propertiesDisposer)
 
   geometry <- newTVar (0, 0, 0, 0)

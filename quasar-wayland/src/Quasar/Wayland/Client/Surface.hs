@@ -220,9 +220,6 @@ newClientSurface client initializeSurfaceRoleFn = do
   }
   fnResult <- initializeSurfaceRoleFn wlSurface
 
-  -- Commit role
-  liftSTMc wlSurface.commit
-
   pendingCommit <- newTVar Nothing
   pendingDisposerFuture <- newTVar mempty
 
