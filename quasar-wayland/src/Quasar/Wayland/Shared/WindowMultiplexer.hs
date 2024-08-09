@@ -37,19 +37,18 @@ instance Backend b => IsWindow b (WindowMultiplexer b) where
       readTVar state.downstreams >>= \case
         [] -> pure ()
         (primary:_) -> setFullscreen primary fullscreen
-  commitWindow (WindowMultiplexer var) serial (Owned originalDisposer commit) = do
+  commitWindow (WindowMultiplexer var) serial windowCommit (Owned originalDisposer surfaceCommit) = do
     future <- tryReadTDisposableVar var >>= \case
       Nothing -> pure (pure ()) -- ignore commits when disposed
       Just state -> do
         windows <- readTVar state.downstreams
         -- TODO use correct per-downstream serial
         mconcat <$> forM windows \window -> do
-          (Owned disposer frc) <- cloneRc commit.surfaceCommit.frame
-          commitWindow window serial $ Owned disposer commit {
-            surfaceCommit = commit.surfaceCommit {
-              frame = frc
-            }
+          (Owned disposer frc) <- cloneRc surfaceCommit.frame
+          let clonedSurfaceCommit = Owned disposer surfaceCommit {
+            frame = frc
           }
+          commitWindow window serial windowCommit clonedSurfaceCommit
     disposeEventually_ originalDisposer
     pure future
   ackWindowConfigure multiplexer serial = do

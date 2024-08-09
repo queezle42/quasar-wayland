@@ -126,7 +126,7 @@ data XdgToplevelState w
 
 
 instance IsWindowManager b w wm => IsSurfaceRole b (XdgToplevel b w wm) where
-  commitSurfaceRole xdgToplevel (Owned disposer surfaceCommit) = do
+  commitSurfaceRole xdgToplevel surfaceCommit = do
     minSize <- readTVar xdgToplevel.minSizeVar
     maxSize <- readTVar xdgToplevel.minSizeVar
     geometry <- readTVar xdgToplevel.xdgSurface.geometryVar
@@ -138,13 +138,12 @@ instance IsWindowManager b w wm => IsSurfaceRole b (XdgToplevel b w wm) where
         pure window
       Mapped window -> pure window
 
-    commitWindow window unsafeConfigureSerial $
-      Owned disposer $ WindowCommit {
-        surfaceCommit,
-        minSize,
-        maxSize,
-        geometry
-      }
+    let windowCommit = WindowCommit {
+      minSize,
+      maxSize,
+      geometry
+    }
+    commitWindow window unsafeConfigureSerial windowCommit surfaceCommit
 
   unmapSurfaceRole xdgToplevel = do
     readTVar xdgToplevel.state >>= \case

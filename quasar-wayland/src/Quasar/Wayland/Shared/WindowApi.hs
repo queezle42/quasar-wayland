@@ -43,7 +43,7 @@ class (Backend b, Disposable a) => IsWindow b a | a -> b where
   toWindow = Window
   setFullscreen :: a -> Bool -> STMc NoRetry '[SomeException] ()
   -- | Commit the next frame, replacing the previous window content.
-  commitWindow :: a -> ConfigureSerial -> Owned (WindowCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
+  commitWindow :: a -> ConfigureSerial -> WindowCommit b -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
   ackWindowConfigure :: a -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
 
 -- | Quantification wrapper for `IsWindow`.
@@ -72,16 +72,14 @@ defaultWindowProperties = WindowProperties {
 }
 
 data WindowCommit b = WindowCommit {
-  surfaceCommit :: SurfaceCommit b,
   geometry :: (Int32, Int32, Int32, Int32),
   minSize :: (Int32, Int32),
   maxSize :: (Int32, Int32)
 }
 
-defaultWindowCommit :: Owned (SurfaceCommit b) -> Owned (WindowCommit b)
+defaultWindowCommit :: WindowCommit b
 defaultWindowCommit =
-  fmap \surfaceCommit -> WindowCommit {
-    surfaceCommit,
+  WindowCommit {
     geometry = (0, 0, 0, 0),
     minSize = (0, 0),
     maxSize = (0, 0)

@@ -4,7 +4,7 @@ module Quasar.Wayland.Shared.DummyWindowManager (
   DummyWindow,
 ) where
 
-import Quasar.Disposer (Disposable (getDisposer))
+import Quasar.Disposer
 import Quasar.Prelude
 import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
@@ -24,7 +24,9 @@ instance Backend b => IsWindowManager b (DummyWindow b) (DummyWindowManager b) w
 
 instance Backend b => IsWindow b (DummyWindow b) where
   setFullscreen _window _fullscreen = pure ()
-  commitWindow _window _configureSerial _commit = pure () <$ traceM "Window comitted"
+  commitWindow _window _configureSerial _windowCommit surfaceCommit = do
+    disposeEventually_ surfaceCommit
+    pure () <$ traceM "Window comitted"
   ackWindowConfigure _window _configureSerial = traceM "Window configure acked"
 
 instance Disposable (DummyWindow b) where

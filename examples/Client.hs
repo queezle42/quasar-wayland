@@ -48,8 +48,8 @@ main = do
       frame <- newRcIO =<< liftIO (newFrameConsumeSurface surface)
 
       commit <- atomicallyC do
-        commitWindow window configuration.configureSerial
-          (defaultWindowCommit (defaultSurfaceCommit @(Skia GL) frame))
+        commitWindow window configuration.configureSerial defaultWindowCommit $
+          defaultSurfaceCommit @(Skia GL) frame
 
       delay <- newDelay 16000
       await commit

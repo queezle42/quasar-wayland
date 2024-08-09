@@ -28,6 +28,7 @@ import Quasar.Wayland.Client
 import Quasar.Wayland.Client.Surface
 import Quasar.Wayland.Protocol
 import Quasar.Wayland.Protocol.Generated
+import Quasar.Wayland.Shared.Surface
 import Quasar.Wayland.Shared.WindowApi
 
 
@@ -160,32 +161,32 @@ newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} properties configu
 
   ClientXdgToplevel <$> newTDisposableVar state disposeClientXdgToplevel
 
-commitClientXdgToplevel :: forall b. ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> Owned (WindowCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
-commitClientXdgToplevel toplevel@(ClientXdgToplevel var) configureSerial (Owned disposer commit) = do
+commitClientXdgToplevel :: forall b. ClientBufferBackend b => ClientXdgToplevel b -> ConfigureSerial -> WindowCommit b -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())
+commitClientXdgToplevel toplevel@(ClientXdgToplevel var) configureSerial windowCommit surfaceCommit = do
   ackWindowConfigure @b toplevel configureSerial
   tryReadTDisposableVar var >>= \case
-    Nothing -> disposeEventually disposer
+    Nothing -> disposeEventually surfaceCommit
     Just state -> do
 
-      let geometry@(x, y, w, h) = commit.geometry
+      let geometry@(x, y, w, h) = windowCommit.geometry
       lastGeometry <- readTVar state.geometry
-      when (commit.geometry /= lastGeometry) do
+      when (windowCommit.geometry /= lastGeometry) do
         state.xdgSurface.set_window_geometry x y w h
         writeTVar state.geometry geometry
 
-      let maxSize@(maxW, maxH) = commit.maxSize
+      let maxSize@(maxW, maxH) = windowCommit.maxSize
       lastMaxSize <- readTVar state.maxSize
-      when (commit.maxSize /= lastMaxSize) do
+      when (windowCommit.maxSize /= lastMaxSize) do
         state.xdgToplevel.set_max_size maxW maxH
         writeTVar state.maxSize maxSize
 
-      let minSize@(minW, minH) = commit.minSize
+      let minSize@(minW, minH) = windowCommit.minSize
       lastMinSize <- readTVar state.minSize
-      when (commit.minSize /= lastMinSize) do
+      when (windowCommit.minSize /= lastMinSize) do
         state.xdgToplevel.set_min_size minW minH
         writeTVar state.minSize minSize
 
-      commitClientSurface state.clientSurface (Owned disposer commit.surfaceCommit)
+      commitClientSurface state.clientSurface surfaceCommit
 
 ackToplevelConfigure :: ClientXdgToplevel b -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
 ackToplevelConfigure toplevel _configureSerial = do
