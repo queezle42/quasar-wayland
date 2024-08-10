@@ -30,13 +30,24 @@ import Quasar.Wayland.Protocol
 import Quasar.Wayland.Shared.Surface
 
 class IsWindow b w => IsWindowManager b w a | a -> b, a -> w where
-  newWindow :: a -> WindowProperties -> WindowConfigurationCallback -> WindowRequestCallback -> STMc NoRetry '[SomeException] w
+  newWindow ::
+    a ->
+    WindowProperties ->
+    WindowCommit ->
+    WindowConfigurationCallback ->
+    WindowRequestCallback ->
+    STMc NoRetry '[SomeException] w
 
 -- | Wrapper for an `IsWindowManager` that can only create windows of the `Window` type.
-type WindowFactory b = WindowProperties -> WindowConfigurationCallback -> WindowRequestCallback -> STMc NoRetry '[SomeException] (Window b)
+type WindowFactory b =
+  WindowProperties ->
+  WindowCommit ->
+  WindowConfigurationCallback ->
+  WindowRequestCallback ->
+  STMc NoRetry '[SomeException] (Window b)
 
 toWindowFactory :: IsWindowManager b w a => a -> WindowFactory b
-toWindowFactory wm props conf req = toWindow <$> newWindow wm props conf req
+toWindowFactory wm props conf req commit = toWindow <$> newWindow wm props conf req commit
 
 class (Backend b, Disposable a) => IsWindow b a | a -> b where
   toWindow :: a -> Window b

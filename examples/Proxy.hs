@@ -51,7 +51,8 @@ main = runQuasarAndExit do
 
 mapWindowManager :: IsWindowManager (Skia GL) w a => a -> FnWindowManager (Skia GL)
 mapWindowManager upstream = fnWindowManager {
-  newWindowFn = \props cfg req -> fnWindowManager.newWindowFn (mapProperties props) cfg req
+  newWindowFn = \props ic cfg req ->
+    fnWindowManager.newWindowFn (mapProperties props) ic cfg req
 }
   where
     fnWindowManager = toFnWindowManager upstream

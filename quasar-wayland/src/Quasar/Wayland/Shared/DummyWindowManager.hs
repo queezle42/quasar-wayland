@@ -17,7 +17,7 @@ newDummyWindowManager = pure DummyWindowManager
 data DummyWindow b = DummyWindow
 
 instance Backend b => IsWindowManager b (DummyWindow b) (DummyWindowManager b) where
-  newWindow _wm _properties configCallback _requestCallback = do
+  newWindow _wm _properties _commit configCallback _requestCallback = do
     traceM "New window created"
     configCallback defaultWindowConfiguration
     pure DummyWindow

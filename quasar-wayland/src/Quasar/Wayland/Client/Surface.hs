@@ -3,7 +3,7 @@ module Quasar.Wayland.Client.Surface (
   ClientSurfaceManager,
   getClientSurfaceManager,
 
-  ClientSurface,
+  ClientSurface(wlSurface),
   newClientSurface,
   commitClientSurface,
 
@@ -203,9 +203,8 @@ newWlCompositor client = do
 newClientSurface ::
   ClientBufferBackend b =>
   WaylandClient b ->
-  (Object 'Client Interface_wl_surface -> STMc NoRetry '[SomeException] a) ->
-  STMc NoRetry '[SomeException] (ClientSurface b, a)
-newClientSurface client initializeSurfaceRoleFn = do
+  STMc NoRetry '[SomeException] (ClientSurface b)
+newClientSurface client = do
   surfaceManager <- getClientSurfaceManager client
 
   wlSurface <- liftSTMc surfaceManager.wlCompositor.create_surface
@@ -218,7 +217,6 @@ newClientSurface client initializeSurfaceRoleFn = do
     preferred_buffer_scale = \_ -> pure (),
     preferred_buffer_transform = \_ -> pure ()
   }
-  fnResult <- initializeSurfaceRoleFn wlSurface
 
   pendingCommit <- newTVar Nothing
   pendingDisposerFuture <- newTVar mempty
@@ -234,7 +232,7 @@ newClientSurface client initializeSurfaceRoleFn = do
   -- is garbage collected.
   forkSTM_ (clientSurfaceCommitWorker clientSurface) loggingExceptionSink
 
-  pure (clientSurface, fnResult)
+  pure clientSurface
 
 commitClientSurface ::
   ClientSurface b -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ())

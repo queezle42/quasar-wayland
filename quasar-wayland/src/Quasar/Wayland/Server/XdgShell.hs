@@ -124,12 +124,8 @@ data XdgToplevelState w
   | Mapped w
 
 
-
 instance IsWindowManager b w wm => IsSurfaceRole b (XdgToplevel b w wm) where
   commitSurfaceRole xdgToplevel surfaceCommit = do
-    minSize <- readTVar xdgToplevel.minSizeVar
-    maxSize <- readTVar xdgToplevel.minSizeVar
-    geometry <- readTVar xdgToplevel.xdgSurface.geometryVar
     window <- readTVar xdgToplevel.state >>= \case
       Unmapped -> throwC (userError "xdg_surface::error.unconfigured_buffer")
       Created _window -> throwC (userError "xdg_surface::error.unconfigured_buffer")
@@ -138,19 +134,17 @@ instance IsWindowManager b w wm => IsSurfaceRole b (XdgToplevel b w wm) where
         pure window
       Mapped window -> pure window
 
-    let windowCommit = WindowCommit {
-      minSize,
-      maxSize,
-      geometry
-    }
+    windowCommit <- liftSTMc $ readWindowCommit xdgToplevel
     commitWindow window unsafeConfigureSerial windowCommit surfaceCommit
 
   unmapSurfaceRole xdgToplevel = do
     readTVar xdgToplevel.state >>= \case
       Unmapped -> do
+        windowCommit <- liftSTMc $ readWindowCommit xdgToplevel
         window <- newWindow
           xdgToplevel.xdgSurface.xdgWmBase.wm
           xdgToplevel.windowProperties
+          windowCommit
           (sendConfigureEvent xdgToplevel)
           (sendWindowRequest xdgToplevel)
         writeTVar xdgToplevel.state (Created window)
@@ -160,6 +154,17 @@ instance IsWindowManager b w wm => IsSurfaceRole b (XdgToplevel b w wm) where
         disposeEventually_ window
         writeTVar xdgToplevel.state Unmapped
         resetXdgToplevel xdgToplevel
+
+readWindowCommit :: XdgToplevel b w wm -> STMc NoRetry '[] WindowCommit
+readWindowCommit xdgToplevel = do
+  minSize <- readTVar xdgToplevel.minSizeVar
+  maxSize <- readTVar xdgToplevel.minSizeVar
+  geometry <- readTVar xdgToplevel.xdgSurface.geometryVar
+  pure WindowCommit {
+    minSize,
+    maxSize,
+    geometry
+  }
 
 resetXdgToplevel :: XdgToplevel b w wm -> STMc NoRetry '[] ()
 resetXdgToplevel xdgToplevel = do
@@ -171,60 +176,54 @@ initializeXdgToplevel :: forall b w wm. IsWindowManager b w wm => XdgSurface b w
 initializeXdgToplevel xdgSurface wlXdgToplevel = do
   writeTVar xdgSurface.hasRoleObject True
 
-  void $ mfix \window -> do
+  state <- newTVar Unmapped
 
-    state <- newTVar Unmapped
+  titleVar <- newObservableVar ""
+  appIdVar <- newObservableVar ""
 
-    titleVar <- newObservableVar ""
-    appIdVar <- newObservableVar ""
+  maxSizeVar <- newTVar (0, 0)
+  minSizeVar <- newTVar (0, 0)
 
-    maxSizeVar <- newTVar (0, 0)
-    minSizeVar <- newTVar (0, 0)
+  let windowProperties = WindowProperties {
+    title = toObservable titleVar,
+    appId = toObservable appIdVar
+  }
 
-    let windowProperties = WindowProperties {
-      title = toObservable titleVar,
-      appId = toObservable appIdVar
-    }
+  let xdgToplevel = XdgToplevel {
+    state,
+    xdgSurface,
+    wlXdgToplevel,
+    windowProperties,
+    maxSizeVar,
+    minSizeVar
+  }
 
-    let xdgToplevel = XdgToplevel {
-      state,
-      xdgSurface,
-      wlXdgToplevel,
-      windowProperties,
-      maxSizeVar,
-      minSizeVar
-    }
+  -- NOTE this throws if the surface role is changed
+  -- TODO change error type to a correct ServerError if that happens
+  assignSurfaceRole
+    @Interface_xdg_toplevel
+    xdgSurface.serverSurface
+    (toSurfaceRole xdgToplevel)
 
-    -- NOTE this throws if the surface role is changed
-    -- TODO change error type to a correct ServerError if that happens
-    assignSurfaceRole
-      @Interface_xdg_toplevel
-      xdgSurface.serverSurface
-      (toSurfaceRole xdgToplevel)
+  attachFinalizer wlXdgToplevel do
+    destroyXdgToplevel xdgToplevel
 
-    attachFinalizer wlXdgToplevel do
-      void $ disposeEventually window
-
-    setRequestHandler wlXdgToplevel RequestHandler_xdg_toplevel {
-      destroy = liftSTMc $ destroyXdgToplevel xdgToplevel,
-      set_parent = undefined,
-      set_title = writeObservableVar titleVar,
-      set_app_id = writeObservableVar appIdVar,
-      show_window_menu = undefined,
-      move = undefined,
-      resize = undefined,
-      set_max_size = \x y -> writeTVar maxSizeVar (x, y),
-      set_min_size = \x y -> writeTVar minSizeVar (x, y),
-      set_maximized = undefined,
-      unset_maximized = undefined,
-      set_fullscreen = \_ -> liftSTMc $ setFullscreen window True,
-      unset_fullscreen = liftSTMc $ setFullscreen window False,
-      set_minimized = undefined
-    }
-
-    -- `newWindow` might call the configure callback immediately, so the window
-    -- should be created after request handlers are attached.
-    newWindow xdgSurface.xdgWmBase.wm windowProperties (sendConfigureEvent xdgToplevel) (sendWindowRequest xdgToplevel)
+  setRequestHandler wlXdgToplevel RequestHandler_xdg_toplevel {
+    destroy = pure (),
+    set_parent = undefined,
+    set_title = writeObservableVar titleVar,
+    set_app_id = writeObservableVar appIdVar,
+    show_window_menu = undefined,
+    move = undefined,
+    resize = undefined,
+    set_max_size = \x y -> writeTVar maxSizeVar (x, y),
+    set_min_size = \x y -> writeTVar minSizeVar (x, y),
+    set_maximized = undefined,
+    unset_maximized = undefined,
+    set_fullscreen = \_ -> setXdgToplevelFullscreen xdgToplevel True,
+    unset_fullscreen = setXdgToplevelFullscreen xdgToplevel False,
+    set_minimized = undefined
+  }
 
 sendConfigureEvent :: XdgToplevel b w wm -> WindowConfiguration -> STMc NoRetry '[SomeException] ()
 sendConfigureEvent xdgToplevel windowConfiguration = do
@@ -242,7 +241,25 @@ sendWindowRequest xdgToplevel WindowRequestClose = do
 
   xdgToplevel.wlXdgToplevel.close
 
-destroyXdgToplevel :: XdgToplevel b w wm -> STMc NoRetry '[] ()
+destroyXdgToplevel :: Disposable w => XdgToplevel b w wm -> STMc NoRetry '[] ()
 destroyXdgToplevel xdgToplevel = do
+  state <- readTVar xdgToplevel.state
+  mapM_ disposeEventually_ (getWindow state)
+  writeTVar xdgToplevel.state Unmapped
+
   removeSurfaceRole xdgToplevel.xdgSurface.serverSurface
   writeTVar xdgToplevel.xdgSurface.hasRoleObject False
+
+setXdgToplevelFullscreen ::
+  IsWindowManager b w wm =>
+  XdgToplevel b w wm -> Bool -> STMc NoRetry '[SomeException] ()
+setXdgToplevelFullscreen xdgToplevel fullscreen = do
+  state <- readTVar xdgToplevel.state
+  forM_ (getWindow state) (`setFullscreen` fullscreen)
+
+getWindow :: XdgToplevelState w -> Maybe w
+getWindow = \case
+    Unmapped -> Nothing
+    Created window -> Just window
+    Configured window -> Just window
+    Mapped window -> Just window

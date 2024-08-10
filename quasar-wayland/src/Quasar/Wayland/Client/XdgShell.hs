@@ -95,53 +95,49 @@ newClientXdgToplevel ::
   ClientBufferBackend b =>
   ClientWindowManager b ->
   WindowProperties ->
+  WindowCommit ->
   WindowConfigurationCallback ->
   WindowRequestCallback ->
   STMc NoRetry '[SomeException] (ClientXdgToplevel b)
-newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} properties configureCallback requestCallback = do
+newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} properties windowCommit configureCallback requestCallback = do
   nextConfigureSerial <- newTVar Nothing
   configurationAccumulator <- newTVar defaultWindowConfiguration
 
-  (clientSurface, (xdgSurface, xdgToplevel, propertiesDisposer)) <- newClientSurface @b client \wlSurface -> do
+  clientSurface <- newClientSurface @b client
+  let wlSurface = clientSurface.wlSurface
 
-    xdgSurface <- wlXdgWmBase.get_xdg_surface wlSurface
-    setEventHandler xdgSurface EventHandler_xdg_surface {
-      configure = \serial -> do
-        traceM ("configure: " <> show serial)
-        writeTVar nextConfigureSerial (Just serial)
-        configuration <- readTVar configurationAccumulator
-        configureCallback (configuration { configureSerial = unsafeConfigureSerial })
-    }
+  xdgSurface <- wlXdgWmBase.get_xdg_surface wlSurface
+  setEventHandler xdgSurface EventHandler_xdg_surface {
+    configure = \serial -> do
+      traceM ("configure: " <> show serial)
+      writeTVar nextConfigureSerial (Just serial)
+      configuration <- readTVar configurationAccumulator
+      configureCallback (configuration { configureSerial = unsafeConfigureSerial })
+  }
 
-    xdgToplevel <- xdgSurface.get_toplevel
-    setEventHandler xdgToplevel EventHandler_xdg_toplevel {
-      configure = \width height states -> modifyTVar configurationAccumulator \x -> x { width = width, height = height, states = states },
-      close = liftSTMc $ requestCallback WindowRequestClose,
-      configure_bounds = undefined,
-      wm_capabilities = undefined
-    }
+  xdgToplevel <- xdgSurface.get_toplevel
+  setEventHandler xdgToplevel EventHandler_xdg_toplevel {
+    configure = \width height states -> modifyTVar configurationAccumulator \x -> x { width = width, height = height, states = states },
+    close = liftSTMc $ requestCallback WindowRequestClose,
+    configure_bounds = undefined,
+    wm_capabilities = undefined
+  }
 
-    (d1, initialTitle) <- liftSTMc $ attachSimpleObserver properties.title do
-      -- TODO ensure this logs/normalizes invalid titles but does not crash the downstream connection
-      tryCall . xdgToplevel.set_title
+  (d1, initialTitle) <- liftSTMc $ attachSimpleObserver properties.title do
+    -- TODO ensure this logs/normalizes invalid titles but does not crash the downstream connection
+    tryCall . xdgToplevel.set_title
 
-    unless (nullWlString initialTitle) do
-      xdgToplevel.set_title initialTitle
+  unless (nullWlString initialTitle) do
+    xdgToplevel.set_title initialTitle
 
-    (d2, initialAppId) <- liftSTMc $ attachSimpleObserver properties.appId do
-      -- TODO ensure this logs/normalizes invalid app_ids but does not crash the downstream connection
-      tryCall . xdgToplevel.set_app_id
+  (d2, initialAppId) <- liftSTMc $ attachSimpleObserver properties.appId do
+    -- TODO ensure this logs/normalizes invalid app_ids but does not crash the downstream connection
+    tryCall . xdgToplevel.set_app_id
 
-    unless (nullWlString initialAppId) do
-      xdgToplevel.set_app_id initialAppId
+  unless (nullWlString initialAppId) do
+    xdgToplevel.set_app_id initialAppId
 
-    let propertiesDisposer = d1 <> d2
-
-    -- Commit xdg_surface/xdg_toplevel state (this is an xdg_surface quirk).
-    -- This is required to receive the initial configure event.
-    liftSTMc wlSurface.commit
-
-    pure (xdgSurface, xdgToplevel, propertiesDisposer)
+  let propertiesDisposer = d1 <> d2
 
   geometry <- newTVar (0, 0, 0, 0)
   maxSize <- newTVar (0, 0)
@@ -159,6 +155,12 @@ newClientXdgToplevel ClientWindowManager{client, wlXdgWmBase} properties configu
     minSize
   }
 
+  applyWindowCommit state windowCommit
+
+  -- Commit xdg_surface/xdg_toplevel state (this is an xdg_surface quirk).
+  -- This is required to receive the initial configure event.
+  liftSTMc wlSurface.commit
+
   ClientXdgToplevel <$> newTDisposableVar state disposeClientXdgToplevel
 
 commitClientXdgToplevel ::
@@ -173,26 +175,28 @@ commitClientXdgToplevel toplevel@(ClientXdgToplevel var) configureSerial windowC
   tryReadTDisposableVar var >>= \case
     Nothing -> disposeEventually surfaceCommit
     Just state -> do
-
-      let geometry@(x, y, w, h) = windowCommit.geometry
-      lastGeometry <- readTVar state.geometry
-      when (windowCommit.geometry /= lastGeometry) do
-        state.xdgSurface.set_window_geometry x y w h
-        writeTVar state.geometry geometry
-
-      let maxSize@(maxW, maxH) = windowCommit.maxSize
-      lastMaxSize <- readTVar state.maxSize
-      when (windowCommit.maxSize /= lastMaxSize) do
-        state.xdgToplevel.set_max_size maxW maxH
-        writeTVar state.maxSize maxSize
-
-      let minSize@(minW, minH) = windowCommit.minSize
-      lastMinSize <- readTVar state.minSize
-      when (windowCommit.minSize /= lastMinSize) do
-        state.xdgToplevel.set_min_size minW minH
-        writeTVar state.minSize minSize
-
+      applyWindowCommit state windowCommit
       commitClientSurface state.clientSurface surfaceCommit
+
+applyWindowCommit :: ClientXdgToplevelState b -> WindowCommit -> STMc NoRetry '[SomeException] ()
+applyWindowCommit state windowCommit = do
+  let geometry@(x, y, w, h) = windowCommit.geometry
+  lastGeometry <- readTVar state.geometry
+  when (windowCommit.geometry /= lastGeometry) do
+    state.xdgSurface.set_window_geometry x y w h
+    writeTVar state.geometry geometry
+
+  let maxSize@(maxW, maxH) = windowCommit.maxSize
+  lastMaxSize <- readTVar state.maxSize
+  when (windowCommit.maxSize /= lastMaxSize) do
+    state.xdgToplevel.set_max_size maxW maxH
+    writeTVar state.maxSize maxSize
+
+  let minSize@(minW, minH) = windowCommit.minSize
+  lastMinSize <- readTVar state.minSize
+  when (windowCommit.minSize /= lastMinSize) do
+    state.xdgToplevel.set_min_size minW minH
+    writeTVar state.minSize minSize
 
 ackToplevelConfigure :: ClientXdgToplevel b -> ConfigureSerial -> STMc NoRetry '[SomeException] ()
 ackToplevelConfigure toplevel _configureSerial = do

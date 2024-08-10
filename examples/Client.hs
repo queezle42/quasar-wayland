@@ -32,7 +32,7 @@ main = do
 
     window <- atomicallyC do
       windowManager <- getClientWindowManager client
-      newWindow windowManager properties (writeTMVar configurationVar) (\WindowRequestClose -> writeTVar shouldClose True)
+      newWindow windowManager properties defaultWindowCommit (writeTMVar configurationVar) (\WindowRequestClose -> writeTVar shouldClose True)
 
     frameId <- newTVarIO 0
 

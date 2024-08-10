@@ -63,17 +63,18 @@ instance Disposable (WindowMultiplexer b) where
 newWindowMultiplexer ::
   WindowMultiplexerFactory b ->
   WindowProperties ->
+  WindowCommit ->
   WindowConfigurationCallback ->
   WindowRequestCallback ->
   STMc NoRetry '[SomeException] (WindowMultiplexer b)
-newWindowMultiplexer factory@(WindowMultiplexerFactory []) windowProperties configurationCallback requestCallback = undefined
-newWindowMultiplexer factory@(WindowMultiplexerFactory (primaryDownstreamFactory:downstreamFactories)) windowProperties configurationCallback requestCallback  = do
+newWindowMultiplexer factory@(WindowMultiplexerFactory []) windowProperties commit configurationCallback requestCallback = undefined
+newWindowMultiplexer factory@(WindowMultiplexerFactory (primaryDownstreamFactory:downstreamFactories)) windowProperties commit configurationCallback requestCallback = do
   lastConfiguration <- newTVar Nothing
   lastCommit <- newTVar Nothing
   lastCommitLock <- newTVar mempty
-  primaryWindow <- primaryDownstreamFactory windowProperties configurationCallback requestCallback
+  primaryWindow <- primaryDownstreamFactory windowProperties commit configurationCallback requestCallback
   secondaryWindows <- forM downstreamFactories \downstreamFactory -> do
-    downstreamFactory windowProperties (\_ -> pure ()) requestCallback
+    downstreamFactory windowProperties commit (\_ -> pure ()) requestCallback
   downstreams <- newTVar (primaryWindow : secondaryWindows)
   let state = WindowMultiplexerState {
     factory,
@@ -96,6 +97,6 @@ attachDownstreamWindow (WindowMultiplexer var) downstreamWM = do
   tryReadTDisposableVar var >>= \case
     Nothing -> mempty
     Just state -> do
-      window <- newWindow downstreamWM undefined undefined undefined
+      window <- newWindow downstreamWM undefined undefined undefined undefined
       modifyTVar state.downstreams (toWindow window :)
       undefined

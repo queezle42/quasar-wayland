@@ -34,7 +34,7 @@ main = do
 
     window <- atomicallyC do
       windowManager <- getClientWindowManager @ShmBufferBackend client
-      newWindow windowManager properties (writeTMVar configurationVar) \case
+      newWindow windowManager properties defaultWindowCommit (writeTMVar configurationVar) \case
         WindowRequestClose -> writeTVar closeRequestedVar True
 
     forM_ [gradient, red, green, blue, alpha, transparent, gradient, gradient2, gradient3, gradient4] \img -> do
