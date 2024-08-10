@@ -110,8 +110,13 @@ releaseClientBuffer clientBuffer = do
       -- TODO do we need to handle the disposer future?
       disposeEventually_ lockDisposer
       traceM "ClientBuffer: released"
-    Released -> traceM "ClientBuffer: Duplicate release"
-    Destroyed -> traceM "ClientBuffer: Release called but is already destroyed"
+    Released ->
+      -- This should never happen: When a buffer is attached to multiple
+      -- surfaces at the same time, the release event has a race condition.
+      -- Therefore we only attach the buffer to once surface at at time so we
+      -- should never see more than one release event.
+      traceM "ClientBuffer released more than once"
+    Destroyed -> pure ()
 
 destroyClientBuffer :: ClientBuffer b -> STMc NoRetry '[] ()
 destroyClientBuffer clientBuffer = do
