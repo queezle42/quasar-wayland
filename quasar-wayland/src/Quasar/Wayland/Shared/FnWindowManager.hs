@@ -17,7 +17,7 @@ newtype FnWindowManager b = FnWindowManager {
 
 data FnWindow b = FnWindow {
   setFullscreenFn :: Bool -> STMc NoRetry '[SomeException] (),
-  commitWindowFn :: ConfigureSerial -> WindowCommit b -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ()),
+  commitWindowFn :: ConfigureSerial -> WindowCommit -> Owned (SurfaceCommit b) -> STMc NoRetry '[SomeException] (Future '[] ()),
   ackWindowConfigureFn :: ConfigureSerial -> STMc NoRetry '[SomeException] (),
   disposer :: Disposer
 }
